@@ -1,0 +1,22 @@
+package components
+
+templ BottomNav() {
+	<nav id="bottom-nav" class="fixed bottom-0 left-0 right-0 bg-background border-t border-border">
+		<div class="max-w-md mx-auto flex">
+			<button
+				id="nav-form"
+				class="flex-1 py-3 text-center text-sm font-medium text-primary border-t-2 border-primary"
+				onclick="switchView('form')"
+			>
+				📝 記帳
+			</button>
+			<button
+				id="nav-dashboard"
+				class="flex-1 py-3 text-center text-sm font-medium text-muted-foreground border-t-2 border-transparent"
+				onclick="switchView('dashboard')"
+			>
+				📊 Dashboard
+			</button>
+		</div>
+	</nav>
+}

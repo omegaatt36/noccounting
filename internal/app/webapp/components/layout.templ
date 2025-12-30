@@ -1,0 +1,87 @@
+package components
+
+import (
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/skeleton"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/alert"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/tabs"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
+)
+
+templ Page(devMode bool) {
+	<!DOCTYPE html>
+	<html lang="zh-TW" class="dark">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+			<title>旅行記帳</title>
+			<link rel="stylesheet" href="/static/output.css"/>
+			<script src="https://telegram.org/js/telegram-web-app.js"></script>
+			<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+			@tabs.Script()
+			@toast.Script()
+		</head>
+		<body class="font-sans min-h-screen bg-background text-foreground">
+			<div id="loading" class="flex flex-col items-center justify-center min-h-screen">
+				<div class="max-w-md w-full px-4">
+					@card.Card(card.Props{}) {
+						@card.Content(card.ContentProps{}) {
+							@skeleton.Skeleton(skeleton.Props{Class: "h-8 w-48 mx-auto mb-6"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-12 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-12 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-10 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-10 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-14 w-full"})
+						}
+					}
+				</div>
+			</div>
+			<div id="forbidden" class="hidden flex flex-col items-center justify-center min-h-screen">
+				<div class="max-w-md w-full px-4">
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+						@alert.Title() { 存取被拒絕 }
+						@alert.Description() { 你沒有權限使用此應用程式，請聯繫管理員 }
+					}
+				</div>
+			</div>
+			<div id="app" class="hidden max-w-md mx-auto px-4 py-6 pb-20">
+				<!-- Form View (default visible) -->
+				<div id="view-form">
+					@card.Card(card.Props{}) {
+						@card.Content(card.ContentProps{}) {
+							@ExpenseForm()
+						}
+					}
+				</div>
+				<!-- Dashboard View (hidden, loaded via HTMX on first show) -->
+				<div id="view-dashboard" class="hidden">
+					@card.Card(card.Props{}) {
+						@card.Content(card.ContentProps{}) {
+							<h1 class="text-xl font-bold text-center py-1 mb-4">📊 Dashboard</h1>
+							<div id="dashboard-content"
+								hx-get="/partial/dashboard?range=all"
+								hx-trigger="intersect once"
+								hx-swap="innerHTML"
+							>
+								<!-- Loading skeleton -->
+								@skeleton.Skeleton(skeleton.Props{Class: "h-20 w-full mb-4"})
+								@skeleton.Skeleton(skeleton.Props{Class: "h-32 w-full mb-4"})
+								@skeleton.Skeleton(skeleton.Props{Class: "h-24 w-full"})
+							</div>
+						}
+					}
+				</div>
+				<div id="result" class="fixed top-4 left-4 right-4 z-50"></div>
+				@BottomNav()
+			</div>
+			@initScript(devMode)
+		</body>
+	</html>
+}
+
+templ initScript(devMode bool) {
+	if devMode {
+		<div id="dev-mode-flag" data-enabled="true" style="display:none;"></div>
+	}
+	<script type="module" src="/static/app.js"></script>
+}

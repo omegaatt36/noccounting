@@ -1,0 +1,130 @@
+{{- if .Values.bot.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "noccounting.fullname" . }}-bot
+  labels:
+    {{- include "noccounting.labels" . | nindent 4 }}
+    {{- include "noccounting.bot.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.bot.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "noccounting.bot.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "noccounting.bot.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: bot
+        image: "{{ .Values.bot.image.repository }}:{{ .Values.bot.image.tag }}"
+        imagePullPolicy: Always
+        env:
+        - name: TELEGRAM_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: TELEGRAM_BOT_TOKEN
+        - name: NOTION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: NOTION_TOKEN
+        - name: NOTION_DATABASE_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: NOTION_DATABASE_ID
+        - name: USER_MAPPING
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: USER_MAPPING
+        - name: WEBAPP_URL
+          value: {{ include "noccounting.webappURL" . | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.bot.logLevel | quote }}
+        - name: LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: llm-api-key
+        - name: LLM_BASE_URL
+          value: {{ .Values.config.llmBaseUrl | quote }}
+        - name: LLM_MODEL
+          value: {{ .Values.config.llmModel | quote }}
+        {{- if .Values.bot.resources }}
+        resources:
+          {{- toYaml .Values.bot.resources | nindent 10 }}
+        {{- end }}
+{{- end }}
+---
+{{- if .Values.webapp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "noccounting.fullname" . }}-webapp
+  labels:
+    {{- include "noccounting.labels" . | nindent 4 }}
+    {{- include "noccounting.webapp.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.webapp.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "noccounting.webapp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "noccounting.webapp.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: webapp
+        image: "{{ .Values.webapp.image.repository }}:{{ .Values.webapp.image.tag }}"
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: {{ .Values.webapp.service.targetPort }}
+          protocol: TCP
+        env:
+        - name: PORT
+          value: {{ .Values.webapp.service.targetPort | quote }}
+        - name: TELEGRAM_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: TELEGRAM_BOT_TOKEN
+        - name: NOTION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: NOTION_TOKEN
+        - name: NOTION_DATABASE_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: NOTION_DATABASE_ID
+        - name: USER_MAPPING
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "noccounting.secretName" . }}
+              key: USER_MAPPING
+        - name: LOG_LEVEL
+          value: {{ .Values.webapp.logLevel | quote }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        {{- if .Values.webapp.resources }}
+        resources:
+          {{- toYaml .Values.webapp.resources | nindent 10 }}
+        {{- end }}
+{{- end }}

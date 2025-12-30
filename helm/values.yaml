@@ -1,0 +1,56 @@
+# Bot configuration
+bot:
+  enabled: true
+  image:
+    repository: omegaatt36/noccounting-bot
+    tag: latest
+  replicaCount: 1
+  logLevel: DEBUG
+  resources:
+    requests:
+      cpu: 50m
+      memory: 50Mi
+# Web App configuration
+webapp:
+  enabled: true
+  image:
+    repository: omegaatt36/noccounting-web
+    tag: latest
+  replicaCount: 1
+  logLevel: DEBUG
+  resources:
+    requests:
+      cpu: 50m
+      memory: 50Mi
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+
+ingress:
+  enabled: true
+  class: "nginx"
+  annotations: {}
+  hostname: example.com
+  path: /
+  tls: []
+
+# Shared configuration (from secrets)
+# These should be provided via --set or external secrets
+config:
+  # Telegram Bot Token
+  telegramBotToken: ""
+  # Notion Integration Token
+  notionToken: ""
+  # Notion Database ID
+  notionDatabaseID: ""
+  # User Mapping (telegram_id:notion_id,...)
+  userMapping: ""
+  # LLM Configuration
+  llmApiKey: ""
+  llmBaseUrl: ""
+  llmModel: ""
+
+# External secret name (if using external-secrets or sealed-secrets)
+# If set, will use this secret instead of creating one from config values
+existingSecret: ""

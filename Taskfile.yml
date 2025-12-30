@@ -1,0 +1,38 @@
+version: "3"
+
+tasks:
+  ts:
+    desc: Compile TypeScript with tsgo
+    cmds:
+      - tsgo -p web/ts/tsconfig.json
+
+  generate:
+    cmds:
+      - go generate ./...
+      - templ generate
+      - task ts
+      - tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
+
+  css:
+    desc: Build CSS only
+    cmds:
+      - tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
+
+  css:watch:
+    desc: Watch CSS for changes
+    cmds:
+      - tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --watch
+
+  test:
+    cmds:
+      - go test ./... -race -v
+
+  build:
+    deps: [generate]
+    cmds:
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/bot ./cmd/bot
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/webapp ./cmd/webapp
+
+  lint:
+    cmds:
+      - go vet ./...

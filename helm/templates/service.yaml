@@ -1,0 +1,18 @@
+{{- if .Values.webapp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "noccounting.fullname" . }}-webapp
+  labels:
+    {{- include "noccounting.labels" . | nindent 4 }}
+    {{- include "noccounting.webapp.selectorLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.webapp.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.webapp.service.port }}
+      targetPort: {{ .Values.webapp.service.targetPort }}
+      protocol: TCP
+  selector:
+    {{- include "noccounting.webapp.selectorLabels" . | nindent 4 }}
+{{- end }}

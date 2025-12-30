@@ -1,0 +1,52 @@
+package components
+
+import (
+	"fmt"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
+)
+
+templ Result(success bool, name string, price uint64, currency string, categoryEmoji string, twdAmount string, errorMsg string) {
+	if success {
+		@toast.Toast(toast.Props{
+			Title:       fmt.Sprintf("%s %s", categoryEmoji, name),
+			Description: formatPriceDescription(price, currency, twdAmount),
+			Variant:     toast.VariantSuccess,
+			Position:    toast.PositionTopCenter,
+			Duration:    3000,
+			Dismissible: true,
+		})
+	} else {
+		@toast.Toast(toast.Props{
+			Title:       "⚠️ 新增失敗",
+			Description: errorOrDefault(errorMsg),
+			Variant:     toast.VariantError,
+			Position:    toast.PositionTopCenter,
+			Duration:    5000,
+			Dismissible: true,
+		})
+	}
+	<!-- Keep for JS haptic feedback detection -->
+	<div
+		id="toast-trigger"
+		if success {
+			data-success="true"
+		} else {
+			data-success="false"
+		}
+		style="display:none;"
+	></div>
+}
+
+func formatPriceDescription(price uint64, currency string, twdAmount string) string {
+	if currency == "JPY" && twdAmount != "" {
+		return fmt.Sprintf("¥%d (≈ NT$%s)", price, twdAmount)
+	}
+	return fmt.Sprintf("%s %d", currency, price)
+}
+
+func errorOrDefault(msg string) string {
+	if msg == "" {
+		return "發生未知錯誤"
+	}
+	return msg
+}
