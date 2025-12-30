@@ -1,0 +1,9 @@
+apiVersion: v2
+name: noccounting
+description: A Helm chart for Noccounting - Travel expense tracker with Telegram Bot and Mini App
+
+type: application
+
+version: 0.1.0
+
+appVersion: "latest"

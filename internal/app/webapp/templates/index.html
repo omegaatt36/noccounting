@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="zh-TW">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+        <title>旅行記帳</title>
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+        <style>
+            :root {
+                --tg-theme-bg-color: #ffffff;
+                --tg-theme-text-color: #000000;
+                --tg-theme-hint-color: #999999;
+                --tg-theme-link-color: #2678b6;
+                --tg-theme-button-color: #50a8eb;
+                --tg-theme-button-text-color: #ffffff;
+                --tg-theme-secondary-bg-color: #f0f0f0;
+                --tg-theme-destructive-text-color: #ff3b30;
+            }
+
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                background-color: var(--tg-theme-bg-color);
+                color: var(--tg-theme-text-color);
+                padding: 16px;
+                min-height: 100vh;
+            }
+
+            h1 {
+                font-size: 24px;
+                margin-bottom: 20px;
+                text-align: center;
+            }
+
+            .form-group {
+                margin-bottom: 16px;
+            }
+
+            label {
+                display: block;
+                font-size: 14px;
+                color: var(--tg-theme-hint-color);
+                margin-bottom: 6px;
+            }
+
+            input[type="text"],
+            input[type="number"],
+            input[type="date"],
+            select {
+                width: 100%;
+                padding: 12px;
+                font-size: 16px;
+                border: 1px solid var(--tg-theme-hint-color);
+                border-radius: 8px;
+                background-color: var(--tg-theme-secondary-bg-color);
+                color: var(--tg-theme-text-color);
+            }
+
+            input:focus,
+            select:focus {
+                outline: none;
+                border-color: var(--tg-theme-button-color);
+            }
+
+            .button-group {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .btn-option {
+                flex: 1;
+                min-width: calc(50% - 4px);
+                padding: 12px 8px;
+                font-size: 14px;
+                border: 2px solid var(--tg-theme-hint-color);
+                border-radius: 8px;
+                background-color: var(--tg-theme-secondary-bg-color);
+                color: var(--tg-theme-text-color);
+                cursor: pointer;
+                transition: all 0.2s;
+                text-align: center;
+            }
+
+            .btn-option:hover {
+                border-color: var(--tg-theme-button-color);
+            }
+
+            .btn-option:focus-visible {
+                outline: 2px solid var(--tg-theme-button-color);
+                outline-offset: 2px;
+            }
+
+            .btn-option.selected {
+                border-color: var(--tg-theme-button-color);
+                background-color: var(--tg-theme-button-color);
+                color: var(--tg-theme-button-text-color);
+            }
+
+            .btn-option input {
+                display: none;
+            }
+
+            .submit-btn {
+                width: 100%;
+                padding: 14px;
+                font-size: 16px;
+                font-weight: 600;
+                border: none;
+                border-radius: 8px;
+                background-color: var(--tg-theme-button-color);
+                color: var(--tg-theme-button-text-color);
+                cursor: pointer;
+                margin-top: 20px;
+            }
+
+            .submit-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .message {
+                padding: 12px;
+                border-radius: 8px;
+                margin-bottom: 16px;
+                text-align: center;
+                animation: fadeIn 0.3s ease-in-out;
+            }
+
+            .message.success {
+                background-color: #d4edda;
+                color: #155724;
+                animation:
+                    fadeIn 0.3s ease-in-out,
+                    fadeOut 0.5s ease-in-out 4.5s forwards;
+            }
+
+            .message.error {
+                background-color: #f8d7da;
+                color: #721c24;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+
+            @keyframes fadeOut {
+                from {
+                    opacity: 1;
+                }
+                to {
+                    opacity: 0;
+                    visibility: hidden;
+                }
+            }
+
+            .category-grid {
+                display: grid;
+                grid-template-columns: repeat(5, 1fr);
+                gap: 8px;
+            }
+
+            .category-grid .btn-option {
+                min-width: auto;
+                padding: 12px 4px;
+                min-height: 44px;
+            }
+
+            @media (max-width: 360px) {
+                .category-grid {
+                    grid-template-columns: repeat(3, 1fr);
+                }
+            }
+
+            #result {
+                margin-top: 16px;
+            }
+
+            .exchange-rate-group {
+                display: none;
+            }
+
+            .exchange-rate-group.visible {
+                display: block;
+            }
+
+            /* 403 Forbidden Page */
+            .forbidden-container {
+                display: none;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 80vh;
+                text-align: center;
+            }
+
+            .forbidden-container.visible {
+                display: flex;
+            }
+
+            .forbidden-icon {
+                font-size: 64px;
+                margin-bottom: 20px;
+            }
+
+            .forbidden-title {
+                font-size: 24px;
+                font-weight: bold;
+                margin-bottom: 12px;
+                color: var(--tg-theme-destructive-text-color);
+            }
+
+            .forbidden-message {
+                font-size: 16px;
+                color: var(--tg-theme-hint-color);
+            }
+
+            .main-content {
+                display: none;
+            }
+
+            .main-content.visible {
+                display: block;
+            }
+
+            .loading-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                min-height: 80vh;
+            }
+
+            .loading-container.hidden {
+                display: none;
+            }
+
+            .loading-spinner {
+                width: 40px;
+                height: 40px;
+                border: 4px solid var(--tg-theme-secondary-bg-color);
+                border-top-color: var(--tg-theme-button-color);
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+
+            @keyframes spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            .inline-group {
+                display: flex;
+                gap: 12px;
+            }
+
+            .inline-group > div {
+                flex: 1;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Loading State -->
+        <div id="loading" class="loading-container">
+            <div class="loading-spinner"></div>
+            <p style="margin-top: 16px; color: var(--tg-theme-hint-color)">驗證中...</p>
+        </div>
+
+        <!-- 403 Forbidden -->
+        <div id="forbidden" class="forbidden-container">
+            <div class="forbidden-icon">🚫</div>
+            <div class="forbidden-title">存取被拒絕</div>
+            <div class="forbidden-message">你沒有權限使用此應用程式<br />請聯繫管理員</div>
+        </div>
+
+        <!-- Main Content -->
+        <div id="main" class="main-content">
+            <h1>📝 新增消費</h1>
+
+            <div id="result"></div>
+
+            <form hx-post="/api/expense" hx-target="#result" hx-swap="innerHTML" hx-on::after-request="if(event.detail.successful) { this.reset(); initFormDefaults(); updateSelection(); }">
+                <input type="hidden" id="init_data" name="init_data" value="" />
+
+                <div class="form-group">
+                    <label for="name">消費名稱</label>
+                    <input type="text" id="name" name="name" placeholder="例：拉麵" required />
+                </div>
+
+                <div class="inline-group">
+                    <div class="form-group">
+                        <label for="price">金額</label>
+                        <input type="number" id="price" name="price" placeholder="1200" min="1" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="shopped_at">消費日期</label>
+                        <input type="date" id="shopped_at" name="shopped_at" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>幣別</label>
+                    <div class="button-group" id="currency-group">
+                        <label class="btn-option selected">
+                            <input type="radio" name="currency" value="JPY" checked />
+                            🇯🇵 JPY
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="currency" value="TWD" />
+                            🇹🇼 TWD
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group exchange-rate-group" id="exchange-rate-group">
+                    <label for="exchange_rate">匯率 (JPY → TWD)</label>
+                    <input type="number" id="exchange_rate" name="exchange_rate" step="0.001" min="0.001" placeholder="0.205" value="0.205" />
+                </div>
+
+                <div class="form-group">
+                    <label>分類</label>
+                    <div class="button-group category-grid">
+                        <label class="btn-option selected">
+                            <input type="radio" name="category" value="食" checked />
+                            🍜 食
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="category" value="衣" />
+                            👕 衣
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="category" value="住" />
+                            🏠 住
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="category" value="行" />
+                            🚃 行
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="category" value="樂" />
+                            🎮 樂
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>付款方式</label>
+                    <div class="button-group">
+                        <label class="btn-option selected">
+                            <input type="radio" name="method" value="cash" checked />
+                            💵 現金
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="method" value="credit_card" />
+                            💳 信用卡
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="method" value="ic_card" />
+                            🎫 IC卡
+                        </label>
+                        <label class="btn-option">
+                            <input type="radio" name="method" value="paypay" />
+                            📱 PayPay
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="paid_by">付款人</label>
+                    <select id="paid_by" name="paid_by">
+                        <!-- Populated by JavaScript -->
+                    </select>
+                </div>
+
+                <button type="submit" class="submit-btn" hx-disabled-elt="this">✅ 新增消費</button>
+            </form>
+        </div>
+
+        <script>
+            // Initialize Telegram WebApp
+            const tg = window.Telegram.WebApp;
+            tg.ready();
+            tg.expand();
+
+            // Apply Telegram theme
+            const applyTheme = () => {
+                document.documentElement.style.setProperty("--tg-theme-bg-color", tg.themeParams.bg_color || "#ffffff");
+                document.documentElement.style.setProperty("--tg-theme-text-color", tg.themeParams.text_color || "#000000");
+                document.documentElement.style.setProperty("--tg-theme-hint-color", tg.themeParams.hint_color || "#999999");
+                document.documentElement.style.setProperty("--tg-theme-link-color", tg.themeParams.link_color || "#2678b6");
+                document.documentElement.style.setProperty("--tg-theme-button-color", tg.themeParams.button_color || "#50a8eb");
+                document.documentElement.style.setProperty("--tg-theme-button-text-color", tg.themeParams.button_text_color || "#ffffff");
+                document.documentElement.style.setProperty("--tg-theme-secondary-bg-color", tg.themeParams.secondary_bg_color || "#f0f0f0");
+                document.documentElement.style.setProperty("--tg-theme-destructive-text-color", tg.themeParams.destructive_text_color || "#ff3b30");
+            };
+            applyTheme();
+
+            let currentUserId = null;
+            let initData = tg.initData || "";
+
+            // Get telegram user ID for UI purposes
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                currentUserId = tg.initDataUnsafe.user.id;
+            }
+
+            // Set initData for form submission
+            document.getElementById("init_data").value = initData;
+
+            // Show/hide elements
+            const showLoading = () => {
+                document.getElementById("loading").classList.remove("hidden");
+                document.getElementById("forbidden").classList.remove("visible");
+                document.getElementById("main").classList.remove("visible");
+            };
+
+            const showForbidden = () => {
+                document.getElementById("loading").classList.add("hidden");
+                document.getElementById("forbidden").classList.add("visible");
+                document.getElementById("main").classList.remove("visible");
+            };
+
+            const showMain = () => {
+                document.getElementById("loading").classList.add("hidden");
+                document.getElementById("forbidden").classList.remove("visible");
+                document.getElementById("main").classList.add("visible");
+            };
+
+            // Authenticate user
+            const authenticate = async () => {
+                if (!initData) {
+                    showForbidden();
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/auth?init_data=${encodeURIComponent(initData)}`);
+                    const data = await response.json();
+
+                    if (!data.authorized) {
+                        showForbidden();
+                        return;
+                    }
+
+                    // Load users and show main content
+                    await loadUsers();
+                    showMain();
+                } catch (error) {
+                    console.error("Auth error:", error);
+                    showForbidden();
+                }
+            };
+
+            // Load users for the paid_by dropdown
+            const loadUsers = async () => {
+                try {
+                    const response = await fetch(`/api/users?init_data=${encodeURIComponent(initData)}`);
+                    const data = await response.json();
+
+                    const select = document.getElementById("paid_by");
+                    select.innerHTML = "";
+
+                    data.users.forEach((user) => {
+                        const option = document.createElement("option");
+                        option.value = user.telegram_id;
+                        option.textContent = user.nickname;
+                        if (user.telegram_id === currentUserId) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                } catch (error) {
+                    console.error("Failed to load users:", error);
+                }
+            };
+
+            // Initialize form defaults
+            const initFormDefaults = () => {
+                // Set today's date
+                const today = new Date().toISOString().split("T")[0];
+                document.getElementById("shopped_at").value = today;
+
+                // Set default paid_by to current user
+                const paidBySelect = document.getElementById("paid_by");
+                for (let option of paidBySelect.options) {
+                    if (parseInt(option.value) === currentUserId) {
+                        option.selected = true;
+                        break;
+                    }
+                }
+
+                // Show/hide exchange rate based on currency
+                updateExchangeRateVisibility();
+            };
+
+            // Handle currency change for exchange rate visibility
+            const updateExchangeRateVisibility = () => {
+                const currencyInputs = document.querySelectorAll('input[name="currency"]');
+                const exchangeRateGroup = document.getElementById("exchange-rate-group");
+
+                currencyInputs.forEach((input) => {
+                    if (input.checked && input.value === "JPY") {
+                        exchangeRateGroup.classList.add("visible");
+                    } else if (input.checked) {
+                        exchangeRateGroup.classList.remove("visible");
+                    }
+                });
+            };
+
+            // Handle button selection UI
+            const updateSelection = () => {
+                document.querySelectorAll(".button-group").forEach((group) => {
+                    group.querySelectorAll(".btn-option").forEach((btn) => {
+                        const input = btn.querySelector("input");
+                        if (input && input.checked) {
+                            btn.classList.add("selected");
+                        } else {
+                            btn.classList.remove("selected");
+                        }
+                    });
+                });
+                updateExchangeRateVisibility();
+            };
+
+            document.querySelectorAll(".btn-option").forEach((btn) => {
+                btn.addEventListener("click", function () {
+                    const input = this.querySelector("input");
+                    if (input) {
+                        input.checked = true;
+                        updateSelection();
+                    }
+                });
+            });
+
+            // Currency change listener
+            document.querySelectorAll('input[name="currency"]').forEach((input) => {
+                input.addEventListener("change", updateExchangeRateVisibility);
+            });
+
+            // Initialize
+            showLoading();
+            authenticate().then(() => {
+                initFormDefaults();
+                updateSelection();
+            });
+        </script>
+    </body>
+</html>

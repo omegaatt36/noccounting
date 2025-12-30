@@ -1,0 +1,24 @@
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# Install ca-certificates for HTTPS requests
+RUN apk add --no-cache ca-certificates
+
+# Download dependencies first (for better caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bot ./cmd/bot
+
+# Final stage
+FROM scratch
+
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /bot /bot
+
+ENTRYPOINT ["/bot"]

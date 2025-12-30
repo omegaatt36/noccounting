@@ -1,0 +1,9 @@
+{{if .Success}}
+<div class="message success">
+    ✅ 已新增：{{.Name}} {{.Price}} {{.Currency}}
+</div>
+{{else}}
+<div class="message error">
+    ❌ {{.Error}}
+</div>
+{{end}}
