@@ -5,8 +5,11 @@ bot:
     repository: omegaatt36/noccounting-bot
     tag: latest
   replicaCount: 1
-  resources: {}
-
+  logLevel: DEBUG
+  resources:
+    requests:
+      cpu: 50m
+      memory: 50Mi
 # Web App configuration
 webapp:
   enabled: true
@@ -14,13 +17,16 @@ webapp:
     repository: omegaatt36/noccounting-web
     tag: latest
   replicaCount: 1
-  resources: {}
+  logLevel: DEBUG
+  resources:
+    requests:
+      cpu: 50m
+      memory: 50Mi
   service:
     type: ClusterIP
     port: 8080
     targetPort: 8080
 
-# Ingress configuration (for webapp)
 ingress:
   enabled: true
   class: "nginx"

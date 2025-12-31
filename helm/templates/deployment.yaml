@@ -43,6 +43,8 @@ spec:
               key: USER_MAPPING
         - name: WEBAPP_URL
           value: {{ include "noccounting.webappURL" . | quote }}
+        - name: LOG_LEVEL
+          value: {{ .Values.bot.logLevel | quote }}
         {{- if .Values.bot.resources }}
         resources:
           {{- toYaml .Values.bot.resources | nindent 10 }}
@@ -98,6 +100,8 @@ spec:
             secretKeyRef:
               name: {{ include "noccounting.secretName" . }}
               key: USER_MAPPING
+        - name: LOG_LEVEL
+          value: {{ .Values.webapp.logLevel | quote }}
         livenessProbe:
           httpGet:
             path: /health

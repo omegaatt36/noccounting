@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -19,11 +21,26 @@ type config struct {
 	notionDatabaseID string
 	userMapping      string
 	webAppURL        string
+	logLevel         string
 }
 
 var cfg = config{}
 
+func initLog() {
+	logLevel := slog.LevelDebug
+	if lvlStr := cfg.logLevel; lvlStr != "" {
+		var level slog.Level
+		if err := level.UnmarshalText([]byte(lvlStr)); err == nil {
+			logLevel = level
+		}
+	}
+
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
+}
+
 func wrapMain(ctx context.Context, _ *cli.Command) error {
+	initLog()
+
 	userRepo := userrepo.NewRepo(cfg.userMapping)
 
 	userService := user.NewService(userRepo)
@@ -80,6 +97,13 @@ func main() {
 				Usage:       "URL of the Mini App (for bot menu button)",
 				Sources:     cli.EnvVars("WEBAPP_URL"),
 				Destination: &cfg.webAppURL,
+			},
+			&cli.StringFlag{
+				Name:        "log-level",
+				Usage:       "Log level",
+				Sources:     cli.EnvVars("LOG_LEVEL"),
+				Destination: &cfg.logLevel,
+				Value:       "debug",
 			},
 		},
 	}
