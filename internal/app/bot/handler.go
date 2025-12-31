@@ -188,15 +188,5 @@ func (h *Handler) handleSummary(c tele.Context) error {
 	sb.WriteString(fmt.Sprintf("📝 總筆數: %d\n", summary.ItemCount))
 	sb.WriteString(fmt.Sprintf("💰 總金額: %s TWD\n\n", summary.GrandTotal.StringFixed(0)))
 
-	sb.WriteString("👥 各人支出:\n")
-	for userID, total := range summary.TotalByPayer {
-		// Show abbreviated user ID for privacy
-		shortID := userID
-		if len(userID) > 8 {
-			shortID = userID[:8] + "..."
-		}
-		sb.WriteString(fmt.Sprintf("  • %s: %s TWD\n", shortID, total.StringFixed(0)))
-	}
-
 	return c.Send(sb.String())
 }

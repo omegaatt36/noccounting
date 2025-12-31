@@ -271,6 +271,50 @@
             .inline-group > div {
                 flex: 1;
             }
+
+            .exchange-rate-input-group {
+                display: flex;
+                gap: 8px;
+            }
+
+            .exchange-rate-input-group input {
+                flex: 1;
+            }
+
+            .fetch-rate-btn {
+                padding: 12px 16px;
+                font-size: 16px;
+                border: 1px solid var(--tg-theme-hint-color);
+                border-radius: 8px;
+                background-color: var(--tg-theme-secondary-bg-color);
+                color: var(--tg-theme-text-color);
+                cursor: pointer;
+                transition: all 0.2s;
+                min-width: 50px;
+            }
+
+            .fetch-rate-btn:hover {
+                border-color: var(--tg-theme-button-color);
+                background-color: var(--tg-theme-button-color);
+                color: var(--tg-theme-button-text-color);
+            }
+
+            .fetch-rate-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+
+            .submit-btn .btn-loading {
+                display: none;
+            }
+
+            .submit-btn.loading .btn-text {
+                display: none;
+            }
+
+            .submit-btn.loading .btn-loading {
+                display: inline;
+            }
         </style>
     </head>
     <body>
@@ -329,7 +373,13 @@
 
                 <div class="form-group exchange-rate-group" id="exchange-rate-group">
                     <label for="exchange_rate">匯率 (JPY → TWD)</label>
-                    <input type="number" id="exchange_rate" name="exchange_rate" step="0.001" min="0.001" placeholder="0.205" value="0.205" />
+                    <div class="exchange-rate-input-group">
+                        <input type="number" id="exchange_rate" name="exchange_rate" step="0.001" min="0.001" placeholder="0.205" value="0.205" />
+                        <button type="button" id="fetch-rate-btn" class="fetch-rate-btn" title="自動取得今日匯率">
+                            <span class="fetch-rate-text">🔄</span>
+                            <span class="fetch-rate-loading" style="display: none">⏳</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -359,25 +409,13 @@
                 </div>
 
                 <div class="form-group">
-                    <label>付款方式</label>
-                    <div class="button-group">
-                        <label class="btn-option selected">
-                            <input type="radio" name="method" value="cash" checked />
-                            💵 現金
-                        </label>
-                        <label class="btn-option">
-                            <input type="radio" name="method" value="credit_card" />
-                            💳 信用卡
-                        </label>
-                        <label class="btn-option">
-                            <input type="radio" name="method" value="ic_card" />
-                            🎫 IC卡
-                        </label>
-                        <label class="btn-option">
-                            <input type="radio" name="method" value="paypay" />
-                            📱 PayPay
-                        </label>
-                    </div>
+                    <label for="method">付款方式</label>
+                    <select id="method" name="method">
+                        <option value="cash" selected>💵 現金</option>
+                        <option value="credit_card">💳 信用卡</option>
+                        <option value="ic_card">🎫 IC卡</option>
+                        <option value="paypay">📱 PayPay</option>
+                    </select>
                 </div>
 
                 <div class="form-group">
@@ -387,7 +425,10 @@
                     </select>
                 </div>
 
-                <button type="submit" class="submit-btn" hx-disabled-elt="this">✅ 新增消費</button>
+                <button type="submit" class="submit-btn" id="submit-btn">
+                    <span class="btn-text">✅ 新增消費</span>
+                    <span class="btn-loading">⏳ 處理中...</span>
+                </button>
             </form>
         </div>
 
@@ -477,8 +518,9 @@
                     data.users.forEach((user) => {
                         const option = document.createElement("option");
                         option.value = user.telegram_id;
-                        option.textContent = user.nickname;
-                        if (user.telegram_id === currentUserId) {
+                        const isCurrentUser = user.telegram_id === currentUserId;
+                        option.textContent = isCurrentUser ? `${user.nickname} (本人)` : user.nickname;
+                        if (isCurrentUser) {
                             option.selected = true;
                         }
                         select.appendChild(option);
@@ -549,6 +591,56 @@
             // Currency change listener
             document.querySelectorAll('input[name="currency"]').forEach((input) => {
                 input.addEventListener("change", updateExchangeRateVisibility);
+            });
+
+            const fetchExchangeRate = async () => {
+                const btn = document.getElementById("fetch-rate-btn");
+                const textSpan = btn.querySelector(".fetch-rate-text");
+                const loadingSpan = btn.querySelector(".fetch-rate-loading");
+                const input = document.getElementById("exchange_rate");
+
+                btn.disabled = true;
+                textSpan.style.display = "none";
+                loadingSpan.style.display = "inline";
+
+                try {
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    const startDate = yesterday.toISOString().split("T")[0];
+
+                    const response = await fetch(`https://api.finmindtrade.com/api/v4/data?dataset=TaiwanExchangeRate&streaming_all_data=false&zip_enabled=false&data_id=JPY&start_date=${startDate}&must_need_date=false`);
+                    const data = await response.json();
+
+                    if (data.status === 200 && data.data && data.data.length > 0) {
+                        const latestRate = data.data[data.data.length - 1];
+                        input.value = latestRate.cash_sell;
+                    } else {
+                        alert("無法取得匯率資料");
+                    }
+                } catch (error) {
+                    console.error("Failed to fetch exchange rate:", error);
+                    alert("取得匯率失敗，請稍後再試");
+                } finally {
+                    // Hide loading state
+                    btn.disabled = false;
+                    textSpan.style.display = "inline";
+                    loadingSpan.style.display = "none";
+                }
+            };
+
+            document.getElementById("fetch-rate-btn").addEventListener("click", fetchExchangeRate);
+
+            const form = document.querySelector("form");
+            const submitBtn = document.getElementById("submit-btn");
+
+            form.addEventListener("htmx:beforeRequest", () => {
+                submitBtn.classList.add("loading");
+                submitBtn.disabled = true;
+            });
+
+            form.addEventListener("htmx:afterRequest", () => {
+                submitBtn.classList.remove("loading");
+                submitBtn.disabled = false;
             });
 
             // Initialize
