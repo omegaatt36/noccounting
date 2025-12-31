@@ -215,6 +215,189 @@ func (c *Client) GetExpenseSummary(ctx context.Context) (*domain.ExpenseSummary,
 	return summary, nil
 }
 
+// QueryExpensesWithFilter queries expenses with the given filter.
+func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter domain.ExpenseFilter) ([]domain.Expense, error) {
+	var allExpenses []domain.Expense
+	var startCursor *string
+
+	// Build filter conditions for Notion API
+	var filterConditions []map[string]any
+
+	if filter.DateFrom != nil {
+		filterConditions = append(filterConditions, map[string]any{
+			"property": "shopped_at",
+			"date": map[string]any{
+				"on_or_after": filter.DateFrom.Format("2006-01-02"),
+			},
+		})
+	}
+
+	if filter.DateTo != nil {
+		filterConditions = append(filterConditions, map[string]any{
+			"property": "shopped_at",
+			"date": map[string]any{
+				"on_or_before": filter.DateTo.Format("2006-01-02"),
+			},
+		})
+	}
+
+	if filter.PaidByID != nil {
+		filterConditions = append(filterConditions, map[string]any{
+			"property": "paid_by",
+			"people": map[string]any{
+				"contains": *filter.PaidByID,
+			},
+		})
+	}
+
+	for {
+		reqBody := map[string]any{
+			"page_size": 100,
+		}
+
+		// Apply filter if conditions exist
+		if len(filterConditions) > 0 {
+			if len(filterConditions) == 1 {
+				reqBody["filter"] = filterConditions[0]
+			} else {
+				reqBody["filter"] = map[string]any{
+					"and": filterConditions,
+				}
+			}
+		}
+
+		// Sort by shopped_at descending (newest first)
+		reqBody["sorts"] = []map[string]any{
+			{
+				"property":  "shopped_at",
+				"direction": "descending",
+			},
+		}
+
+		if startCursor != nil {
+			reqBody["start_cursor"] = *startCursor
+		}
+
+		respBody, err := c.doRequest(ctx, http.MethodPost, "/databases/"+c.databaseID+"/query", reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query expenses: %w", err)
+		}
+
+		var result queryResponse
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		for _, page := range result.Results {
+			expense, err := parseExpenseFromPage(page)
+			if err != nil {
+				continue
+			}
+			allExpenses = append(allExpenses, expense)
+
+			// Check limit
+			if filter.Limit != nil && len(allExpenses) >= *filter.Limit {
+				return allExpenses, nil
+			}
+		}
+
+		if !result.HasMore {
+			break
+		}
+		startCursor = result.NextCursor
+	}
+
+	return allExpenses, nil
+}
+
+// UpdateExpense updates an existing expense record.
+func (c *Client) UpdateExpense(ctx context.Context, expense *domain.Expense) error {
+	if expense.ID == "" {
+		return fmt.Errorf("expense ID is required for update")
+	}
+
+	properties := map[string]any{
+		"name": map[string]any{
+			"title": []map[string]any{
+				{
+					"text": map[string]any{
+						"content": expense.Name,
+					},
+				},
+			},
+		},
+		"price": map[string]any{
+			"number": expense.Price,
+		},
+		"currency": map[string]any{
+			"select": map[string]any{
+				"name": string(expense.Currency),
+			},
+		},
+		"category": map[string]any{
+			"select": map[string]any{
+				"name": string(expense.Category),
+			},
+		},
+		"method": map[string]any{
+			"select": map[string]any{
+				"name": string(expense.Method),
+			},
+		},
+		"shopped_at": map[string]any{
+			"date": map[string]any{
+				"start": expense.ShoppedAt.Format("2006-01-02"),
+			},
+		},
+	}
+
+	if expense.PaidByID != "" {
+		properties["paid_by"] = map[string]any{
+			"people": []map[string]any{
+				{
+					"id": expense.PaidByID,
+				},
+			},
+		}
+	}
+
+	if !expense.ExchangeRate.IsZero() {
+		exRateFloat, _ := expense.ExchangeRate.Float64()
+		properties["ex_rate"] = map[string]any{
+			"number": exRateFloat,
+		}
+	}
+
+	reqBody := map[string]any{
+		"properties": properties,
+	}
+
+	_, err := c.doRequest(ctx, http.MethodPatch, "/pages/"+expense.ID, reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to update expense: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteExpense archives an expense record (Notion doesn't truly delete).
+func (c *Client) DeleteExpense(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("expense ID is required for deletion")
+	}
+
+	reqBody := map[string]any{
+		"archived": true,
+	}
+
+	_, err := c.doRequest(ctx, http.MethodPatch, "/pages/"+id, reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to delete expense: %w", err)
+	}
+
+	return nil
+}
+
 // queryResponse represents the Notion database query response.
 type queryResponse struct {
 	Results    []pageObject `json:"results"`
