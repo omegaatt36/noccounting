@@ -76,67 +76,53 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 	return respBody, nil
 }
 
-// CreateExpense creates a new expense record in the database.
-func (c *Client) CreateExpense(ctx context.Context, expense *domain.Expense) error {
-	properties := map[string]any{
-		"name": map[string]any{
-			"title": []map[string]any{
-				{
-					"text": map[string]any{
-						"content": expense.Name,
-					},
-				},
+func buildProperties(expense *domain.Expense) map[string]interface{} {
+	properties := map[string]interface{}{
+		"name": TitleProperty{
+			Title: []RichText{
+				{Text: Text{Content: expense.Name}},
 			},
 		},
-		"price": map[string]any{
-			"number": expense.Price,
+		"price": NumberProperty{
+			Number: float64(expense.Price),
 		},
-		"currency": map[string]any{
-			"select": map[string]any{
-				"name": string(expense.Currency),
-			},
+		"currency": SelectProperty{
+			Select: SelectOption{Name: string(expense.Currency)},
 		},
-		"category": map[string]any{
-			"select": map[string]any{
-				"name": string(expense.Category),
-			},
+		"category": SelectProperty{
+			Select: SelectOption{Name: string(expense.Category)},
 		},
-		"method": map[string]any{
-			"select": map[string]any{
-				"name": string(expense.Method),
-			},
+		"method": SelectProperty{
+			Select: SelectOption{Name: string(expense.Method)},
 		},
-		"shopped_at": map[string]any{
-			"date": map[string]any{
-				"start": expense.ShoppedAt.Format("2006-01-02"),
-			},
+		"shopped_at": DateProperty{
+			Date: DateInfo{Start: expense.ShoppedAt.Format("2006-01-02")},
 		},
 	}
 
 	// Add paid_by if provided
 	if expense.PaidByID != "" {
-		properties["paid_by"] = map[string]any{
-			"people": []map[string]any{
-				{
-					"id": expense.PaidByID,
-				},
-			},
+		properties["paid_by"] = PeopleProperty{
+			People: []Person{{ID: expense.PaidByID}},
 		}
 	}
 
 	// Add exchange rate if provided
 	if !expense.ExchangeRate.IsZero() {
 		exRateFloat, _ := expense.ExchangeRate.Float64()
-		properties["ex_rate"] = map[string]any{
-			"number": exRateFloat,
+		properties["ex_rate"] = NumberProperty{
+			Number: exRateFloat,
 		}
 	}
 
-	reqBody := map[string]any{
-		"parent": map[string]any{
-			"database_id": c.databaseID,
-		},
-		"properties": properties,
+	return properties
+}
+
+// CreateExpense creates a new expense record in the database.
+func (c *Client) CreateExpense(ctx context.Context, expense *domain.Expense) error {
+	reqBody := Page{
+		Parent:     Parent{DatabaseID: c.databaseID},
+		Properties: buildProperties(expense),
 	}
 
 	_, err := c.doRequest(ctx, http.MethodPost, "/pages", reqBody)
@@ -149,43 +135,7 @@ func (c *Client) CreateExpense(ctx context.Context, expense *domain.Expense) err
 
 // QueryExpenses queries all expenses from the database.
 func (c *Client) QueryExpenses(ctx context.Context) ([]domain.Expense, error) {
-	var allExpenses []domain.Expense
-	var startCursor *string
-
-	for {
-		reqBody := map[string]any{
-			"page_size": 100,
-		}
-		if startCursor != nil {
-			reqBody["start_cursor"] = *startCursor
-		}
-
-		respBody, err := c.doRequest(ctx, http.MethodPost, "/databases/"+c.databaseID+"/query", reqBody)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query expenses: %w", err)
-		}
-
-		var result queryResponse
-		if err := json.Unmarshal(respBody, &result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-		}
-
-		for _, page := range result.Results {
-			expense, err := parseExpenseFromPage(page)
-			if err != nil {
-				// Skip invalid entries but log them
-				continue
-			}
-			allExpenses = append(allExpenses, expense)
-		}
-
-		if !result.HasMore {
-			break
-		}
-		startCursor = result.NextCursor
-	}
-
-	return allExpenses, nil
+	return c.QueryExpensesWithFilter(ctx, domain.ExpenseFilter{})
 }
 
 // GetExpenseSummary calculates the expense summary for splitting.
@@ -218,64 +168,62 @@ func (c *Client) GetExpenseSummary(ctx context.Context) (*domain.ExpenseSummary,
 // QueryExpensesWithFilter queries expenses with the given filter.
 func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter domain.ExpenseFilter) ([]domain.Expense, error) {
 	var allExpenses []domain.Expense
-	var startCursor *string
+	var startCursor string
 
 	// Build filter conditions for Notion API
-	var filterConditions []map[string]any
+	var filterConditions []Filter
 
 	if filter.DateFrom != nil {
-		filterConditions = append(filterConditions, map[string]any{
-			"property": "shopped_at",
-			"date": map[string]any{
-				"on_or_after": filter.DateFrom.Format("2006-01-02"),
+		filterConditions = append(filterConditions, Filter{
+			Property: "shopped_at",
+			Date: &DateFilter{
+				OnOrAfter: filter.DateFrom.Format("2006-01-02"),
 			},
 		})
 	}
 
 	if filter.DateTo != nil {
-		filterConditions = append(filterConditions, map[string]any{
-			"property": "shopped_at",
-			"date": map[string]any{
-				"on_or_before": filter.DateTo.Format("2006-01-02"),
+		filterConditions = append(filterConditions, Filter{
+			Property: "shopped_at",
+			Date: &DateFilter{
+				OnOrBefore: filter.DateTo.Format("2006-01-02"),
 			},
 		})
 	}
 
 	if filter.PaidByID != nil {
-		filterConditions = append(filterConditions, map[string]any{
-			"property": "paid_by",
-			"people": map[string]any{
-				"contains": *filter.PaidByID,
+		filterConditions = append(filterConditions, Filter{
+			Property: "paid_by",
+			People: &PeopleFilter{
+				Contains: *filter.PaidByID,
 			},
 		})
 	}
 
 	for {
-		reqBody := map[string]any{
-			"page_size": 100,
+		reqBody := QueryDatabaseRequest{
+			PageSize: 100,
+			Sorts: []Sort{
+				{
+					Property:  "shopped_at",
+					Direction: "descending",
+				},
+			},
+		}
+
+		if startCursor != "" {
+			reqBody.StartCursor = startCursor
 		}
 
 		// Apply filter if conditions exist
 		if len(filterConditions) > 0 {
 			if len(filterConditions) == 1 {
-				reqBody["filter"] = filterConditions[0]
+				reqBody.Filter = filterConditions[0]
 			} else {
-				reqBody["filter"] = map[string]any{
+				reqBody.Filter = map[string]interface{}{
 					"and": filterConditions,
 				}
 			}
-		}
-
-		// Sort by shopped_at descending (newest first)
-		reqBody["sorts"] = []map[string]any{
-			{
-				"property":  "shopped_at",
-				"direction": "descending",
-			},
-		}
-
-		if startCursor != nil {
-			reqBody["start_cursor"] = *startCursor
 		}
 
 		respBody, err := c.doRequest(ctx, http.MethodPost, "/databases/"+c.databaseID+"/query", reqBody)
@@ -283,7 +231,7 @@ func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter domain.Expe
 			return nil, fmt.Errorf("failed to query expenses: %w", err)
 		}
 
-		var result queryResponse
+		var result QueryResponse
 		if err := json.Unmarshal(respBody, &result); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 		}
@@ -301,10 +249,10 @@ func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter domain.Expe
 			}
 		}
 
-		if !result.HasMore {
+		if !result.HasMore || result.NextCursor == nil {
 			break
 		}
-		startCursor = result.NextCursor
+		startCursor = *result.NextCursor
 	}
 
 	return allExpenses, nil
@@ -316,60 +264,8 @@ func (c *Client) UpdateExpense(ctx context.Context, expense *domain.Expense) err
 		return fmt.Errorf("expense ID is required for update")
 	}
 
-	properties := map[string]any{
-		"name": map[string]any{
-			"title": []map[string]any{
-				{
-					"text": map[string]any{
-						"content": expense.Name,
-					},
-				},
-			},
-		},
-		"price": map[string]any{
-			"number": expense.Price,
-		},
-		"currency": map[string]any{
-			"select": map[string]any{
-				"name": string(expense.Currency),
-			},
-		},
-		"category": map[string]any{
-			"select": map[string]any{
-				"name": string(expense.Category),
-			},
-		},
-		"method": map[string]any{
-			"select": map[string]any{
-				"name": string(expense.Method),
-			},
-		},
-		"shopped_at": map[string]any{
-			"date": map[string]any{
-				"start": expense.ShoppedAt.Format("2006-01-02"),
-			},
-		},
-	}
-
-	if expense.PaidByID != "" {
-		properties["paid_by"] = map[string]any{
-			"people": []map[string]any{
-				{
-					"id": expense.PaidByID,
-				},
-			},
-		}
-	}
-
-	if !expense.ExchangeRate.IsZero() {
-		exRateFloat, _ := expense.ExchangeRate.Float64()
-		properties["ex_rate"] = map[string]any{
-			"number": exRateFloat,
-		}
-	}
-
-	reqBody := map[string]any{
-		"properties": properties,
+	reqBody := UpdatePageRequest{
+		Properties: buildProperties(expense),
 	}
 
 	_, err := c.doRequest(ctx, http.MethodPatch, "/pages/"+expense.ID, reqBody)
@@ -386,8 +282,8 @@ func (c *Client) DeleteExpense(ctx context.Context, id string) error {
 		return fmt.Errorf("expense ID is required for deletion")
 	}
 
-	reqBody := map[string]any{
-		"archived": true,
+	reqBody := UpdatePageRequest{
+		Archived: true,
 	}
 
 	_, err := c.doRequest(ctx, http.MethodPatch, "/pages/"+id, reqBody)
@@ -398,21 +294,8 @@ func (c *Client) DeleteExpense(ctx context.Context, id string) error {
 	return nil
 }
 
-// queryResponse represents the Notion database query response.
-type queryResponse struct {
-	Results    []pageObject `json:"results"`
-	HasMore    bool         `json:"has_more"`
-	NextCursor *string      `json:"next_cursor"`
-}
-
-// pageObject represents a Notion page object.
-type pageObject struct {
-	ID         string                 `json:"id"`
-	Properties map[string]interface{} `json:"properties"`
-}
-
 // parseExpenseFromPage parses a domain.Expense from a Notion page object.
-func parseExpenseFromPage(page pageObject) (domain.Expense, error) {
+func parseExpenseFromPage(page PageObject) (domain.Expense, error) {
 	expense := domain.Expense{
 		ID:           page.ID,
 		ExchangeRate: decimal.Zero,

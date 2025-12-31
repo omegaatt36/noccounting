@@ -16,11 +16,12 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /webapp ./cmd/webapp
 
 # Final stage
-FROM scratch
+FROM gcr.io/distroless/static:nonroot
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /webapp /webapp
 
 EXPOSE 8080
 
+USER nonroot:nonroot
 ENTRYPOINT ["/webapp"]

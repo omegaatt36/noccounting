@@ -24,6 +24,7 @@ func New(
 	webAppURL string,
 	userService *user.Service,
 	accountingRepo domain.AccountingRepo,
+	rateFetcher domain.ExchangeRateFetcher,
 ) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
@@ -35,7 +36,7 @@ func New(
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
-	handler := NewHandler(userService, accountingRepo, webAppURL)
+	handler := NewHandler(userService, accountingRepo, rateFetcher, webAppURL)
 	handler.RegisterHandlers(teleBot)
 
 	return &Bot{

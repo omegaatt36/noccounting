@@ -12,21 +12,24 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/user"
+	"github.com/shopspring/decimal"
 )
 
 // Handler handles Telegram bot commands.
 type Handler struct {
 	userService    *user.Service
 	accountingRepo domain.AccountingRepo
+	rateFetcher    domain.ExchangeRateFetcher
 	webAppURL      string
 	convManager    *ConversationManager
 }
 
 // NewHandler creates a new bot Handler.
-func NewHandler(userService *user.Service, accountingRepo domain.AccountingRepo, webAppURL string) *Handler {
+func NewHandler(userService *user.Service, accountingRepo domain.AccountingRepo, rateFetcher domain.ExchangeRateFetcher, webAppURL string) *Handler {
 	return &Handler{
 		userService:    userService,
 		accountingRepo: accountingRepo,
+		rateFetcher:    rateFetcher,
 		webAppURL:      webAppURL,
 		convManager:    NewConversationManager(),
 	}
@@ -73,7 +76,10 @@ func (h *Handler) handleStart(c tele.Context) error {
 }
 
 func (h *Handler) handleHelp(c tele.Context) error {
-	help := `📖 指令說明
+	catNames := strings.Join(domain.CategoryNames(), ", ")
+	methodNames := strings.Join(domain.PaymentMethodNames(), ", ")
+
+	help := fmt.Sprintf(`📖 指令說明
 
 /add <名稱> <金額> <幣別> <分類> <付款方式>
   新增一筆消費記錄
@@ -94,9 +100,9 @@ func (h *Handler) handleHelp(c tele.Context) error {
 /summary
   查看消費總覽
 
-📌 分類選項: 食, 衣, 住, 行, 樂
-💳 付款方式: cash, credit_card, ic_card, paypay
-💱 幣別: TWD, JPY`
+📌 分類選項: %s
+💳 付款方式: %s
+💱 幣別: TWD, JPY`, catNames, methodNames)
 
 	return c.Send(help)
 }
@@ -124,12 +130,12 @@ func (h *Handler) handleAdd(c tele.Context) error {
 
 	category := domain.Category(args[3])
 	if !category.IsValid() {
-		return c.Send("❌ 分類錯誤，請使用: 食, 衣, 住, 行, 樂")
+		return c.Send(fmt.Sprintf("❌ 分類錯誤，請使用: %s", strings.Join(domain.CategoryNames(), ", ")))
 	}
 
 	method := domain.PaymentMethod(strings.ToLower(args[4]))
 	if !method.IsValid() {
-		return c.Send("❌ 付款方式錯誤，請使用: cash, credit_card, ic_card, paypay")
+		return c.Send(fmt.Sprintf("❌ 付款方式錯誤，請使用: %s", strings.Join(domain.PaymentMethodNames(), ", ")))
 	}
 
 	// Get Notion user ID from mapping
@@ -139,7 +145,7 @@ func (h *Handler) handleAdd(c tele.Context) error {
 	})
 
 	if err != nil {
-		return c.Send("❌ 無法取得用戶資訊")
+		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
 	}
 
 	expense := &domain.Expense{
@@ -157,16 +163,16 @@ func (h *Handler) handleAdd(c tele.Context) error {
 
 	if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
 		slog.Error("Failed to create expense", "error", err)
-		return c.Send("❌ 新增失敗，請稍後再試")
+		return c.Send("❌ 新增失敗，連線資料庫錯誤，請稍後再試")
 	}
 
 	return c.Send(fmt.Sprintf(`✅ 已新增消費記錄
 
 📝 %s
 💰 %d %s
-📂 %s
+📂 %s %s
 💳 %s`,
-		name, price, currency, category, method.DisplayName()))
+		name, price, currency, category.Emoji(), category, method.DisplayName()))
 }
 
 func (h *Handler) handleList(c tele.Context) error {
@@ -176,7 +182,7 @@ func (h *Handler) handleList(c tele.Context) error {
 	expenses, err := h.accountingRepo.QueryExpenses(ctx)
 	if err != nil {
 		slog.Error("Failed to query expenses", "error", err)
-		return c.Send("❌ 查詢失敗，請稍後再試")
+		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
 	}
 
 	if len(expenses) == 0 {
@@ -187,8 +193,8 @@ func (h *Handler) handleList(c tele.Context) error {
 	sb.WriteString("📋 消費記錄\n\n")
 
 	for _, exp := range expenses {
-		sb.WriteString(fmt.Sprintf("• %s: %d %s (%s)\n",
-			exp.Name, exp.Price, exp.Currency, exp.Category))
+		sb.WriteString(fmt.Sprintf("• %s: %d %s (%s %s)\n",
+			exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category))
 	}
 
 	return c.Send(sb.String())
@@ -201,7 +207,7 @@ func (h *Handler) handleSummary(c tele.Context) error {
 	summary, err := h.accountingRepo.GetExpenseSummary(ctx)
 	if err != nil {
 		slog.Error("Failed to get summary", "error", err)
-		return c.Send("❌ 查詢失敗，請稍後再試")
+		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
 	}
 
 	var sb strings.Builder
@@ -223,7 +229,7 @@ func (h *Handler) handleQuick(c tele.Context) error {
 		TelegramID: &telegramUserID,
 	})
 	if err != nil {
-		return c.Send("❌ 無法取得用戶資訊")
+		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
 	}
 
 	h.convManager.StartQuickFlow(telegramUserID, u.NotionID)
@@ -327,24 +333,27 @@ func (h *Handler) handleQuickCurrency(c tele.Context, state *ConversationState, 
 	}
 
 	state.ExpenseDraft.Currency = currency
+
+	// Fetch exchange rate for JPY
+	if currency == domain.CurrencyJPY && h.rateFetcher != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		rate, err := h.rateFetcher.GetRate(ctx, currency)
+		if err != nil {
+			slog.Warn("Failed to fetch exchange rate", "error", err)
+			// Continue without rate, user can still proceed
+		} else {
+			state.ExpenseDraft.ExchangeRate = rate
+			slog.Info("Fetched exchange rate", "currency", currency, "rate", rate.String())
+		}
+	}
+
 	state.Step = StepQuickCategory
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + value})
 
-	// Show category keyboard
-	keyboard := &tele.ReplyMarkup{}
-	keyboard.Inline(
-		keyboard.Row(
-			keyboard.Data("🍜 食", "category", "食"),
-			keyboard.Data("👔 衣", "category", "衣"),
-			keyboard.Data("🏠 住", "category", "住"),
-		),
-		keyboard.Row(
-			keyboard.Data("🚃 行", "category", "行"),
-			keyboard.Data("🎮 樂", "category", "樂"),
-		),
-	)
-	return c.Send("📂 請選擇分類：", keyboard)
+	return c.Send("📂 請選擇分類：", makeCategoryKeyboard("category"))
 }
 
 func (h *Handler) handleQuickCategory(c tele.Context, state *ConversationState, value string) error {
@@ -358,19 +367,7 @@ func (h *Handler) handleQuickCategory(c tele.Context, state *ConversationState, 
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + value})
 
-	// Show payment method keyboard
-	keyboard := &tele.ReplyMarkup{}
-	keyboard.Inline(
-		keyboard.Row(
-			keyboard.Data("💵 現金", "method", "cash"),
-			keyboard.Data("💳 信用卡", "method", "credit_card"),
-		),
-		keyboard.Row(
-			keyboard.Data("🎫 IC卡", "method", "ic_card"),
-			keyboard.Data("📱 PayPay", "method", "paypay"),
-		),
-	)
-	return c.Send("💳 請選擇付款方式：", keyboard)
+	return c.Send("💳 請選擇付款方式：", makePaymentMethodKeyboard("method"))
 }
 
 func (h *Handler) handleQuickMethod(c tele.Context, state *ConversationState, value string) error {
@@ -386,14 +383,23 @@ func (h *Handler) handleQuickMethod(c tele.Context, state *ConversationState, va
 
 	// Show confirmation
 	exp := state.ExpenseDraft
+
+	// Build confirmation message with optional exchange rate info
+	var rateInfo string
+
+	if exp.Currency == domain.CurrencyJPY && !exp.ExchangeRate.IsZero() {
+		twdAmount := exp.TotalInTWD()
+		rateInfo = fmt.Sprintf("\n💱 匯率: %s (≈NT$%s)", exp.ExchangeRate.StringFixed(4), twdAmount.StringFixed(0))
+	}
+
 	confirmMsg := fmt.Sprintf(`📋 確認消費資訊
 
 📝 名稱: %s
-💰 金額: %d %s
-📂 分類: %s
+💰 金額: %d %s%s
+📂 分類: %s %s
 💳 付款: %s
 
-確定要新增嗎？`, exp.Name, exp.Price, exp.Currency, exp.Category, exp.Method.DisplayName())
+確定要新增嗎？`, exp.Name, exp.Price, exp.Currency, rateInfo, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName())
 
 	keyboard := &tele.ReplyMarkup{}
 	keyboard.Inline(
@@ -420,7 +426,7 @@ func (h *Handler) handleQuickConfirm(c tele.Context, state *ConversationState, v
 	if err := h.accountingRepo.CreateExpense(ctx, exp); err != nil {
 		slog.Error("Failed to create expense", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
-		return c.Send("❌ 新增失敗，請稍後再試")
+		return c.Send("❌ 新增失敗，連線資料庫錯誤，請稍後再試")
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
@@ -429,9 +435,9 @@ func (h *Handler) handleQuickConfirm(c tele.Context, state *ConversationState, v
 
 📝 %s
 💰 %d %s
-📂 %s
+📂 %s %s
 💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category, exp.Method.DisplayName()))
+		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
 }
 
 func (h *Handler) handleEdit(c tele.Context) error {
@@ -447,7 +453,7 @@ func (h *Handler) handleEdit(c tele.Context) error {
 	expenses, err := h.accountingRepo.QueryExpensesWithFilter(ctx, filter)
 	if err != nil {
 		slog.Error("Failed to query expenses for edit", "error", err)
-		return c.Send("❌ 查詢失敗，請稍後再試")
+		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
 	}
 
 	if len(expenses) == 0 {
@@ -581,32 +587,9 @@ func (h *Handler) handleEditFieldCallback(c tele.Context, state *ConversationSta
 	case "price":
 		return c.Send("請輸入新的金額（正整數）：")
 	case "category":
-		keyboard := &tele.ReplyMarkup{}
-		keyboard.Inline(
-			keyboard.Row(
-				keyboard.Data("🍜 食", "edit_cat", "食"),
-				keyboard.Data("👔 衣", "edit_cat", "衣"),
-				keyboard.Data("🏠 住", "edit_cat", "住"),
-			),
-			keyboard.Row(
-				keyboard.Data("🚃 行", "edit_cat", "行"),
-				keyboard.Data("🎮 樂", "edit_cat", "樂"),
-			),
-		)
-		return c.Send("請選擇新的分類：", keyboard)
+		return c.Send("請選擇新的分類：", makeCategoryKeyboard("edit_cat"))
 	case "method":
-		keyboard := &tele.ReplyMarkup{}
-		keyboard.Inline(
-			keyboard.Row(
-				keyboard.Data("💵 現金", "edit_method", "cash"),
-				keyboard.Data("💳 信用卡", "edit_method", "credit_card"),
-			),
-			keyboard.Row(
-				keyboard.Data("🎫 IC卡", "edit_method", "ic_card"),
-				keyboard.Data("📱 PayPay", "edit_method", "paypay"),
-			),
-		)
-		return c.Send("請選擇新的付款方式：", keyboard)
+		return c.Send("請選擇新的付款方式：", makePaymentMethodKeyboard("edit_method"))
 	}
 
 	return nil
@@ -647,9 +630,9 @@ func (h *Handler) handleEditValue(c tele.Context, state *ConversationState, text
 
 📝 %s
 💰 %d %s
-📂 %s
+📂 %s %s
 💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category, exp.Method.DisplayName()))
+		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
 }
 
 func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) error {
@@ -702,9 +685,9 @@ func (h *Handler) handleEditCategory(c tele.Context, state *ConversationState, v
 
 📝 %s
 💰 %d %s
-📂 %s
+📂 %s %s
 💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category, exp.Method.DisplayName()))
+		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
 }
 
 func (h *Handler) handleEditMethod(c tele.Context, state *ConversationState, value string) error {
@@ -736,9 +719,9 @@ func (h *Handler) handleEditMethod(c tele.Context, state *ConversationState, val
 
 📝 %s
 💰 %d %s
-📂 %s
+📂 %s %s
 💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category, exp.Method.DisplayName()))
+		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
 }
 
 func (h *Handler) handleToday(c tele.Context) error {
@@ -765,13 +748,23 @@ func (h *Handler) handleToday(c tele.Context) error {
 		return c.Send(fmt.Sprintf("📅 %s 消費統計\n\n📭 今日尚無消費記錄", now.Format("2006/01/02")))
 	}
 
-	// Group by category and calculate totals
-	categoryEmoji := map[domain.Category]string{
-		domain.Category食: "🍜",
-		domain.Category衣: "👔",
-		domain.Category住: "🏠",
-		domain.Category行: "🚃",
-		domain.Category樂: "🎮",
+	// Fetch fallback exchange rate for JPY expenses without rate
+	var fallbackJPYRate decimal.Decimal
+	needsFallbackRate := false
+	for _, exp := range expenses {
+		if exp.Currency == domain.CurrencyJPY && exp.ExchangeRate.IsZero() {
+			needsFallbackRate = true
+			break
+		}
+	}
+
+	if needsFallbackRate && h.rateFetcher != nil {
+		rate, err := h.rateFetcher.GetRate(ctx, domain.CurrencyJPY)
+		if err != nil {
+			slog.Warn("Failed to fetch fallback exchange rate", "error", err)
+		} else {
+			fallbackJPYRate = rate
+		}
 	}
 
 	type categorySum struct {
@@ -791,7 +784,14 @@ func (h *Handler) handleToday(c tele.Context) error {
 		categoryTotals[exp.Category].total += exp.Price
 		categoryTotals[exp.Category].currency = exp.Currency
 
-		twdAmount, _ := exp.TotalInTWD().Float64()
+		// Calculate TWD amount, using fallback rate if needed
+		var twdAmount float64
+		if exp.Currency == domain.CurrencyJPY && exp.ExchangeRate.IsZero() && !fallbackJPYRate.IsZero() {
+			// Use fallback rate for expenses without stored rate
+			twdAmount, _ = exp.PriceDecimal().Mul(fallbackJPYRate).Float64()
+		} else {
+			twdAmount, _ = exp.TotalInTWD().Float64()
+		}
 		categoryTotals[exp.Category].totalTWD += twdAmount
 		grandTotalTWD += twdAmount
 	}
@@ -800,12 +800,11 @@ func (h *Handler) handleToday(c tele.Context) error {
 	sb.WriteString(fmt.Sprintf("📅 %s 消費統計\n\n", now.Format("2006/01/02")))
 
 	// Sort categories for consistent output
-	categories := []domain.Category{domain.Category食, domain.Category衣, domain.Category住, domain.Category行, domain.Category樂}
+	categories := domain.CategoryValues()
 	for _, cat := range categories {
 		if sum, ok := categoryTotals[cat]; ok {
-			emoji := categoryEmoji[cat]
 			sb.WriteString(fmt.Sprintf("%s %s: %d %s (≈NT$%.0f)\n",
-				emoji, cat, sum.total, sum.currency, sum.totalTWD))
+				cat.Emoji(), cat, sum.total, sum.currency, sum.totalTWD))
 		}
 	}
 
@@ -813,4 +812,52 @@ func (h *Handler) handleToday(c tele.Context) error {
 	sb.WriteString(fmt.Sprintf("💰 今日合計: NT$%.0f (%d 筆)\n", grandTotalTWD, len(expenses)))
 
 	return c.Send(sb.String())
+}
+
+func makeCategoryKeyboard(actionPrefix string) *tele.ReplyMarkup {
+	keyboard := &tele.ReplyMarkup{}
+	categories := domain.CategoryValues()
+	var rows []tele.Row
+	var currentRow []tele.Btn
+
+	for i, cat := range categories {
+		btn := keyboard.Data(
+			fmt.Sprintf("%s %s", cat.Emoji(), cat),
+			actionPrefix,
+			string(cat),
+		)
+		currentRow = append(currentRow, btn)
+
+		// 3 buttons per row, or last row
+		if len(currentRow) == 3 || i == len(categories)-1 {
+			rows = append(rows, keyboard.Row(currentRow...))
+			currentRow = []tele.Btn{}
+		}
+	}
+	keyboard.Inline(rows...)
+	return keyboard
+}
+
+func makePaymentMethodKeyboard(actionPrefix string) *tele.ReplyMarkup {
+	keyboard := &tele.ReplyMarkup{}
+	methods := domain.PaymentMethodValues()
+	var rows []tele.Row
+	var currentRow []tele.Btn
+
+	for i, method := range methods {
+		btn := keyboard.Data(
+			method.DisplayName(),
+			actionPrefix,
+			string(method),
+		)
+		currentRow = append(currentRow, btn)
+
+		// 2 buttons per row for payment methods
+		if len(currentRow) == 2 || i == len(methods)-1 {
+			rows = append(rows, keyboard.Row(currentRow...))
+			currentRow = []tele.Btn{}
+		}
+	}
+	keyboard.Inline(rows...)
+	return keyboard
 }

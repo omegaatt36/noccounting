@@ -16,9 +16,10 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bot ./cmd/bot
 
 # Final stage
-FROM scratch
+FROM gcr.io/distroless/static:nonroot
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /bot /bot
 
+USER nonroot:nonroot
 ENTRYPOINT ["/bot"]

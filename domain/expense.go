@@ -12,6 +12,24 @@ import (
 // ENUM(食, 衣, 住, 行, 樂)
 type Category string
 
+// Emoji returns the emoji associated with the category.
+func (c Category) Emoji() string {
+	switch c {
+	case Category食:
+		return "🍜"
+	case Category衣:
+		return "👔"
+	case Category住:
+		return "🏠"
+	case Category行:
+		return "🚃"
+	case Category樂:
+		return "🎮"
+	default:
+		return "❓"
+	}
+}
+
 // PaymentMethod represents payment methods.
 // ENUM(cash, credit_card, ic_card, paypay)
 type PaymentMethod string

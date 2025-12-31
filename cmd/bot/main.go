@@ -10,6 +10,7 @@ import (
 
 	"github.com/omegaatt36/noccounting/internal/app"
 	"github.com/omegaatt36/noccounting/internal/app/bot"
+	"github.com/omegaatt36/noccounting/internal/infrastructure/exchangerate"
 	"github.com/omegaatt36/noccounting/internal/persistence/notion"
 	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
 	"github.com/omegaatt36/noccounting/internal/service/user"
@@ -45,12 +46,14 @@ func wrapMain(ctx context.Context, _ *cli.Command) error {
 
 	userService := user.NewService(userRepo)
 	accountingRepo := notion.NewClient(cfg.notionToken, cfg.notionDatabaseID)
+	rateFetcher := exchangerate.NewFinMindClient()
 
 	telegramBot, err := bot.New(
 		cfg.telegramToken,
 		cfg.webAppURL,
 		userService,
 		accountingRepo,
+		rateFetcher,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create bot: %w", err)
