@@ -277,6 +277,10 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	state := h.convManager.GetState(userID)
 	data := c.Callback().Data
 
+	// telebot v4 prefixes callback data with \f (form feed character)
+	// We need to strip it for proper parsing
+	data = strings.TrimPrefix(data, "\f")
+
 	// Handle edit expense selection (format: "edit_select|{expense_id}")
 	if strings.HasPrefix(data, "edit_select|") {
 		return h.handleEditSelectCallback(c, data)
