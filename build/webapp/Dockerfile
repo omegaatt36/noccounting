@@ -3,7 +3,7 @@ FROM golang:1.26-alpine AS builder
 WORKDIR /app
 
 # Install ca-certificates and curl for HTTPS requests
-RUN apk add --no-cache ca-certificates curl
+RUN apk add --no-cache ca-certificates curl libstdc++ libgcc
 
 # Install templ for component generation
 RUN go install github.com/a-h/templ/cmd/templ@latest
