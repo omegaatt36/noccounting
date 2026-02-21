@@ -48,6 +48,10 @@ config:
   notionDatabaseID: ""
   # User Mapping (telegram_id:notion_id,...)
   userMapping: ""
+  # LLM Configuration
+  llmApiKey: ""
+  llmBaseUrl: ""
+  llmModel: ""
 
 # External secret name (if using external-secrets or sealed-secrets)
 # If set, will use this secret instead of creating one from config values

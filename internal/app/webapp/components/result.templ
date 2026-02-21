@@ -1,0 +1,48 @@
+package components
+
+import "fmt"
+
+templ Result(success bool, name string, price uint64, currency string, categoryEmoji string, twdAmount string, errorMsg string) {
+	if success {
+		<div
+			class="rounded-xl px-4 py-3 flex items-start gap-3 shadow-lg bg-nord-green text-nord-polar0"
+			style="animation: fadeIn 0.3s ease-out;"
+		>
+			<span class="text-xl flex-shrink-0">{ categoryEmoji }</span>
+			<div class="flex-1 min-w-0">
+				<p class="font-medium">已新增</p>
+				<p class="text-sm opacity-90">
+					{ name } { fmt.Sprintf("%d", price) } { currency }
+					if twdAmount != "" {
+						<span class="opacity-75">≈ TWD { twdAmount }</span>
+					}
+				</p>
+			</div>
+			<button
+				type="button"
+				onclick="this.parentElement.remove()"
+				class="flex-shrink-0 opacity-75 hover:opacity-100 text-lg leading-none cursor-pointer"
+			>
+				✕
+			</button>
+		</div>
+	} else {
+		<div
+			class="rounded-xl px-4 py-3 flex items-start gap-3 shadow-lg bg-nord-red text-nord-snow2"
+			style="animation: fadeIn 0.3s ease-out;"
+		>
+			<span class="text-xl flex-shrink-0">❌</span>
+			<div class="flex-1 min-w-0">
+				<p class="font-medium">新增失敗</p>
+				<p class="text-sm opacity-90">{ errorMsg }</p>
+			</div>
+			<button
+				type="button"
+				onclick="this.parentElement.remove()"
+				class="flex-shrink-0 opacity-75 hover:opacity-100 text-lg leading-none cursor-pointer"
+			>
+				✕
+			</button>
+		</div>
+	}
+}

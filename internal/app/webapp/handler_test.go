@@ -1,0 +1,827 @@
+package webapp
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/user"
+)
+
+// mockAccountingRepo implements domain.AccountingRepo for testing.
+type mockAccountingRepo struct {
+	createErr error
+	expenses  []domain.Expense
+}
+
+func (m *mockAccountingRepo) CreateExpense(_ context.Context, _ *domain.Expense) error {
+	return m.createErr
+}
+
+func (m *mockAccountingRepo) QueryExpenses(_ context.Context) ([]domain.Expense, error) {
+	return m.expenses, nil
+}
+
+func (m *mockAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ domain.ExpenseFilter) ([]domain.Expense, error) {
+	return m.expenses, nil
+}
+
+func (m *mockAccountingRepo) UpdateExpense(_ context.Context, _ *domain.Expense) error {
+	return nil
+}
+
+func (m *mockAccountingRepo) DeleteExpense(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockAccountingRepo) GetExpenseSummary(_ context.Context) (*domain.ExpenseSummary, error) {
+	return &domain.ExpenseSummary{}, nil
+}
+
+func (m *mockAccountingRepo) UploadFile(_ context.Context, _ string) (string, error) {
+	return "file-id", nil
+}
+
+// mockUserRepo implements domain.UserRepo for testing.
+type mockUserRepo struct {
+	users map[int64]*domain.User
+	err   error
+}
+
+func (m *mockUserRepo) GetUser(req domain.GetUserRequest) (*domain.User, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if req.TelegramID != nil {
+		if u, ok := m.users[*req.TelegramID]; ok {
+			return u, nil
+		}
+		return nil, domain.ErrUserNotFound
+	}
+	return nil, domain.ErrUserNotFound
+}
+
+func (m *mockUserRepo) GetUsers() ([]domain.User, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	var users []domain.User
+	for _, u := range m.users {
+		users = append(users, *u)
+	}
+	return users, nil
+}
+
+// TestHandleHealth tests that GET /health returns 200 "ok".
+func TestHandleHealth(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body != "ok" {
+		t.Errorf("expected body 'ok', got %q", body)
+	}
+}
+
+// TestHandleIndex tests that GET / returns 200 with HTML content.
+func TestHandleIndex(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleIndex(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty HTML response")
+	}
+
+	if !strings.Contains(body, "<!") && !strings.Contains(body, "<html") && !strings.Contains(body, "<") {
+		t.Errorf("expected HTML content, got: %s", body[:100])
+	}
+}
+
+// TestHandleAuthMissingInitData tests that GET /api/auth without init_data returns 400.
+func TestHandleAuthMissingInitData(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/auth", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleAuth(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+
+	var authResp AuthResponse
+	err = json.NewDecoder(w.Body).Decode(&authResp)
+	if err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if authResp.Authorized {
+		t.Errorf("expected Authorized to be false")
+	}
+
+	if authResp.Error != "missing init_data" {
+		t.Errorf("expected error 'missing init_data', got %q", authResp.Error)
+	}
+
+	if w.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", w.Header().Get("Content-Type"))
+	}
+}
+
+// TestHandleAuthInvalidInitData tests that invalid init_data returns 403.
+func TestHandleAuthInvalidInitData(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/auth?init_data=invalid_data", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleAuth(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected status 403, got %d", w.Code)
+	}
+
+	var authResp AuthResponse
+	err = json.NewDecoder(w.Body).Decode(&authResp)
+	if err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if authResp.Authorized {
+		t.Errorf("expected Authorized to be false")
+	}
+
+	if authResp.Error != "invalid authentication" {
+		t.Errorf("expected error 'invalid authentication', got %q", authResp.Error)
+	}
+}
+
+// TestHandleAuthUnauthorizedUser tests that unauthorized user returns 403.
+func TestHandleAuthUnauthorizedUser(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	botToken := "test-token"
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	req := httptest.NewRequest("GET", "/api/auth?init_data="+url.QueryEscape(initData), nil)
+	w := httptest.NewRecorder()
+
+	handler.handleAuth(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected status 403, got %d", w.Code)
+	}
+
+	var authResp AuthResponse
+	err = json.NewDecoder(w.Body).Decode(&authResp)
+	if err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if authResp.Authorized {
+		t.Errorf("expected Authorized to be false")
+	}
+
+	if authResp.Error != "unauthorized user" {
+		t.Errorf("expected error 'unauthorized user', got %q", authResp.Error)
+	}
+}
+
+// TestHandleAuthSuccess tests that valid auth_data returns user info.
+func TestHandleAuthSuccess(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	req := httptest.NewRequest("GET", "/api/auth?init_data="+url.QueryEscape(initData), nil)
+	w := httptest.NewRecorder()
+
+	handler.handleAuth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var authResp AuthResponse
+	err = json.NewDecoder(w.Body).Decode(&authResp)
+	if err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !authResp.Authorized {
+		t.Errorf("expected Authorized to be true")
+	}
+
+	if authResp.Nickname != "John Doe" {
+		t.Errorf("expected nickname 'John Doe', got %q", authResp.Nickname)
+	}
+
+	if authResp.Error != "" {
+		t.Errorf("expected no error, got %q", authResp.Error)
+	}
+}
+
+// TestHandleCreateExpenseMissingInitData tests that missing init_data returns error in HTML.
+func TestHandleCreateExpenseMissingInitData(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// POST without init_data
+	data := url.Values{}
+	data.Set("name", "Lunch")
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for HTML response, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body")
+	}
+}
+
+// TestHandleCreateExpenseInvalidInitData tests that invalid init_data returns error in HTML.
+func TestHandleCreateExpenseInvalidInitData(t *testing.T) {
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// POST with invalid init_data
+	data := url.Values{}
+	data.Set("init_data", "invalid_data")
+	data.Set("name", "Lunch")
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for HTML response, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body with error")
+	}
+}
+
+// TestHandleCreateExpenseUnauthorizedUser tests that unauthorized user gets error in HTML.
+func TestHandleCreateExpenseUnauthorizedUser(t *testing.T) {
+	botToken := "test-token"
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data for unauthorized user
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":999999999,"is_bot":false,"first_name":"Unknown"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for HTML response, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body with error")
+	}
+}
+
+// TestHandleCreateExpenseMissingName tests validation of expense name.
+func TestHandleCreateExpenseMissingName(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	// Missing name
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for HTML response, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body with error")
+	}
+}
+
+// TestHandleCreateExpenseMissingPrice tests validation of expense price.
+func TestHandleCreateExpenseMissingPrice(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	// Missing price
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for HTML response, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body with error")
+	}
+}
+
+// TestHandleCreateExpenseInvalidPrice tests validation of expense price.
+func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	data.Set("price", "invalid")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for HTML response, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body with error")
+	}
+}
+
+// TestHandleCreateExpenseSuccess tests successful expense creation.
+func TestHandleCreateExpenseSuccess(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body")
+	}
+}
+
+// TestHandleCreateExpenseWithPaidBy tests expense creation with paid_by field.
+func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
+	botToken := "test-token"
+	telegramID1 := int64(123456789)
+	telegramID2 := int64(987654321)
+
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID1: {
+				ID:         1,
+				TelegramID: telegramID1,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+			telegramID2: {
+				ID:         2,
+				TelegramID: telegramID2,
+				NotionID:   "notion-456",
+				Nickname:   "Jane Smith",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data for user 1
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+	data.Set("paid_by", "987654321") // User 2 paid
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body")
+	}
+}
+
+// TestHandleCreateExpenseWithJPYExchangeRate tests expense creation with exchange rate.
+func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	data.Set("price", "1000")
+	data.Set("currency", "JPY")
+	data.Set("exchange_rate", "0.25")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body")
+	}
+}
+
+// TestHandleCreateExpenseRepositoryError tests error handling from repository.
+func TestHandleCreateExpenseRepositoryError(t *testing.T) {
+	botToken := "test-token"
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{createErr: context.DeadlineExceeded}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, botToken, false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	// Create valid init_data
+	params := map[string]string{
+		"query_id": "AAHdF6IQAAAAAAAA",
+		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
+	}
+	initData := buildValidTelegramInitData(botToken, params)
+
+	data := url.Values{}
+	data.Set("init_data", initData)
+	data.Set("name", "Lunch")
+	data.Set("price", "100")
+	data.Set("currency", "TWD")
+	data.Set("category", "food")
+	data.Set("method", "cash")
+
+	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	handler.handleCreateExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty response body with error")
+	}
+}
+
+// TestRegisterRoutes verifies that all routes are registered correctly.
+func TestRegisterRoutes(t *testing.T) {
+	mux := http.NewServeMux()
+	mockRepo := &mockAccountingRepo{}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", false)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	handler.RegisterRoutes(mux)
+
+	routes := []string{
+		"GET /",
+		"GET /api/auth",
+		"GET /api/users",
+		"POST /api/expense",
+		"GET /health",
+	}
+
+	for _, route := range routes {
+		parts := strings.Split(route, " ")
+		method, path := parts[0], parts[1]
+
+		// Verify route exists by making a test request
+		req := httptest.NewRequest(method, path, nil)
+		w := httptest.NewRecorder()
+
+		// The router will call the handler if the route exists
+		mux.ServeHTTP(w, req)
+
+		// We just verify the handler doesn't return 404 (method not allowed)
+		// Some handlers may return 400 or other codes due to validation
+		if w.Code == http.StatusNotFound {
+			t.Errorf("route %s %s should be registered", method, path)
+		}
+	}
+}

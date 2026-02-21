@@ -20,6 +20,7 @@ const (
 // FinMindClient fetches exchange rates from FinMind API.
 type FinMindClient struct {
 	httpClient *http.Client
+	baseURL    string
 }
 
 // Ensure FinMindClient implements domain.ExchangeRateFetcher at compile time.
@@ -29,6 +30,15 @@ var _ domain.ExchangeRateFetcher = (*FinMindClient)(nil)
 func NewFinMindClient() *FinMindClient {
 	return &FinMindClient{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		baseURL:    finMindBaseURL,
+	}
+}
+
+// NewFinMindClientWithBaseURL creates a new FinMind client with custom base URL.
+func NewFinMindClientWithBaseURL(baseURL string) *FinMindClient {
+	return &FinMindClient{
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		baseURL:    baseURL,
 	}
 }
 
@@ -62,7 +72,7 @@ func (c *FinMindClient) GetRate(ctx context.Context, sourceCurrency domain.Curre
 	yesterday := time.Now().AddDate(0, 0, -1)
 	startDate := yesterday.Format("2006-01-02")
 
-	url := fmt.Sprintf("%s?dataset=TaiwanExchangeRate&data_id=JPY&start_date=%s", finMindBaseURL, startDate)
+	url := fmt.Sprintf("%s?dataset=TaiwanExchangeRate&data_id=JPY&start_date=%s", c.baseURL, startDate)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

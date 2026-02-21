@@ -22,6 +22,7 @@ const (
 	StepEditSelect
 	StepEditField
 	StepEditValue
+	ReceiptConfirm
 )
 
 // ConversationState holds the state for an ongoing conversation.
@@ -35,6 +36,10 @@ type ConversationState struct {
 	// For /edit flow
 	EditingExpense *domain.Expense
 	EditField      string
+
+	// For receipt scanning flow
+	ReceiptAnalysis *domain.ReceiptAnalysis
+	ReceiptImage    []byte
 }
 
 // ConversationManager manages conversation states for users.

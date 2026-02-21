@@ -13,24 +13,27 @@ import (
 const (
 	// Category食 is a Category of type 食.
 	Category食 Category = "食"
-	// Category衣 is a Category of type 衣.
-	Category衣 Category = "衣"
 	// Category住 is a Category of type 住.
 	Category住 Category = "住"
 	// Category行 is a Category of type 行.
 	Category行 Category = "行"
+	// Category購 is a Category of type 購.
+	Category購 Category = "購"
 	// Category樂 is a Category of type 樂.
 	Category樂 Category = "樂"
+	// Category雜 is a Category of type 雜.
+	Category雜 Category = "雜"
 )
 
 var ErrInvalidCategory = fmt.Errorf("not a valid Category, try [%s]", strings.Join(_CategoryNames, ", "))
 
 var _CategoryNames = []string{
 	string(Category食),
-	string(Category衣),
 	string(Category住),
 	string(Category行),
+	string(Category購),
 	string(Category樂),
+	string(Category雜),
 }
 
 // CategoryNames returns a list of possible string values of Category.
@@ -44,10 +47,11 @@ func CategoryNames() []string {
 func CategoryValues() []Category {
 	return []Category{
 		Category食,
-		Category衣,
 		Category住,
 		Category行,
+		Category購,
 		Category樂,
+		Category雜,
 	}
 }
 
@@ -65,10 +69,11 @@ func (x Category) IsValid() bool {
 
 var _CategoryValue = map[string]Category{
 	"食": Category食,
-	"衣": Category衣,
 	"住": Category住,
 	"行": Category行,
+	"購": Category購,
 	"樂": Category樂,
+	"雜": Category雜,
 }
 
 // ParseCategory attempts to convert a string to a Category.
@@ -186,8 +191,8 @@ const (
 	PaymentMethodCreditCard PaymentMethod = "credit_card"
 	// PaymentMethodIcCard is a PaymentMethod of type ic_card.
 	PaymentMethodIcCard PaymentMethod = "ic_card"
-	// PaymentMethodPaypay is a PaymentMethod of type paypay.
-	PaymentMethodPaypay PaymentMethod = "paypay"
+	// PaymentMethodEPay is a PaymentMethod of type e_pay.
+	PaymentMethodEPay PaymentMethod = "e_pay"
 )
 
 var ErrInvalidPaymentMethod = fmt.Errorf("not a valid PaymentMethod, try [%s]", strings.Join(_PaymentMethodNames, ", "))
@@ -196,7 +201,7 @@ var _PaymentMethodNames = []string{
 	string(PaymentMethodCash),
 	string(PaymentMethodCreditCard),
 	string(PaymentMethodIcCard),
-	string(PaymentMethodPaypay),
+	string(PaymentMethodEPay),
 }
 
 // PaymentMethodNames returns a list of possible string values of PaymentMethod.
@@ -212,7 +217,7 @@ func PaymentMethodValues() []PaymentMethod {
 		PaymentMethodCash,
 		PaymentMethodCreditCard,
 		PaymentMethodIcCard,
-		PaymentMethodPaypay,
+		PaymentMethodEPay,
 	}
 }
 
@@ -232,7 +237,7 @@ var _PaymentMethodValue = map[string]PaymentMethod{
 	"cash":        PaymentMethodCash,
 	"credit_card": PaymentMethodCreditCard,
 	"ic_card":     PaymentMethodIcCard,
-	"paypay":      PaymentMethodPaypay,
+	"e_pay":       PaymentMethodEPay,
 }
 
 // ParsePaymentMethod attempts to convert a string to a PaymentMethod.

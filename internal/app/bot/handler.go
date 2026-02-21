@@ -3,7 +3,9 @@ package bot
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,21 +19,29 @@ import (
 
 // Handler handles Telegram bot commands.
 type Handler struct {
-	userService    *user.Service
-	accountingRepo domain.AccountingRepo
-	rateFetcher    domain.ExchangeRateFetcher
-	webAppURL      string
-	convManager    *ConversationManager
+	userService      *user.Service
+	accountingRepo   domain.AccountingRepo
+	rateFetcher      domain.ExchangeRateFetcher
+	receiptAnalyzer  domain.ReceiptAnalyzer
+	webAppURL        string
+	convManager      *ConversationManager
 }
 
 // NewHandler creates a new bot Handler.
-func NewHandler(userService *user.Service, accountingRepo domain.AccountingRepo, rateFetcher domain.ExchangeRateFetcher, webAppURL string) *Handler {
+func NewHandler(
+	userService *user.Service,
+	accountingRepo domain.AccountingRepo,
+	rateFetcher domain.ExchangeRateFetcher,
+	receiptAnalyzer domain.ReceiptAnalyzer,
+	webAppURL string,
+) *Handler {
 	return &Handler{
-		userService:    userService,
-		accountingRepo: accountingRepo,
-		rateFetcher:    rateFetcher,
-		webAppURL:      webAppURL,
-		convManager:    NewConversationManager(),
+		userService:     userService,
+		accountingRepo:  accountingRepo,
+		rateFetcher:     rateFetcher,
+		receiptAnalyzer: receiptAnalyzer,
+		webAppURL:       webAppURL,
+		convManager:     NewConversationManager(),
 	}
 }
 
@@ -49,6 +59,9 @@ func (h *Handler) RegisterHandlers(bot *tele.Bot) {
 
 	// Handle text messages for conversation flows
 	bot.Handle(tele.OnText, h.handleText)
+
+	// Handle photo uploads for receipt scanning
+	bot.Handle(tele.OnPhoto, h.handlePhoto)
 
 	// Handle callback queries (inline keyboard buttons)
 	bot.Handle(tele.OnCallback, h.handleCallback)
@@ -237,6 +250,73 @@ func (h *Handler) handleQuick(c tele.Context) error {
 	return c.Send("📝 開始新增消費\n\n請輸入消費名稱：\n\n(輸入 /cancel 取消)")
 }
 
+func (h *Handler) handlePhoto(c tele.Context) error {
+	if h.receiptAnalyzer == nil {
+		return c.Send("📸 收據分析功能尚未啟用")
+	}
+
+	if !h.userService.IsAuthorized(c.Sender().ID) {
+		return c.Send("❌ 未授權的使用者")
+	}
+
+	photo := c.Message().Photo
+	if photo == nil {
+		return c.Send("❌ 無法取得照片")
+	}
+
+	c.Send("🔍 正在分析收據...")
+
+	// Download photo from Telegram
+	reader, err := c.Bot().File(&photo.File)
+	if err != nil {
+		slog.Error("Failed to download photo", "error", err)
+		return c.Send("❌ 無法下載照片")
+	}
+
+	imageData, err := io.ReadAll(reader)
+	if err != nil {
+		return c.Send("❌ 無法讀取照片")
+	}
+
+	// Analyze receipt
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	analysis, err := h.receiptAnalyzer.Analyze(ctx, imageData)
+	if err != nil {
+		slog.Error("Receipt analysis failed", "error", err)
+		return c.Send("❌ 無法辨識收據，請嘗試手動輸入\n/quick")
+	}
+
+	// Store analysis and image in conversation state
+	h.convManager.SetState(c.Sender().ID, &ConversationState{
+		Step:            ReceiptConfirm,
+		ReceiptAnalysis: analysis,
+		ReceiptImage:    imageData,
+	})
+
+	// Format analysis result
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📸 %s\n\n", analysis.Summary))
+	for i, item := range analysis.Items {
+		sb.WriteString(fmt.Sprintf("%d. %s %s ¥%d → %s\n",
+			i+1, item.Category.Emoji(), item.DisplayName(), item.Price, item.Category))
+	}
+	sb.WriteString(fmt.Sprintf("\n合計: %d (%s)\n", analysis.Total, analysis.Currency))
+
+	// Inline buttons
+	keyboard := &tele.ReplyMarkup{}
+	btnSingle := keyboard.Data("📦 整筆記", "receipt", "single")
+	btnSplit := keyboard.Data("📋 拆開記", "receipt", "split")
+	btnCancel := keyboard.Data("❌ 取消", "receipt", "cancel")
+	keyboard.Inline(
+		keyboard.Row(btnSingle, btnSplit),
+		keyboard.Row(btnCancel),
+	)
+
+	return c.Send(sb.String(), keyboard)
+}
+
 func (h *Handler) handleText(c tele.Context) error {
 	userID := c.Sender().ID
 	state := h.convManager.GetState(userID)
@@ -295,6 +375,11 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	// Handle edit field selection (format: "edit_field|{field}")
 	if strings.HasPrefix(data, "edit_field|") {
 		return h.handleEditFieldCallback(c, state, data)
+	}
+
+	// Handle receipt callback (format: "receipt|{action}")
+	if strings.HasPrefix(data, "receipt|") {
+		return h.handleReceiptCallback(c, state, data)
 	}
 
 	if state == nil {
@@ -722,6 +807,188 @@ func (h *Handler) handleEditMethod(c tele.Context, state *ConversationState, val
 📂 %s %s
 💳 %s`,
 		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
+}
+
+func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState, data string) error {
+	parts := strings.Split(data, "|")
+	if len(parts) < 2 {
+		return c.Respond(&tele.CallbackResponse{Text: "無效的選擇"})
+	}
+
+	action := parts[1]
+
+	// Remove inline buttons from the original message
+	if msg := c.Message(); msg != nil {
+		_, _ = c.Bot().Edit(msg, msg.Text)
+	}
+
+	if action == "cancel" {
+		h.convManager.ClearState(c.Sender().ID)
+		_ = c.Respond(&tele.CallbackResponse{Text: "已取消"})
+		return c.Send("❌ 已取消操作")
+	}
+
+	if state == nil || state.ReceiptAnalysis == nil {
+		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
+	}
+
+	if action == "single" {
+		return h.handleReceiptSingle(c, state)
+	}
+
+	if action == "split" {
+		return h.handleReceiptSplit(c, state)
+	}
+
+	return c.Respond(&tele.CallbackResponse{Text: "未知操作"})
+}
+
+func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) error {
+	defer h.convManager.ClearState(c.Sender().ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get user's Notion ID
+	telegramUserID := c.Sender().ID
+	u, err := h.userService.GetUser(domain.GetUserRequest{
+		TelegramID: &telegramUserID,
+	})
+	if err != nil {
+		_ = c.Respond(&tele.CallbackResponse{Text: "取得用戶失敗"})
+		return c.Send("❌ 無法取得用戶資訊")
+	}
+
+	analysis := state.ReceiptAnalysis
+	imageData := state.ReceiptImage
+
+	// Upload photo to Notion
+	receiptURL := ""
+	if len(imageData) > 0 {
+		tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
+		if err != nil {
+			slog.Error("Failed to create temp file", "error", err)
+		} else {
+			defer os.Remove(tmpFile.Name())
+
+			if _, err := tmpFile.Write(imageData); err != nil {
+				slog.Error("Failed to write image to temp file", "error", err)
+			} else {
+				tmpFile.Close()
+				if uploadID, err := h.accountingRepo.UploadFile(ctx, tmpFile.Name()); err != nil {
+					slog.Error("Failed to upload receipt", "error", err)
+				} else {
+					receiptURL = uploadID
+				}
+			}
+		}
+	}
+
+	// Create ONE expense with total amount
+	expense := &domain.Expense{
+		Name:         analysis.Summary,
+		Price:        analysis.Total,
+		Currency:     analysis.Currency,
+		Category:     domain.Category食, // Default to food
+		Method:       domain.PaymentMethodCash,
+		PaidByID:     u.NotionID,
+		ShoppedAt:    time.Now(),
+		ReceiptURL:   receiptURL,
+		ReceiptItems: analysis.Items,
+	}
+
+	if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
+		slog.Error("Failed to create expense", "error", err)
+		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
+		return c.Send("❌ 新增失敗，請稍後再試")
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
+
+	return c.Send(fmt.Sprintf(`✅ 已新增消費記錄
+
+📝 %s
+💰 %d %s
+📂 %s %s
+💳 %s`,
+		expense.Name, expense.Price, expense.Currency, expense.Category.Emoji(), expense.Category, expense.Method.DisplayName()))
+}
+
+func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) error {
+	defer h.convManager.ClearState(c.Sender().ID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Get user's Notion ID
+	telegramUserID := c.Sender().ID
+	u, err := h.userService.GetUser(domain.GetUserRequest{
+		TelegramID: &telegramUserID,
+	})
+	if err != nil {
+		_ = c.Respond(&tele.CallbackResponse{Text: "取得用戶失敗"})
+		return c.Send("❌ 無法取得用戶資訊")
+	}
+
+	analysis := state.ReceiptAnalysis
+	imageData := state.ReceiptImage
+
+	// Upload photo to Notion
+	receiptURL := ""
+	if len(imageData) > 0 {
+		tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
+		if err != nil {
+			slog.Error("Failed to create temp file", "error", err)
+		} else {
+			defer os.Remove(tmpFile.Name())
+
+			if _, err := tmpFile.Write(imageData); err != nil {
+				slog.Error("Failed to write image to temp file", "error", err)
+			} else {
+				tmpFile.Close()
+				if uploadID, err := h.accountingRepo.UploadFile(ctx, tmpFile.Name()); err != nil {
+					slog.Error("Failed to upload receipt", "error", err)
+				} else {
+					receiptURL = uploadID
+				}
+			}
+		}
+	}
+
+	// Create MULTIPLE expenses (one per item)
+	successCount := 0
+	for _, item := range analysis.Items {
+		expense := &domain.Expense{
+			Name:       item.DisplayName(),
+			Price:      item.Price,
+			Currency:   analysis.Currency,
+			Category:   item.Category,
+			Method:     domain.PaymentMethodCash,
+			PaidByID:   u.NotionID,
+			ShoppedAt:  time.Now(),
+			ReceiptURL: receiptURL,
+		}
+
+		if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
+			slog.Error("Failed to create expense", "error", err, "item", item.Name)
+			continue
+		}
+		successCount++
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
+
+	var msgText string
+	if successCount == len(analysis.Items) {
+		msgText = fmt.Sprintf("✅ 已拆開新增 %d 項消費\n\n", successCount)
+		for i, item := range analysis.Items {
+			msgText += fmt.Sprintf("%d. %s %s %d %s\n", i+1, item.Category.Emoji(), item.DisplayName(), item.Price, analysis.Currency)
+		}
+	} else {
+		msgText = fmt.Sprintf("⚠️ 成功新增 %d/%d 項\n\n部分項目新增失敗，請稍後重試", successCount, len(analysis.Items))
+	}
+
+	return c.Send(msgText)
 }
 
 func (h *Handler) handleToday(c tele.Context) error {

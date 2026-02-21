@@ -19,8 +19,8 @@ type Server struct {
 }
 
 // NewServer creates a new Server instance with all dependencies.
-func NewServer(userService *user.Service, accountingRepo domain.AccountingRepo, port, botToken string) (*Server, error) {
-	handler, err := NewHandler(userService, accountingRepo, botToken)
+func NewServer(userService *user.Service, accountingRepo domain.AccountingRepo, port, botToken string, devMode bool) (*Server, error) {
+	handler, err := NewHandler(userService, accountingRepo, botToken, devMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create handler: %w", err)
 	}

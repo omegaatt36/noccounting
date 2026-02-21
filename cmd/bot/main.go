@@ -11,9 +11,11 @@ import (
 	"github.com/omegaatt36/noccounting/internal/app"
 	"github.com/omegaatt36/noccounting/internal/app/bot"
 	"github.com/omegaatt36/noccounting/internal/infrastructure/exchangerate"
+	"github.com/omegaatt36/noccounting/internal/infrastructure/llm"
 	"github.com/omegaatt36/noccounting/internal/persistence/notion"
 	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
 	"github.com/omegaatt36/noccounting/internal/service/user"
+	"github.com/omegaatt36/noccounting/domain"
 )
 
 type config struct {
@@ -23,6 +25,9 @@ type config struct {
 	userMapping      string
 	webAppURL        string
 	logLevel         string
+	llmAPIKey        string
+	llmBaseURL       string
+	llmModel         string
 }
 
 var cfg = config{}
@@ -48,12 +53,18 @@ func wrapMain(ctx context.Context, _ *cli.Command) error {
 	accountingRepo := notion.NewClient(cfg.notionToken, cfg.notionDatabaseID)
 	rateFetcher := exchangerate.NewFinMindClient()
 
+	var receiptAnalyzer domain.ReceiptAnalyzer
+	if cfg.llmAPIKey != "" && cfg.llmBaseURL != "" {
+		receiptAnalyzer = llm.NewAnalyzer(cfg.llmBaseURL, cfg.llmAPIKey, cfg.llmModel)
+	}
+
 	telegramBot, err := bot.New(
 		cfg.telegramToken,
 		cfg.webAppURL,
 		userService,
 		accountingRepo,
 		rateFetcher,
+		receiptAnalyzer,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create bot: %w", err)
@@ -107,6 +118,24 @@ func main() {
 				Sources:     cli.EnvVars("LOG_LEVEL"),
 				Destination: &cfg.logLevel,
 				Value:       "debug",
+			},
+			&cli.StringFlag{
+				Name:        "llm-api-key",
+				Usage:       "API key for OpenAI-compatible LLM endpoint",
+				Sources:     cli.EnvVars("LLM_API_KEY"),
+				Destination: &cfg.llmAPIKey,
+			},
+			&cli.StringFlag{
+				Name:        "llm-base-url",
+				Usage:       "Base URL for OpenAI-compatible LLM endpoint",
+				Sources:     cli.EnvVars("LLM_BASE_URL"),
+				Destination: &cfg.llmBaseURL,
+			},
+			&cli.StringFlag{
+				Name:        "llm-model",
+				Usage:       "Model name for receipt analysis",
+				Sources:     cli.EnvVars("LLM_MODEL"),
+				Destination: &cfg.llmModel,
 			},
 		},
 	}

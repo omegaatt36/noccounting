@@ -34,4 +34,7 @@ type AccountingRepo interface {
 
 	// GetExpenseSummary calculates the expense summary for splitting.
 	GetExpenseSummary(ctx context.Context) (*ExpenseSummary, error)
+
+	// UploadFile uploads a file to the storage backend and returns its URL.
+	UploadFile(ctx context.Context, filePath string) (string, error)
 }

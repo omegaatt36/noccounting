@@ -1,8 +1,22 @@
 package notion
 
 type Page struct {
-	Parent     Parent                 `json:"parent"`
-	Properties map[string]interface{} `json:"properties"`
+	Parent     Parent         `json:"parent"`
+	Properties map[string]any `json:"properties"`
+	Children   []Block        `json:"children,omitempty"`
+}
+
+// Block represents a Notion block for page body content.
+type Block struct {
+	Object           string            `json:"object"`
+	Type             string            `json:"type"`
+	Heading3         *RichTextBlock    `json:"heading_3,omitempty"`
+	BulletedListItem *RichTextBlock    `json:"bulleted_list_item,omitempty"`
+}
+
+// RichTextBlock is a block that contains rich text content.
+type RichTextBlock struct {
+	RichText []RichText `json:"rich_text"`
 }
 
 type Parent struct {
@@ -10,10 +24,10 @@ type Parent struct {
 }
 
 type QueryDatabaseRequest struct {
-	Filter      interface{} `json:"filter,omitempty"`
-	Sorts       []Sort      `json:"sorts,omitempty"`
-	StartCursor string      `json:"start_cursor,omitempty"`
-	PageSize    int         `json:"page_size,omitempty"`
+	Filter      any    `json:"filter,omitempty"`
+	Sorts       []Sort `json:"sorts,omitempty"`
+	StartCursor string `json:"start_cursor,omitempty"`
+	PageSize    int    `json:"page_size,omitempty"`
 }
 
 type Sort struct {
@@ -22,8 +36,8 @@ type Sort struct {
 }
 
 type UpdatePageRequest struct {
-	Properties map[string]interface{} `json:"properties,omitempty"`
-	Archived   bool                   `json:"archived,omitempty"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Archived   bool           `json:"archived,omitempty"`
 }
 
 // Property Helpers
@@ -91,6 +105,26 @@ type QueryResponse struct {
 }
 
 type PageObject struct {
-	ID         string                 `json:"id"`
-	Properties map[string]interface{} `json:"properties"`
+	ID         string         `json:"id"`
+	Properties map[string]any `json:"properties"`
+}
+
+// File upload types
+
+type FileUploadResponse struct {
+	ID string `json:"id"`
+}
+
+type FilesProperty struct {
+	Files []FileReference `json:"files"`
+}
+
+type FileReference struct {
+	Type       string         `json:"type"`
+	Name       string         `json:"name"`
+	FileUpload *FileUploadRef `json:"file_upload,omitempty"`
+}
+
+type FileUploadRef struct {
+	ID string `json:"id"`
 }

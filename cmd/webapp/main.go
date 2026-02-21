@@ -23,6 +23,7 @@ type config struct {
 	port             string
 	telegramBotToken string
 	logLevel         string
+	devMode          bool
 }
 
 var cfg = config{}
@@ -47,7 +48,7 @@ func wrapMain(ctx context.Context, _ *cli.Command) error {
 	userService := user.NewService(userRepo)
 	accountingRepo := notion.NewClient(cfg.notionToken, cfg.notionDatabaseID)
 
-	server, err := webapp.NewServer(userService, accountingRepo, cfg.port, cfg.telegramBotToken)
+	server, err := webapp.NewServer(userService, accountingRepo, cfg.port, cfg.telegramBotToken, cfg.devMode)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
@@ -100,7 +101,6 @@ func main() {
 				Usage:       "Telegram bot token for validating WebApp initData",
 				Sources:     cli.EnvVars("TELEGRAM_BOT_TOKEN"),
 				Destination: &cfg.telegramBotToken,
-				Required:    true,
 			},
 			&cli.StringFlag{
 				Name:        "log-level",
@@ -108,6 +108,12 @@ func main() {
 				Sources:     cli.EnvVars("LOG_LEVEL"),
 				Destination: &cfg.logLevel,
 				Value:       "debug",
+			},
+			&cli.BoolFlag{
+				Name:        "dev-mode",
+				Usage:       "Enable dev mode (skip Telegram auth for local development)",
+				Sources:     cli.EnvVars("DEV_MODE"),
+				Destination: &cfg.devMode,
 			},
 		},
 	}

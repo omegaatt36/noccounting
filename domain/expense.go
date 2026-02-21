@@ -9,7 +9,7 @@ import (
 )
 
 // Category represents expense categories.
-// ENUM(食, 衣, 住, 行, 樂)
+// ENUM(食, 住, 行, 購, 樂, 雜)
 type Category string
 
 // Emoji returns the emoji associated with the category.
@@ -17,21 +17,23 @@ func (c Category) Emoji() string {
 	switch c {
 	case Category食:
 		return "🍜"
-	case Category衣:
-		return "👔"
 	case Category住:
 		return "🏠"
 	case Category行:
 		return "🚃"
+	case Category購:
+		return "🛍️"
 	case Category樂:
-		return "🎮"
+		return "🎯"
+	case Category雜:
+		return "📎"
 	default:
 		return "❓"
 	}
 }
 
 // PaymentMethod represents payment methods.
-// ENUM(cash, credit_card, ic_card, paypay)
+// ENUM(cash, credit_card, ic_card, e_pay)
 type PaymentMethod string
 
 // DisplayName returns a human-readable name for the payment method.
@@ -43,8 +45,8 @@ func (p PaymentMethod) DisplayName() string {
 		return "信用卡"
 	case PaymentMethodIcCard:
 		return "IC卡"
-	case PaymentMethodPaypay:
-		return "PayPay"
+	case PaymentMethodEPay:
+		return "電子支付"
 	default:
 		return string(p)
 	}
@@ -65,6 +67,8 @@ type Expense struct {
 	Method       PaymentMethod
 	PaidByID     string // User ID in the storage system
 	ShoppedAt    time.Time
+	ReceiptURL   string        // Notion-hosted receipt photo URL
+	ReceiptItems []ReceiptItem // Transient: receipt line items for page body content
 }
 
 // PriceDecimal returns the price as a decimal.
