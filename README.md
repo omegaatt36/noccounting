@@ -23,7 +23,7 @@ domain/             Business models, enums, repository interfaces
 internal/
 ├── app/
 │   ├── bot/        Telegram handlers (text commands, receipt photo, inline callbacks)
-│   └── webapp/     HTTP handlers, Templ components, middleware, static serving
+│   └── webapp/     HTTP handlers, Templ components (+ templui UI), middleware, static serving
 ├── infrastructure/
 │   ├── llm/        OpenAI-compatible vision API client (receipt analysis)
 │   └── exchangerate/  FinMind exchange rate client
@@ -45,7 +45,8 @@ helm/               Kubernetes Helm chart
 | Bot | [telebot.v4](https://gopkg.in/telebot.v4) |
 | Web Frontend | [Templ](https://templ.guide) components + [HTMX](https://htmx.org) + [Tailwind CSS v4](https://tailwindcss.com) |
 | TypeScript | [tsgo](https://github.com/microsoft/typescript-go) (Go-native compiler, zero node_modules) |
-| Theme | Nord dark palette |
+| UI Components | [templui](https://templui.com) (Button, Input, Tabs, Toast, etc.) |
+| Theme | [Flexoki Dark](https://stephango.com/flexoki) palette |
 | Database | Notion API |
 | Receipt Analysis | OpenAI-compatible vision API (via LiteLLM or similar) |
 | Exchange Rates | [FinMind API](https://finmindtrade.com/) |
