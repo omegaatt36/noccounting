@@ -1,5 +1,12 @@
 package components
 
+import (
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/button"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/input"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/label"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/tabs"
+)
+
 templ ExpenseForm() {
 	<form
 		id="expense-form"
@@ -9,140 +16,167 @@ templ ExpenseForm() {
 		class="space-y-4"
 	>
 		<input type="hidden" id="init_data" name="init_data" value=""/>
-
 		<!-- Header -->
 		<h1 class="text-xl font-bold text-center py-1">📝 新增消費</h1>
-
 		<!-- 1. Name -->
 		<div>
-			<label class="block text-sm font-medium mb-1 text-nord-snow0">消費名稱</label>
-			<input
-				type="text"
-				id="name"
-				name="name"
-				required
-				placeholder="例：拉麵"
-				class="w-full px-4 py-3 rounded-xl outline-none text-base transition bg-nord-polar1 text-nord-snow2 focus:ring-2 focus:ring-nord-frost1/50"
-			/>
+			@label.Label(label.Props{For: "name"}) {
+				消費名稱
+			}
+			@input.Input(input.Props{
+				ID:          "name",
+				Name:        "name",
+				Type:        input.TypeText,
+				Placeholder: "例：拉麵",
+				Attributes:  templ.Attributes{"required": true},
+			})
 		</div>
-
 		<!-- 2. Price + 3. Category (side by side) -->
 		<div class="grid grid-cols-5 gap-3">
 			<!-- Price: 2 cols -->
 			<div class="col-span-2">
-				<label class="block text-sm font-medium mb-1 text-nord-snow0">金額</label>
-				<input
-					type="number"
-					id="price"
-					name="price"
-					required
-					min="1"
-					inputmode="numeric"
-					placeholder="0"
-					class="w-full px-4 py-3 rounded-xl outline-none text-base transition bg-nord-polar1 text-nord-snow2 focus:ring-2 focus:ring-nord-frost1/50"
-				/>
+				@label.Label(label.Props{For: "price"}) {
+					金額
+				}
+				@input.Input(input.Props{
+					ID:          "price",
+					Name:        "price",
+					Type:        input.TypeNumber,
+					Placeholder: "0",
+					Attributes: templ.Attributes{
+						"required":  true,
+						"min":       "1",
+						"inputmode": "numeric",
+					},
+				})
 			</div>
 			<!-- Category: 3 cols -->
 			<div class="col-span-3">
-				<label class="block text-sm font-medium mb-1 text-nord-snow0">分類</label>
+				@label.Label(label.Props{}) {
+					分類
+				}
 				<input type="hidden" name="category" id="category-input" value="食"/>
-				<div class="grid grid-cols-3 gap-1.5" id="category-grid">
-					<button type="button" data-value="食" class="category-btn selected p-2 rounded-lg text-center text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-						🍜 食
-					</button>
-					<button type="button" data-value="住" class="category-btn p-2 rounded-lg text-center text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-						🏠 住
-					</button>
-					<button type="button" data-value="行" class="category-btn p-2 rounded-lg text-center text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-						🚃 行
-					</button>
-					<button type="button" data-value="購" class="category-btn p-2 rounded-lg text-center text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-						🛍️ 購
-					</button>
-					<button type="button" data-value="樂" class="category-btn p-2 rounded-lg text-center text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-						🎯 樂
-					</button>
-					<button type="button" data-value="雜" class="category-btn p-2 rounded-lg text-center text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-						📎 雜
-					</button>
-				</div>
+				@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
+					@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}) {
+						@tabs.Trigger(tabs.TriggerProps{Value: "食", IsActive: true}) {
+							🍜 食
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "住"}) {
+							🏠 住
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "行"}) {
+							🚃 行
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "購"}) {
+							🛍️ 購
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "樂"}) {
+							🎯 樂
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "雜"}) {
+							📎 雜
+						}
+					}
+				}
 			</div>
 		</div>
-
-		<!-- 4. Currency + Exchange Rate -->
+		<!-- 4. Payment Method -->
 		<div>
-			<label class="block text-sm font-medium mb-1 text-nord-snow0">幣別</label>
+			@label.Label(label.Props{}) {
+				付款
+			}
+			<input type="hidden" name="method" id="method-input" value="cash"/>
+			@tabs.Tabs(tabs.Props{ID: "method-tabs"}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto"}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "cash", IsActive: true}) {
+						💵 現金
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "credit_card"}) {
+						💳 信用卡
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "ic_card"}) {
+						🎫 IC卡
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "e_pay"}) {
+						📱 電子支付
+					}
+				}
+			}
+		</div>
+		<!-- 5. Currency + Exchange Rate -->
+		<div>
+			@label.Label(label.Props{}) {
+				幣別
+			}
 			<input type="hidden" name="currency" id="currency-input" value="JPY"/>
-			<div class="flex gap-2 mb-2" id="currency-toggle">
-				<button type="button" data-value="JPY" class="currency-btn selected flex-1 py-2.5 rounded-xl text-center font-medium text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-					🇯🇵 JPY
-				</button>
-				<button type="button" data-value="TWD" class="currency-btn flex-1 py-2.5 rounded-xl text-center font-medium text-sm cursor-pointer transition border border-nord-polar3 bg-nord-polar1 text-nord-snow2 hover:opacity-90">
-					🇹🇼 TWD
-				</button>
-			</div>
-			<div id="exchange-rate-section" class="flex items-center gap-2">
-				<label class="text-sm whitespace-nowrap text-nord-snow0">匯率</label>
-				<input
-					type="text"
-					name="exchange_rate"
-					id="exchange-rate-input"
-					value="0.22"
-					inputmode="decimal"
-					class="flex-1 px-3 py-2 rounded-xl outline-none text-sm bg-nord-polar1 text-nord-snow2 focus:ring-2 focus:ring-nord-frost1/50"
-				/>
-				<button type="button" id="fetch-rate-btn" class="px-3 py-2 rounded-xl text-sm cursor-pointer transition bg-nord-polar1 text-nord-snow2 hover:opacity-90">
+			@tabs.Tabs(tabs.Props{ID: "currency-tabs"}) {
+				@tabs.List(tabs.ListProps{Class: "flex gap-2 w-full"}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "JPY", IsActive: true, Class: "flex-1"}) {
+						🇯🇵 JPY
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "TWD", Class: "flex-1"}) {
+						🇹🇼 TWD
+					}
+				}
+			}
+			<div id="exchange-rate-section" class="flex items-center gap-2 mt-3">
+				<label class="text-sm whitespace-nowrap text-muted-foreground">匯率</label>
+				@input.Input(input.Props{
+					ID:    "exchange-rate-input",
+					Name:  "exchange_rate",
+					Type:  input.TypeText,
+					Value: "0.22",
+					Attributes: templ.Attributes{
+						"inputmode": "decimal",
+					},
+					Class: "flex-1",
+				})
+				@button.Button(button.Props{
+					ID:   "fetch-rate-btn",
+					Type: button.TypeButton,
+					Size: button.SizeIcon,
+				}) {
 					<span class="fetch-text">🔄</span>
 					<span class="fetch-loading hidden">⏳</span>
-				</button>
-				<span id="rate-status" class="text-xs text-nord-snow0"></span>
+				}
+				<span id="rate-status" class="text-xs text-muted-foreground"></span>
 			</div>
 		</div>
-
-		<!-- 5. Payment Method + 6. Paid By + 7. Date (3-col) -->
-		<div class="grid grid-cols-3 gap-3">
+		<!-- 6. Paid By + Date -->
+		<div class="grid grid-cols-2 gap-3">
 			<div>
-				<label class="block text-sm font-medium mb-1 text-nord-snow0">付款</label>
-				<select
-					name="method"
-					id="method-select"
-					class="w-full px-2 py-3 rounded-xl outline-none text-sm bg-nord-polar1 text-nord-snow2"
-				>
-					<option value="cash">💵 現金</option>
-					<option value="credit_card">💳 信用卡</option>
-					<option value="ic_card">🎫 IC卡</option>
-					<option value="e_pay">📱 電子支付</option>
-				</select>
-			</div>
-			<div>
-				<label class="block text-sm font-medium mb-1 text-nord-snow0">付款人</label>
+				@label.Label(label.Props{For: "paid-by-select"}) {
+					付款人
+				}
 				<select
 					name="paid_by"
 					id="paid-by-select"
-					class="w-full px-2 py-3 rounded-xl outline-none text-sm bg-nord-polar1 text-nord-snow2"
+					class="w-full px-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
 				>
 					<!-- Populated by JavaScript -->
 				</select>
 			</div>
 			<div>
-				<label class="block text-sm font-medium mb-1 text-nord-snow0">日期</label>
-				<input
-					type="date"
-					name="shopped_at"
-					id="date-input"
-					class="w-full px-2 py-3 rounded-xl outline-none text-sm bg-nord-polar1 text-nord-snow2 focus:ring-2 focus:ring-nord-frost1/50"
-				/>
+				@label.Label(label.Props{For: "date-input"}) {
+					日期
+				}
+				@input.Input(input.Props{
+					ID:   "date-input",
+					Name: "shopped_at",
+					Type: input.TypeDate,
+				})
 			</div>
 		</div>
-
-		<!-- 8. Submit -->
-		<button
-			type="submit"
-			id="submit-btn"
-			class="w-full py-4 rounded-xl font-bold text-lg transition active:scale-[0.98] disabled:opacity-50 bg-nord-frost1 text-nord-polar0 hover:bg-nord-frost0"
-		>
+		<!-- 7. Submit -->
+		@button.Button(button.Props{
+			ID:        "submit-btn",
+			Type:      button.TypeSubmit,
+			FullWidth: true,
+			Variant:   button.VariantDefault,
+			Size:      button.SizeLg,
+		}) {
 			<span class="btn-text">✅ 新增消費</span>
 			<span class="btn-loading hidden">⏳ 處理中...</span>
-		</button>
+		}
 	</form>
 }

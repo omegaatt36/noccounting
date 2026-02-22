@@ -8,4 +8,7 @@ require (
 	gopkg.in/telebot.v4 v4.0.0-beta.7
 )
 
-require github.com/a-h/templ v0.3.977
+require (
+	github.com/Oudwins/tailwind-merge-go v0.2.1
+	github.com/a-h/templ v0.3.977
+)

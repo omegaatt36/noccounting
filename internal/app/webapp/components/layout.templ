@@ -1,8 +1,16 @@
 package components
 
+import (
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/skeleton"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/alert"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/tabs"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
+)
+
 templ Page(devMode bool) {
 	<!DOCTYPE html>
-	<html lang="zh-TW">
+	<html lang="zh-TW" class="dark">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
@@ -10,54 +18,43 @@ templ Page(devMode bool) {
 			<link rel="stylesheet" href="/static/output.css"/>
 			<script src="https://telegram.org/js/telegram-web-app.js"></script>
 			<script src="https://unpkg.com/htmx.org@2.0.4"></script>
-			<style>
-				/* Dynamic states — Tailwind CDN can't generate classes toggled by JS */
-				.selected {
-					background-color: #88C0D0 !important;
-					color: #2E3440 !important;
-					border-color: #88C0D0 !important;
-				}
-				@keyframes spin {
-					to { transform: rotate(360deg); }
-				}
-				@keyframes fadeIn {
-					from { opacity: 0; transform: translateY(-8px); }
-					to { opacity: 1; transform: translateY(0); }
-				}
-			</style>
+			@tabs.Script()
+			@toast.Script()
 		</head>
-		<body class="font-sans min-h-screen bg-nord-polar0 text-nord-snow2">
+		<body class="font-sans min-h-screen bg-background text-foreground">
 			<div id="loading" class="flex flex-col items-center justify-center min-h-screen">
-				@Loading()
+				<div class="max-w-md w-full px-4">
+					@card.Card(card.Props{}) {
+						@card.Content(card.ContentProps{}) {
+							@skeleton.Skeleton(skeleton.Props{Class: "h-8 w-48 mx-auto mb-6"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-12 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-12 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-10 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-10 w-full mb-4"})
+							@skeleton.Skeleton(skeleton.Props{Class: "h-14 w-full"})
+						}
+					}
+				</div>
 			</div>
-			<div id="forbidden" class="hidden flex-col items-center justify-center min-h-screen">
-				@Forbidden()
+			<div id="forbidden" class="hidden flex flex-col items-center justify-center min-h-screen">
+				<div class="max-w-md w-full px-4">
+					@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+						@alert.Title() { 存取被拒絕 }
+						@alert.Description() { 你沒有權限使用此應用程式，請聯繫管理員 }
+					}
+				</div>
 			</div>
 			<div id="app" class="hidden max-w-md mx-auto px-4 py-6">
-				@ExpenseForm()
+				@card.Card(card.Props{}) {
+					@card.Content(card.ContentProps{}) {
+						@ExpenseForm()
+					}
+				}
 			</div>
 			<div id="result" class="fixed top-4 left-4 right-4 z-50"></div>
 			@initScript(devMode)
 		</body>
 	</html>
-}
-
-templ Loading() {
-	<div class="text-center">
-		<div
-			class="inline-block w-10 h-10 border-4 rounded-full border-nord-polar1 border-t-nord-frost1"
-			style="animation: spin 1s linear infinite;"
-		></div>
-		<p class="mt-4 text-sm text-nord-snow0">驗證中...</p>
-	</div>
-}
-
-templ Forbidden() {
-	<div class="text-center">
-		<p class="text-6xl mb-4">🚫</p>
-		<p class="text-xl font-bold mb-2 text-nord-red">存取被拒絕</p>
-		<p class="text-sm text-nord-snow0">你沒有權限使用此應用程式<br/>請聯繫管理員</p>
-	</div>
 }
 
 templ initScript(devMode bool) {

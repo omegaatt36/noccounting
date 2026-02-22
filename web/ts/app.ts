@@ -1,7 +1,7 @@
 import { initTelegram } from "./telegram.js";
 import { authenticate } from "./auth.js";
 import { restoreDefaults } from "./storage.js";
-import { setupEventListeners, updateButtonGroup } from "./form.js";
+import { setupEventListeners } from "./form.js";
 import { updateExchangeRateVisibility, fetchExchangeRate } from "./exchange-rate.js";
 
 const DEV_MODE = !!document.getElementById("dev-mode-flag");
@@ -16,7 +16,7 @@ setupEventListeners(ctx);
 
 // Authenticate and initialize
 authenticate(ctx, DEV_MODE).then(() => {
-  restoreDefaults(updateButtonGroup, updateExchangeRateVisibility);
+  restoreDefaults(updateExchangeRateVisibility);
 
   const currencyInput = document.getElementById("currency-input") as HTMLInputElement | null;
   if (currencyInput?.value === "JPY") {
