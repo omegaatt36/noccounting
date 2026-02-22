@@ -1,0 +1,7 @@
+{
+  "componentsDir": "internal/app/webapp/components/ui",
+  "utilsDir": "internal/app/webapp/components/utils",
+  "moduleName": "github.com/omegaatt36/noccounting",
+  "jsDir": "internal/app/webapp/static",
+  "jsPublicPath": "/static"
+}

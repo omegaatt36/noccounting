@@ -1,20 +1,47 @@
 @import "tailwindcss";
 
 @theme {
-  --color-nord-polar0: #2E3440;
-  --color-nord-polar1: #3B4252;
-  --color-nord-polar2: #434C5E;
-  --color-nord-polar3: #4C566A;
-  --color-nord-snow0: #D8DEE9;
-  --color-nord-snow1: #E5E9F0;
-  --color-nord-snow2: #ECEFF4;
-  --color-nord-frost0: #8FBCBB;
-  --color-nord-frost1: #88C0D0;
-  --color-nord-frost2: #81A1C1;
-  --color-nord-frost3: #5E81AC;
-  --color-nord-red: #BF616A;
-  --color-nord-green: #A3BE8C;
-  --color-nord-yellow: #EBCB8B;
-  --color-nord-orange: #D08770;
-  --color-nord-purple: #B48EAD;
+  /* Flexoki Dark palette — https://stephango.com/flexoki */
+  --color-flexoki-black: #100F0F;
+  --color-flexoki-950: #1C1B1A;
+  --color-flexoki-900: #282726;
+  --color-flexoki-850: #343331;
+  --color-flexoki-800: #403E3C;
+  --color-flexoki-700: #575653;
+  --color-flexoki-600: #6F6E69;
+  --color-flexoki-500: #878580;
+  --color-flexoki-400: #9F9D96;
+  --color-flexoki-300: #B7B5AC;
+  --color-flexoki-200: #CECDC3;
+  --color-flexoki-100: #E6E4D9;
+  --color-flexoki-paper: #FFFCF0;
+  --color-flexoki-red: #D14D41;
+  --color-flexoki-orange: #DA702C;
+  --color-flexoki-yellow: #D0A215;
+  --color-flexoki-green: #879A39;
+  --color-flexoki-cyan: #3AA99F;
+  --color-flexoki-blue: #4385BE;
+  --color-flexoki-purple: #8B7EC8;
+  --color-flexoki-magenta: #CE5D97;
+
+  /* templui theme mapping → Flexoki Dark */
+  --color-background: #100F0F;
+  --color-foreground: #CECDC3;
+  --color-card: #1C1B1A;
+  --color-card-foreground: #CECDC3;
+  --color-popover: #1C1B1A;
+  --color-popover-foreground: #CECDC3;
+  --color-primary: #4385BE;
+  --color-primary-foreground: #100F0F;
+  --color-secondary: #343331;
+  --color-secondary-foreground: #CECDC3;
+  --color-muted: #282726;
+  --color-muted-foreground: #878580;
+  --color-accent: #3AA99F;
+  --color-accent-foreground: #100F0F;
+  --color-destructive: #D14D41;
+  --color-destructive-foreground: #CECDC3;
+  --color-border: #403E3C;
+  --color-input: #403E3C;
+  --color-ring: #4385BE;
 }
