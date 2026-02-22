@@ -1,7 +1,19 @@
 name: Build and Push Docker Images
 
 on:
+  push:
+    tags:
+      - "v*"
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to build from"
+        required: true
+      tag:
+        description: "Image tag (e.g. v1.2.3)"
+        required: true
 
 env:
   BOT_IMAGE: omegaatt36/noccounting-bot
@@ -17,6 +29,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.ref_name || github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -24,14 +44,27 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Determine image tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Extract metadata for Bot
         id: meta-bot
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.BOT_IMAGE }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.tag }}
 
       - name: Extract metadata for Web
         id: meta-web
@@ -39,23 +72,29 @@ jobs:
         with:
           images: ${{ env.WEB_IMAGE }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.tag }}
 
       - name: Build and push Bot image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./build/bot/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-bot.outputs.tags }}
           labels: ${{ steps.meta-bot.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push Web image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./build/webapp/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
