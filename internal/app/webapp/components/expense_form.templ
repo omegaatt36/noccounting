@@ -18,21 +18,51 @@ templ ExpenseForm() {
 		<input type="hidden" id="init_data" name="init_data" value=""/>
 		<!-- Header -->
 		<h1 class="text-xl font-bold text-center py-1">📝 新增消費</h1>
-		<!-- 1. Name -->
+		<!-- 1. Category (full width) -->
 		<div>
-			@label.Label(label.Props{For: "name"}) {
-				消費名稱
+			@label.Label(label.Props{}) {
+				分類
 			}
-			@input.Input(input.Props{
-				ID:          "name",
-				Name:        "name",
-				Type:        input.TypeText,
-				Placeholder: "例：拉麵",
-				Attributes:  templ.Attributes{"required": true},
-			})
+			<input type="hidden" name="category" id="category-input" value="食"/>
+			@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "食", IsActive: true}) {
+						🍜 食
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "住"}) {
+						🏠 住
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "行"}) {
+						🚃 行
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "購"}) {
+						🛍️ 購
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "樂"}) {
+						🎯 樂
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "雜"}) {
+						📎 雜
+					}
+				}
+			}
 		</div>
-		<!-- 2. Price + 3. Category (side by side) -->
+		<!-- 2. Name + Price (side by side) -->
 		<div class="grid grid-cols-5 gap-3">
+			<!-- Name: 3 cols -->
+			<div class="col-span-3">
+				@label.Label(label.Props{For: "name"}) {
+					消費名稱
+				}
+				@input.Input(input.Props{
+					ID:          "name",
+					Name:        "name",
+					Type:        input.TypeText,
+					Placeholder: "例：拉麵",
+					Attributes:  templ.Attributes{"required": true},
+				})
+				<p id="name-error" class="hidden text-xs text-destructive mt-1">請輸入消費名稱</p>
+			</div>
 			<!-- Price: 2 cols -->
 			<div class="col-span-2">
 				@label.Label(label.Props{For: "price"}) {
@@ -49,61 +79,10 @@ templ ExpenseForm() {
 						"inputmode": "numeric",
 					},
 				})
-			</div>
-			<!-- Category: 3 cols -->
-			<div class="col-span-3">
-				@label.Label(label.Props{}) {
-					分類
-				}
-				<input type="hidden" name="category" id="category-input" value="食"/>
-				@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
-					@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}) {
-						@tabs.Trigger(tabs.TriggerProps{Value: "食", IsActive: true}) {
-							🍜 食
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "住"}) {
-							🏠 住
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "行"}) {
-							🚃 行
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "購"}) {
-							🛍️ 購
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "樂"}) {
-							🎯 樂
-						}
-						@tabs.Trigger(tabs.TriggerProps{Value: "雜"}) {
-							📎 雜
-						}
-					}
-				}
+				<p id="price-error" class="hidden text-xs text-destructive mt-1">請輸入有效金額</p>
 			</div>
 		</div>
-		<!-- 4. Payment Method -->
-		<div>
-			@label.Label(label.Props{}) {
-				付款
-			}
-			<input type="hidden" name="method" id="method-input" value="cash"/>
-			@tabs.Tabs(tabs.Props{ID: "method-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto"}) {
-					@tabs.Trigger(tabs.TriggerProps{Value: "cash", IsActive: true}) {
-						💵 現金
-					}
-					@tabs.Trigger(tabs.TriggerProps{Value: "credit_card"}) {
-						💳 信用卡
-					}
-					@tabs.Trigger(tabs.TriggerProps{Value: "ic_card"}) {
-						🎫 IC卡
-					}
-					@tabs.Trigger(tabs.TriggerProps{Value: "e_pay"}) {
-						📱 電子支付
-					}
-				}
-			}
-		</div>
-		<!-- 5. Currency + Exchange Rate -->
+		<!-- 3. Currency + Exchange Rate -->
 		<div>
 			@label.Label(label.Props{}) {
 				幣別
@@ -142,7 +121,30 @@ templ ExpenseForm() {
 				<span id="rate-status" class="text-xs text-muted-foreground"></span>
 			</div>
 		</div>
-		<!-- 6. Paid By + Date -->
+		<!-- 4. Payment Method -->
+		<div>
+			@label.Label(label.Props{}) {
+				付款
+			}
+			<input type="hidden" name="method" id="method-input" value="cash"/>
+			@tabs.Tabs(tabs.Props{ID: "method-tabs"}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto"}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "cash", IsActive: true}) {
+						💵 現金
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "credit_card"}) {
+						💳 信用卡
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "ic_card"}) {
+						🎫 IC卡
+					}
+					@tabs.Trigger(tabs.TriggerProps{Value: "e_pay"}) {
+						📱 電子支付
+					}
+				}
+			}
+		</div>
+		<!-- 5. Paid By + Date -->
 		<div class="grid grid-cols-2 gap-3">
 			<div>
 				@label.Label(label.Props{For: "paid-by-select"}) {
@@ -167,7 +169,7 @@ templ ExpenseForm() {
 				})
 			</div>
 		</div>
-		<!-- 7. Submit -->
+		<!-- 6. Submit -->
 		@button.Button(button.Props{
 			ID:        "submit-btn",
 			Type:      button.TypeSubmit,

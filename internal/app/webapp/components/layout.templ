@@ -44,14 +44,36 @@ templ Page(devMode bool) {
 					}
 				</div>
 			</div>
-			<div id="app" class="hidden max-w-md mx-auto px-4 py-6">
-				@card.Card(card.Props{}) {
-					@card.Content(card.ContentProps{}) {
-						@ExpenseForm()
+			<div id="app" class="hidden max-w-md mx-auto px-4 py-6 pb-20">
+				<!-- Form View (default visible) -->
+				<div id="view-form">
+					@card.Card(card.Props{}) {
+						@card.Content(card.ContentProps{}) {
+							@ExpenseForm()
+						}
 					}
-				}
+				</div>
+				<!-- Dashboard View (hidden, loaded via HTMX on first show) -->
+				<div id="view-dashboard" class="hidden">
+					@card.Card(card.Props{}) {
+						@card.Content(card.ContentProps{}) {
+							<h1 class="text-xl font-bold text-center py-1 mb-4">📊 Dashboard</h1>
+							<div id="dashboard-content"
+								hx-get="/partial/dashboard?range=all"
+								hx-trigger="intersect once"
+								hx-swap="innerHTML"
+							>
+								<!-- Loading skeleton -->
+								@skeleton.Skeleton(skeleton.Props{Class: "h-20 w-full mb-4"})
+								@skeleton.Skeleton(skeleton.Props{Class: "h-32 w-full mb-4"})
+								@skeleton.Skeleton(skeleton.Props{Class: "h-24 w-full"})
+							</div>
+						}
+					}
+				</div>
+				<div id="result" class="fixed top-4 left-4 right-4 z-50"></div>
+				@BottomNav()
 			</div>
-			<div id="result" class="fixed top-4 left-4 right-4 z-50"></div>
 			@initScript(devMode)
 		</body>
 	</html>

@@ -8,6 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app"
 	"github.com/omegaatt36/noccounting/internal/app/bot"
 	"github.com/omegaatt36/noccounting/internal/infrastructure/exchangerate"
@@ -15,7 +16,6 @@ import (
 	"github.com/omegaatt36/noccounting/internal/persistence/notion"
 	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
 	"github.com/omegaatt36/noccounting/internal/service/user"
-	"github.com/omegaatt36/noccounting/domain"
 )
 
 type config struct {

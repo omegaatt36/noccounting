@@ -2,11 +2,10 @@
 package utils
 
 import (
+	"crypto/rand"
 	"fmt"
 	"maps"
 	"time"
-
-	"crypto/rand"
 
 	"github.com/a-h/templ"
 

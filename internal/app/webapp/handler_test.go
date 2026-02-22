@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/user"
@@ -805,6 +806,9 @@ func TestRegisterRoutes(t *testing.T) {
 		"GET /api/users",
 		"POST /api/expense",
 		"GET /health",
+		"GET /partial/form",
+		"GET /partial/dashboard",
+		"GET /api/export/csv",
 	}
 
 	for _, route := range routes {
@@ -823,5 +827,160 @@ func TestRegisterRoutes(t *testing.T) {
 		if w.Code == http.StatusNotFound {
 			t.Errorf("route %s %s should be registered", method, path)
 		}
+	}
+}
+
+// TestHandleDashboardDevMode tests dashboard rendering in dev mode.
+func TestHandleDashboardDevMode(t *testing.T) {
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{
+		expenses: []domain.Expense{
+			{
+				ID:        "expense-1",
+				Name:      "Lunch",
+				Price:     100,
+				Currency:  domain.CurrencyTWD,
+				Category:  domain.Category食,
+				Method:    domain.PaymentMethodCash,
+				PaidByID:  "notion-123",
+				ShoppedAt: time.Now(),
+			},
+		},
+	}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", true)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/partial/dashboard?range=all", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleDashboardContent(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body == "" {
+		t.Errorf("expected non-empty HTML response")
+	}
+}
+
+// TestHandleExportCSVDevMode tests CSV export in dev mode.
+func TestHandleExportCSVDevMode(t *testing.T) {
+	telegramID := int64(123456789)
+	mockRepo := &mockAccountingRepo{
+		expenses: []domain.Expense{
+			{
+				ID:        "expense-1",
+				Name:      "Lunch",
+				Price:     100,
+				Currency:  domain.CurrencyTWD,
+				Category:  domain.Category食,
+				Method:    domain.PaymentMethodCash,
+				PaidByID:  "notion-123",
+				ShoppedAt: time.Date(2026, 2, 22, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	mockUserRepo := &mockUserRepo{
+		users: map[int64]*domain.User{
+			telegramID: {
+				ID:         1,
+				TelegramID: telegramID,
+				NotionID:   "notion-123",
+				Nickname:   "John Doe",
+			},
+		},
+	}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", true)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/export/csv?range=all", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleExportCSV(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "text/csv; charset=utf-8" {
+		t.Errorf("expected Content-Type 'text/csv; charset=utf-8', got %q", contentType)
+	}
+
+	disposition := w.Header().Get("Content-Disposition")
+	if !strings.Contains(disposition, "attachment") {
+		t.Errorf("expected Content-Disposition to contain 'attachment', got %q", disposition)
+	}
+
+	body := w.Body.String()
+	// Check for BOM
+	if !strings.HasPrefix(body, "\xef\xbb\xbf") {
+		t.Errorf("expected CSV to start with BOM")
+	}
+
+	// Check for header row
+	if !strings.Contains(body, "日期") {
+		t.Errorf("expected CSV header to contain '日期'")
+	}
+
+	// Check for data
+	if !strings.Contains(body, "Lunch") {
+		t.Errorf("expected CSV data to contain 'Lunch'")
+	}
+}
+
+// TestHandleExportCSVEmpty tests CSV export with no data.
+func TestHandleExportCSVEmpty(t *testing.T) {
+	mockRepo := &mockAccountingRepo{
+		expenses: []domain.Expense{},
+	}
+	mockUserRepo := &mockUserRepo{users: make(map[int64]*domain.User)}
+	userService := user.NewService(mockUserRepo)
+	handler, err := NewHandler(userService, mockRepo, "test-token", true)
+	if err != nil {
+		t.Fatalf("failed to create handler: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/export/csv?range=all", nil)
+	w := httptest.NewRecorder()
+
+	handler.handleExportCSV(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	contentType := w.Header().Get("Content-Type")
+	if contentType != "text/csv; charset=utf-8" {
+		t.Errorf("expected Content-Type 'text/csv; charset=utf-8', got %q", contentType)
+	}
+
+	body := w.Body.String()
+	// Check for BOM
+	if !strings.HasPrefix(body, "\xef\xbb\xbf") {
+		t.Errorf("expected CSV to start with BOM")
+	}
+
+	// Check for header row even with no data
+	if !strings.Contains(body, "日期") {
+		t.Errorf("expected CSV to contain header row even when empty")
 	}
 }

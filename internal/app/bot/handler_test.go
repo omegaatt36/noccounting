@@ -192,8 +192,10 @@ func (m *mockContext) Set(_ string, _ any)         {}
 
 // --- Test Fixtures ---
 
-const testTelegramUserID int64 = 12345
-const testNotionUserID = "notion-user-abc"
+const (
+	testTelegramUserID int64 = 12345
+	testNotionUserID         = "notion-user-abc"
+)
 
 func newTestAnalysis() *domain.ReceiptAnalysis {
 	return &domain.ReceiptAnalysis{

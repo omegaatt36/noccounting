@@ -19,12 +19,12 @@ import (
 
 // Handler handles Telegram bot commands.
 type Handler struct {
-	userService      *user.Service
-	accountingRepo   domain.AccountingRepo
-	rateFetcher      domain.ExchangeRateFetcher
-	receiptAnalyzer  domain.ReceiptAnalyzer
-	webAppURL        string
-	convManager      *ConversationManager
+	userService     *user.Service
+	accountingRepo  domain.AccountingRepo
+	rateFetcher     domain.ExchangeRateFetcher
+	receiptAnalyzer domain.ReceiptAnalyzer
+	webAppURL       string
+	convManager     *ConversationManager
 }
 
 // NewHandler creates a new bot Handler.
@@ -156,7 +156,6 @@ func (h *Handler) handleAdd(c tele.Context) error {
 	u, err := h.userService.GetUser(domain.GetUserRequest{
 		TelegramID: &telegramUserID,
 	})
-
 	if err != nil {
 		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
 	}

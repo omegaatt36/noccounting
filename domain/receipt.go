@@ -21,7 +21,7 @@ func (r ReceiptItem) DisplayName() string {
 
 // ReceiptAnalysis represents the result of analyzing a receipt image.
 type ReceiptAnalysis struct {
-	Summary  string        // Short readable name, e.g. "松屋 午餐", "全家便利商店"
+	Summary  string // Short readable name, e.g. "松屋 午餐", "全家便利商店"
 	Items    []ReceiptItem
 	Currency Currency
 	Total    uint64

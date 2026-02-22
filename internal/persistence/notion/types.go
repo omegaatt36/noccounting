@@ -8,10 +8,10 @@ type Page struct {
 
 // Block represents a Notion block for page body content.
 type Block struct {
-	Object           string            `json:"object"`
-	Type             string            `json:"type"`
-	Heading3         *RichTextBlock    `json:"heading_3,omitempty"`
-	BulletedListItem *RichTextBlock    `json:"bulleted_list_item,omitempty"`
+	Object           string         `json:"object"`
+	Type             string         `json:"type"`
+	Heading3         *RichTextBlock `json:"heading_3,omitempty"`
+	BulletedListItem *RichTextBlock `json:"bulleted_list_item,omitempty"`
 }
 
 // RichTextBlock is a block that contains rich text content.

@@ -8,74 +8,37 @@ import {
 
 const $ = (id: string) => document.getElementById(id);
 
-function showToast(
-  success: boolean,
-  name: string,
-  price: string,
-  currency: string,
-  categoryEmoji: string,
-  twdAmount: string,
-  errorMsg: string,
-): void {
-  const position = "top-center";
-  const variant = success ? "success" : "error";
-  const duration = 3000;
+function validateField(fieldId: string, errorId: string, check: (value: string) => boolean): boolean {
+  const field = document.getElementById(fieldId) as HTMLInputElement | null;
+  const errorEl = document.getElementById(errorId);
+  if (!field) return true;
 
-  let title = "";
-  let description = "";
-
-  if (success) {
-    title = `${categoryEmoji} ${name}`;
-    if (currency === "JPY" && twdAmount) {
-      description = `¥${price} (≈ NT$${twdAmount})`;
-    } else {
-      description = `${currency} ${price}`;
-    }
+  const isValid = check(field.value);
+  if (isValid) {
+    field.classList.remove("border-destructive");
+    if (errorEl) errorEl.classList.add("hidden");
   } else {
-    title = "⚠️ 新增失敗";
-    description = errorMsg || "發生未知錯誤";
+    field.classList.add("border-destructive");
+    if (errorEl) errorEl.classList.remove("hidden");
   }
+  return isValid;
+}
 
-  const toastEl = document.createElement("div");
-  toastEl.setAttribute("data-tui-toast", "");
-  toastEl.setAttribute("data-tui-toast-duration", String(duration));
-  toastEl.setAttribute("data-position", position);
-  toastEl.setAttribute("data-variant", variant);
-  toastEl.className =
-    "z-50 fixed pointer-events-auto p-4 w-full md:max-w-[420px] " +
-    "animate-in fade-in slide-in-from-bottom-4 duration-300 " +
-    "data-[position=top-center]:top-0 data-[position=top-center]:left-1/2 data-[position=top-center]:-translate-x-1/2 " +
-    "data-[position*=top]:slide-in-from-top-4";
+function validateName(): boolean {
+  return validateField("name", "name-error", (v) => v.trim().length > 0);
+}
 
-  const innerEl = document.createElement("div");
-  innerEl.className =
-    "w-full bg-popover text-popover-foreground rounded-lg shadow-xs border pt-5 pb-4 px-4 flex items-center justify-center relative overflow-hidden group";
+function validatePrice(): boolean {
+  return validateField("price", "price-error", (v) => {
+    const n = parseInt(v, 10);
+    return !isNaN(n) && n > 0;
+  });
+}
 
-  const contentEl = document.createElement("span");
-  contentEl.className = "flex-1 min-w-0";
-
-  const titleEl = document.createElement("p");
-  titleEl.className = "text-sm font-semibold truncate";
-  titleEl.textContent = title;
-
-  const descEl = document.createElement("p");
-  descEl.className = "text-sm opacity-90 mt-1";
-  descEl.textContent = description;
-
-  contentEl.appendChild(titleEl);
-  contentEl.appendChild(descEl);
-  innerEl.appendChild(contentEl);
-  toastEl.appendChild(innerEl);
-
-  document.body.appendChild(toastEl);
-
-  // Auto-remove after duration
-  setTimeout(() => {
-    toastEl.style.transition = "opacity 300ms, transform 300ms";
-    toastEl.style.opacity = "0";
-    toastEl.style.transform = "translateY(1rem)";
-    setTimeout(() => toastEl.remove(), 300);
-  }, duration);
+function validateForm(): boolean {
+  const nameOk = validateName();
+  const priceOk = validatePrice();
+  return nameOk && priceOk;
 }
 
 export function setupEventListeners(ctx: TelegramContext): void {
@@ -110,6 +73,18 @@ export function setupEventListeners(ctx: TelegramContext): void {
     });
   });
 
+  // Name field blur validation
+  const nameInput = document.getElementById("name");
+  if (nameInput) {
+    nameInput.addEventListener("blur", validateName);
+  }
+
+  // Price field blur validation
+  const priceInputEl = document.getElementById("price");
+  if (priceInputEl) {
+    priceInputEl.addEventListener("blur", validatePrice);
+  }
+
   const fetchRateBtn = $("fetch-rate-btn");
   if (fetchRateBtn) {
     fetchRateBtn.addEventListener("click", () => {
@@ -122,7 +97,15 @@ export function setupEventListeners(ctx: TelegramContext): void {
   const submitBtn = $("submit-btn");
 
   if (form && submitBtn) {
-    form.addEventListener("htmx:beforeRequest", () => {
+    form.addEventListener("htmx:beforeRequest", (e: Event) => {
+      if (!validateForm()) {
+        (e as CustomEvent).detail.shouldSwap = false;
+        e.preventDefault();
+        (submitBtn as HTMLButtonElement).disabled = false;
+        submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
+        submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
+        return;
+      }
       (submitBtn as HTMLButtonElement).disabled = true;
       submitBtn.querySelector(".btn-text")?.classList.add("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.remove("hidden");
@@ -134,7 +117,11 @@ export function setupEventListeners(ctx: TelegramContext): void {
       submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
 
-      if (detail.successful) {
+      // Read success state for haptic
+      const toastTrigger = $("toast-trigger");
+      const success = toastTrigger?.dataset.success === "true";
+
+      if (detail.successful && success) {
         haptic(ctx, "notification", "success");
         saveDefaults();
         const nameInput = $("name") as HTMLInputElement | null;
@@ -142,38 +129,25 @@ export function setupEventListeners(ctx: TelegramContext): void {
         if (nameInput) nameInput.value = "";
         if (priceInput) priceInput.value = "";
         if (nameInput) nameInput.focus();
-
-        // Show toast from trigger data
-        const toastTrigger = $("toast-trigger");
-        if (toastTrigger) {
-          const success = toastTrigger.dataset.success === "true";
-          const name = toastTrigger.dataset.name || "";
-          const price = toastTrigger.dataset.price || "";
-          const currency = toastTrigger.dataset.currency || "";
-          const categoryEmoji = toastTrigger.dataset.categoryEmoji || "";
-          const twdAmount = toastTrigger.dataset.twdAmount || "";
-          const errorMsg = toastTrigger.dataset.error || "";
-
-          showToast(
-            success,
-            name,
-            price,
-            currency,
-            categoryEmoji,
-            twdAmount,
-            errorMsg,
-          );
-        }
+        // Clear validation errors
+        nameInput?.classList.remove("border-destructive");
+        priceInput?.classList.remove("border-destructive");
+        $("name-error")?.classList.add("hidden");
+        $("price-error")?.classList.add("hidden");
       } else {
         haptic(ctx, "notification", "error");
-
-        // Show error toast
-        const toastTrigger = $("toast-trigger");
-        if (toastTrigger) {
-          const errorMsg = toastTrigger.dataset.error || "發生未知錯誤";
-          showToast(false, "", "", "", "", "", errorMsg);
-        }
       }
+
+      // Auto-dismiss templui toast after duration
+      document.querySelectorAll("#result [data-tui-toast]").forEach((el) => {
+        const duration = parseInt(el.getAttribute("data-tui-toast-duration") || "3000", 10);
+        setTimeout(() => {
+          (el as HTMLElement).style.transition = "opacity 300ms, transform 300ms";
+          (el as HTMLElement).style.opacity = "0";
+          (el as HTMLElement).style.transform = "translateY(-1rem)";
+          setTimeout(() => el.remove(), 300);
+        }, duration);
+      });
     }) as EventListener);
   }
 }
