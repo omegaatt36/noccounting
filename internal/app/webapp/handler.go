@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -44,7 +45,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/users", h.handleGetUsers)
 	mux.HandleFunc("POST /api/expense", h.handleCreateExpense)
 	mux.HandleFunc("GET /health", h.handleHealth)
-	mux.HandleFunc("GET /static/output.css", h.handleCSS)
+
+	sub, _ := fs.Sub(staticFiles, "static")
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(sub))))
 }
 
 func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -367,8 +370,3 @@ func (h *Handler) renderResult(w http.ResponseWriter, r *http.Request, data resu
 	}
 }
 
-func (h *Handler) handleCSS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write(outputCSS)
-}

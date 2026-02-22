@@ -18,11 +18,11 @@ import (
 // --- Mock: AccountingRepo ---
 
 type mockAccountingRepo struct {
-	createErr      error
-	uploadErr      error
-	uploadResult   string
+	createErr       error
+	uploadErr       error
+	uploadResult    string
 	createdExpenses []*domain.Expense // records every CreateExpense call
-	uploadCalls    int
+	uploadCalls     int
 }
 
 func (m *mockAccountingRepo) CreateExpense(_ context.Context, expense *domain.Expense) error {
@@ -117,7 +117,7 @@ func (m *mockBotAPI) File(_ *tele.File) (io.ReadCloser, error) {
 	return m.fileReader, m.fileErr
 }
 
-func (m *mockBotAPI) Edit(_ tele.Editable, _ interface{}, _ ...interface{}) (*tele.Message, error) {
+func (m *mockBotAPI) Edit(_ tele.Editable, _ any, _ ...any) (*tele.Message, error) {
 	m.editCalls++
 	return &tele.Message{}, nil
 }
@@ -129,56 +129,56 @@ type mockContext struct {
 	message   *tele.Message
 	callback  *tele.Callback
 	bot       tele.API
-	sentMsgs  []interface{} // records Send() payloads
+	sentMsgs  []any // records Send() payloads
 	responded []*tele.CallbackResponse
 }
 
-func (m *mockContext) Bot() tele.API                          { return m.bot }
-func (m *mockContext) Update() tele.Update                    { return tele.Update{} }
-func (m *mockContext) Message() *tele.Message                 { return m.message }
-func (m *mockContext) Callback() *tele.Callback               { return m.callback }
-func (m *mockContext) Query() *tele.Query                     { return nil }
-func (m *mockContext) InlineResult() *tele.InlineResult       { return nil }
-func (m *mockContext) ShippingQuery() *tele.ShippingQuery     { return nil }
-func (m *mockContext) PreCheckoutQuery() *tele.PreCheckoutQuery { return nil }
-func (m *mockContext) Payment() *tele.Payment                 { return nil }
-func (m *mockContext) Poll() *tele.Poll                       { return nil }
-func (m *mockContext) PollAnswer() *tele.PollAnswer           { return nil }
-func (m *mockContext) ChatMember() *tele.ChatMemberUpdate     { return nil }
-func (m *mockContext) ChatJoinRequest() *tele.ChatJoinRequest { return nil }
-func (m *mockContext) Migration() (int64, int64)              { return 0, 0 }
-func (m *mockContext) Topic() *tele.Topic                     { return nil }
-func (m *mockContext) Boost() *tele.BoostUpdated              { return nil }
-func (m *mockContext) BoostRemoved() *tele.BoostRemoved       { return nil }
+func (m *mockContext) Bot() tele.API                                { return m.bot }
+func (m *mockContext) Update() tele.Update                          { return tele.Update{} }
+func (m *mockContext) Message() *tele.Message                       { return m.message }
+func (m *mockContext) Callback() *tele.Callback                     { return m.callback }
+func (m *mockContext) Query() *tele.Query                           { return nil }
+func (m *mockContext) InlineResult() *tele.InlineResult             { return nil }
+func (m *mockContext) ShippingQuery() *tele.ShippingQuery           { return nil }
+func (m *mockContext) PreCheckoutQuery() *tele.PreCheckoutQuery     { return nil }
+func (m *mockContext) Payment() *tele.Payment                       { return nil }
+func (m *mockContext) Poll() *tele.Poll                             { return nil }
+func (m *mockContext) PollAnswer() *tele.PollAnswer                 { return nil }
+func (m *mockContext) ChatMember() *tele.ChatMemberUpdate           { return nil }
+func (m *mockContext) ChatJoinRequest() *tele.ChatJoinRequest       { return nil }
+func (m *mockContext) Migration() (int64, int64)                    { return 0, 0 }
+func (m *mockContext) Topic() *tele.Topic                           { return nil }
+func (m *mockContext) Boost() *tele.BoostUpdated                    { return nil }
+func (m *mockContext) BoostRemoved() *tele.BoostRemoved             { return nil }
 func (m *mockContext) PurchasedPaidMedia() *tele.PaidMediaPurchased { return nil }
-func (m *mockContext) Sender() *tele.User                     { return m.sender }
-func (m *mockContext) Chat() *tele.Chat                       { return nil }
-func (m *mockContext) Recipient() tele.Recipient              { return m.sender }
-func (m *mockContext) Text() string                           { return "" }
-func (m *mockContext) ThreadID() int                          { return 0 }
-func (m *mockContext) Entities() tele.Entities                { return nil }
-func (m *mockContext) Data() string                           { return "" }
-func (m *mockContext) Args() []string                         { return nil }
+func (m *mockContext) Sender() *tele.User                           { return m.sender }
+func (m *mockContext) Chat() *tele.Chat                             { return nil }
+func (m *mockContext) Recipient() tele.Recipient                    { return m.sender }
+func (m *mockContext) Text() string                                 { return "" }
+func (m *mockContext) ThreadID() int                                { return 0 }
+func (m *mockContext) Entities() tele.Entities                      { return nil }
+func (m *mockContext) Data() string                                 { return "" }
+func (m *mockContext) Args() []string                               { return nil }
 
-func (m *mockContext) Send(what interface{}, _ ...interface{}) error {
+func (m *mockContext) Send(what any, _ ...any) error {
 	m.sentMsgs = append(m.sentMsgs, what)
 	return nil
 }
 
-func (m *mockContext) SendAlbum(_ tele.Album, _ ...interface{}) error   { return nil }
-func (m *mockContext) Reply(_ interface{}, _ ...interface{}) error      { return nil }
-func (m *mockContext) Forward(_ tele.Editable, _ ...interface{}) error  { return nil }
-func (m *mockContext) ForwardTo(_ tele.Recipient, _ ...interface{}) error { return nil }
-func (m *mockContext) Edit(_ interface{}, _ ...interface{}) error       { return nil }
-func (m *mockContext) EditCaption(_ string, _ ...interface{}) error     { return nil }
-func (m *mockContext) EditOrSend(_ interface{}, _ ...interface{}) error { return nil }
-func (m *mockContext) EditOrReply(_ interface{}, _ ...interface{}) error { return nil }
-func (m *mockContext) Delete() error                                    { return nil }
-func (m *mockContext) DeleteAfter(_ time.Duration) *time.Timer          { return nil }
-func (m *mockContext) Notify(_ tele.ChatAction) error                   { return nil }
-func (m *mockContext) Ship(_ ...interface{}) error                      { return nil }
-func (m *mockContext) Accept(_ ...string) error                         { return nil }
-func (m *mockContext) Answer(_ *tele.QueryResponse) error               { return nil }
+func (m *mockContext) SendAlbum(_ tele.Album, _ ...any) error     { return nil }
+func (m *mockContext) Reply(_ any, _ ...any) error                { return nil }
+func (m *mockContext) Forward(_ tele.Editable, _ ...any) error    { return nil }
+func (m *mockContext) ForwardTo(_ tele.Recipient, _ ...any) error { return nil }
+func (m *mockContext) Edit(_ any, _ ...any) error                 { return nil }
+func (m *mockContext) EditCaption(_ string, _ ...any) error       { return nil }
+func (m *mockContext) EditOrSend(_ any, _ ...any) error           { return nil }
+func (m *mockContext) EditOrReply(_ any, _ ...any) error          { return nil }
+func (m *mockContext) Delete() error                              { return nil }
+func (m *mockContext) DeleteAfter(_ time.Duration) *time.Timer    { return nil }
+func (m *mockContext) Notify(_ tele.ChatAction) error             { return nil }
+func (m *mockContext) Ship(_ ...any) error                        { return nil }
+func (m *mockContext) Accept(_ ...string) error                   { return nil }
+func (m *mockContext) Answer(_ *tele.QueryResponse) error         { return nil }
 
 func (m *mockContext) Respond(resp ...*tele.CallbackResponse) error {
 	m.responded = append(m.responded, resp...)
@@ -187,8 +187,8 @@ func (m *mockContext) Respond(resp ...*tele.CallbackResponse) error {
 
 func (m *mockContext) RespondText(_ string) error  { return nil }
 func (m *mockContext) RespondAlert(_ string) error { return nil }
-func (m *mockContext) Get(_ string) interface{}    { return nil }
-func (m *mockContext) Set(_ string, _ interface{}) {}
+func (m *mockContext) Get(_ string) any            { return nil }
+func (m *mockContext) Set(_ string, _ any)         {}
 
 // --- Test Fixtures ---
 
