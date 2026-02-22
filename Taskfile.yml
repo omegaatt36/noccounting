@@ -1,10 +1,16 @@
 version: "3"
 
 tasks:
+  ts:
+    desc: Compile TypeScript with tsgo
+    cmds:
+      - tsgo -p web/ts/tsconfig.json
+
   generate:
     cmds:
       - go generate ./...
       - templ generate
+      - task ts
       - tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
 
   css:

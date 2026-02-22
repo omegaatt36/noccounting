@@ -1,6 +1,6 @@
 package webapp
 
-import _ "embed"
+import "embed"
 
-//go:embed static/output.css
-var outputCSS []byte
+//go:embed static/*
+var staticFiles embed.FS

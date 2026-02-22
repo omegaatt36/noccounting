@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "../../internal/app/webapp/static",
+    "rootDir": ".",
+    "strict": true,
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "skipLibCheck": true,
+    "lib": ["ESNext", "DOM"],
+  },
+  "include": ["*.ts"],
+  "typeRoots": ["."],
+}
