@@ -7,9 +7,11 @@ RUN apk add --no-cache ca-certificates curl libstdc++ libgcc
 RUN go install github.com/a-h/templ/cmd/templ@latest \
     && go install github.com/microsoft/typescript-go/cmd/tsgo@latest
 
-RUN curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64-musl \
-    && chmod +x tailwindcss-linux-x64-musl \
-    && mv tailwindcss-linux-x64-musl /usr/local/bin/tailwindcss
+ARG TARGETARCH
+RUN TAILWIND_ARCH=$([ "$TARGETARCH" = "arm64" ] && echo "arm64" || echo "x64") \
+    && curl -sLO "https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-${TAILWIND_ARCH}-musl" \
+    && chmod +x "tailwindcss-linux-${TAILWIND_ARCH}-musl" \
+    && mv "tailwindcss-linux-${TAILWIND_ARCH}-musl" /usr/local/bin/tailwindcss
 
 COPY go.mod go.sum ./
 RUN go mod download
