@@ -4,81 +4,65 @@ A travel expense tracker with Telegram Bot and Web Mini App interfaces, using No
 
 ## Features
 
-- **Multi-currency Support** - Track expenses in TWD and JPY with automatic exchange rate conversion
-- **Expense Categories** - Categorize by Food (食), Clothing (衣), Housing (住), Transportation (行), Entertainment (樂)
-- **Payment Methods** - Record payments via cash, credit card, IC card, or PayPay
-- **Dual Interface** - Use either the Telegram Bot or embedded Web Mini App
-- **Notion Integration** - All data stored in a Notion database for easy viewing and collaboration
-- **Real-time Exchange Rates** - Automatic JPY→TWD conversion via FinMind API
+- **Multi-currency** - Track expenses in TWD and JPY with real-time exchange rate conversion (FinMind API)
+- **6 Categories** - 🍜 食 · 🏠 住 · 🚃 行 · 🛍️ 購 · 🎯 樂 · 📎 雜
+- **Receipt Scanning** - Send a receipt photo to the bot; LLM vision extracts items, prices, and categories automatically
+- **Dual Interface** - Telegram Bot for quick entries, Web Mini App for richer form input
+- **Notion as DB** - All data stored in Notion for easy viewing and collaboration
+- **Smart Defaults** - The Mini App remembers your last currency, category, and payment method via localStorage
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│ Command Layer (cmd/)                            │
-│ - bot/main.go (Telegram Bot)                    │
-│ - webapp/main.go (HTTP Server)                  │
-└─────────────────────────┬───────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────┐
-│ Application Layer (internal/app/)               │
-│ - bot/         (Telegram handlers)              │
-│ - webapp/      (HTTP handlers + Mini App)       │
-└─────────────────────────┬───────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────┐
-│ Domain Layer (domain/)                          │
-│ - Models (Expense, User, Currency, Category)    │
-│ - Repository interfaces                         │
-└─────────────────────────┬───────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────┐
-│ Infrastructure Layer                            │
-│ - persistence/notion (Notion API client)        │
-│ - persistence/user (User repository)            │
-│ - infrastructure/ (Exchange rate fetcher)       │
-└─────────────────────────────────────────────────┘
+cmd/
+├── bot/            Telegram Bot binary
+└── webapp/         Web Mini App binary (HTTP server)
+
+domain/             Business models, enums, repository interfaces
+
+internal/
+├── app/
+│   ├── bot/        Telegram handlers (text commands, receipt photo, inline callbacks)
+│   └── webapp/     HTTP handlers, Templ components, middleware, static serving
+├── infrastructure/
+│   ├── llm/        OpenAI-compatible vision API client (receipt analysis)
+│   └── exchangerate/  FinMind exchange rate client
+├── persistence/
+│   ├── notion/     Notion API client (expenses CRUD + file upload)
+│   └── user/       In-memory user repository (from USER_MAPPING)
+└── service/        Business service layer
+
+web/ts/             TypeScript source (compiled to JS via tsgo)
+build/              Dockerfiles (bot, webapp)
+helm/               Kubernetes Helm chart
 ```
 
 ## Tech Stack
 
-- **Language**: Go 1.25+
-- **Bot Framework**: [telebot.v4](https://gopkg.in/telebot.v4)
-- **Precision Math**: [shopspring/decimal](https://github.com/shopspring/decimal)
-- **CLI**: [urfave/cli/v3](https://github.com/urfave/cli)
-- **Database**: Notion API
-- **Exchange Rates**: FinMind API
-- **Deployment**: Docker, Kubernetes (Helm)
+| Layer | Technology |
+|-------|-----------|
+| Language | Go 1.26 |
+| Bot | [telebot.v4](https://gopkg.in/telebot.v4) |
+| Web Frontend | [Templ](https://templ.guide) components + [HTMX](https://htmx.org) + [Tailwind CSS v4](https://tailwindcss.com) |
+| TypeScript | [tsgo](https://github.com/microsoft/typescript-go) (Go-native compiler, zero node_modules) |
+| Theme | Nord dark palette |
+| Database | Notion API |
+| Receipt Analysis | OpenAI-compatible vision API (via LiteLLM or similar) |
+| Exchange Rates | [FinMind API](https://finmindtrade.com/) |
+| Deployment | Docker (multi-arch amd64/arm64), Kubernetes (Helm) |
+| Task Runner | [Taskfile](https://taskfile.dev) |
 
 ## Getting Started
 
 ### Prerequisites
 
-- Go 1.25 or later
-- A Telegram Bot token (from [@BotFather](https://t.me/BotFather))
-- A Notion integration token and database
-
-### Notion Database Setup
-
-Create a Notion database with the following properties:
-
-| Property    | Type   | Description                        |
-|-------------|--------|------------------------------------|
-| name        | Title  | Expense name                       |
-| price       | Number | Amount in source currency          |
-| currency    | Select | TWD, JPY                           |
-| category    | Select | 食, 衣, 住, 行, 樂                 |
-| method      | Select | cash, credit_card, ic_card, paypay |
-| shopped_at  | Date   | Transaction date                   |
-| paid_by     | People | Notion user who paid               |
-| ex_rate     | Number | Exchange rate (for JPY expenses)   |
+- Go 1.26+
+- [tsgo](https://github.com/microsoft/typescript-go): `go install github.com/microsoft/typescript-go/cmd/tsgo@latest`
+- [templ](https://templ.guide): `go install github.com/a-h/templ/cmd/templ@latest`
+- [Tailwind CSS v4 standalone CLI](https://tailwindcss.com/blog/standalone-cli)
+- [Taskfile](https://taskfile.dev): `go install github.com/go-task/task/v3/cmd/task@latest`
 
 ### Environment Variables
-
-Create a `.env` file or set the following environment variables:
 
 ```bash
 # Required
@@ -88,187 +72,155 @@ NOTION_DATABASE_ID=your_notion_database_id
 USER_MAPPING=telegram_id1:notion_id1:nickname1,telegram_id2:notion_id2:nickname2
 
 # Optional
-WEBAPP_URL=https://your-webapp-url.com  # For Mini App integration
-LOG_LEVEL=INFO                           # DEBUG, INFO, WARN, ERROR
-PORT=8080                                # HTTP server port (webapp only)
+WEBAPP_URL=https://your-webapp-url.com   # Mini App URL for bot menu button
+PORT=8080                                 # Web server port (webapp only)
+LOG_LEVEL=INFO                            # DEBUG, INFO, WARN, ERROR
+
+# Receipt scanning (optional)
+LLM_API_KEY=your_api_key
+LLM_BASE_URL=https://your-llm-endpoint/  # OpenAI-compatible endpoint
+LLM_MODEL=your_model_name                # e.g. gpt-5
 ```
 
-### Running Locally
+### Build & Run
 
-**Telegram Bot:**
 ```bash
-go run cmd/bot/main.go \
+# Generate all (templ + tsgo + tailwind)
+task generate
+
+# Run tests
+task test
+
+# Build binaries
+task build
+
+# Run bot
+./bin/bot \
   --telegram-token=$TELEGRAM_BOT_TOKEN \
   --notion-token=$NOTION_TOKEN \
-  --notion-db-id=$NOTION_DATABASE_ID \
+  --notion-database-id=$NOTION_DATABASE_ID \
   --user-mapping=$USER_MAPPING
-```
 
-**Web App:**
-```bash
-go run cmd/webapp/main.go \
-  --telegram-token=$TELEGRAM_BOT_TOKEN \
+# Run webapp (with Telegram auth)
+./bin/webapp \
+  --telegram-bot-token=$TELEGRAM_BOT_TOKEN \
   --notion-token=$NOTION_TOKEN \
-  --notion-db-id=$NOTION_DATABASE_ID \
+  --notion-database-id=$NOTION_DATABASE_ID \
+  --user-mapping=$USER_MAPPING \
+  --port=8080
+
+# Run webapp (dev mode — skips Telegram auth)
+./bin/webapp --dev-mode \
+  --notion-token=$NOTION_TOKEN \
+  --notion-database-id=$NOTION_DATABASE_ID \
   --user-mapping=$USER_MAPPING \
   --port=8080
 ```
 
+### Taskfile Commands
+
+| Command | Description |
+|---------|-------------|
+| `task generate` | Run all code generation (templ + tsgo + tailwind) |
+| `task ts` | Compile TypeScript only |
+| `task css` | Build CSS only |
+| `task css:watch` | Watch CSS for changes |
+| `task test` | Run all tests with race detector |
+| `task build` | Generate + build both binaries |
+| `task lint` | Run `go vet` |
+
+## Notion Database Setup
+
+Create a Notion database with these properties:
+
+| Property | Type | Values |
+|----------|------|--------|
+| name | Title | Expense name |
+| price | Number | Amount in source currency |
+| currency | Select | `TWD`, `JPY` |
+| category | Select | `食`, `住`, `行`, `購`, `樂`, `雜` |
+| method | Select | `cash`, `credit_card`, `ic_card`, `e_pay` |
+| shopped_at | Date | Transaction date |
+| paid_by | People | Notion user who paid |
+| ex_rate | Number | Exchange rate (JPY expenses) |
+
 ## Bot Commands
 
-| Command    | Description                                    |
-|------------|------------------------------------------------|
-| `/start`   | Welcome message and Mini App button            |
-| `/help`    | Show available commands                        |
-| `/add`     | Quick add: `/add <name> <price> <currency> <category> <method>` |
-| `/quick`   | Interactive step-by-step expense entry         |
-| `/list`    | Show all expenses                              |
-| `/summary` | Expense summary grouped by payer               |
-| `/today`   | Today's expenses grouped by category           |
-| `/edit`    | Modify recent expenses                         |
-| `/cancel`  | Cancel current conversation                    |
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message with Mini App button |
+| `/help` | Show available commands |
+| `/add` | Quick add: `/add <name> <price> <currency> <category> <method>` |
+| `/quick` | Interactive step-by-step expense entry |
+| `/list` | Show all expenses |
+| `/summary` | Expense summary grouped by payer |
+| `/today` | Today's expenses grouped by category |
+| `/edit` | Modify recent expenses |
+| `/cancel` | Cancel current conversation |
+| *Photo* | Send a receipt photo for automatic LLM analysis |
 
-## Web API Endpoints
+## Web API
 
-| Method | Endpoint       | Description                        |
-|--------|----------------|------------------------------------|
-| GET    | `/`            | Serves the Mini App HTML           |
-| GET    | `/api/auth`    | Validates Telegram WebApp initData |
-| GET    | `/api/users`   | Lists authorized users             |
-| POST   | `/api/expense` | Creates a new expense              |
-| GET    | `/health`      | Health check endpoint              |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Serves the Mini App (Templ-rendered) |
+| GET | `/api/auth` | Validates Telegram WebApp initData |
+| GET | `/api/users` | Lists authorized users |
+| POST | `/api/expense` | Creates a new expense (HTMX) |
+| GET | `/health` | Health check |
+| GET | `/static/*` | Static assets (CSS, JS) |
 
 ## Docker
 
-### Building Images
-
-**Bot:**
 ```bash
+# Build
 docker build -f build/bot/Dockerfile -t noccounting-bot .
-```
-
-**Web App:**
-```bash
 docker build -f build/webapp/Dockerfile -t noccounting-web .
-```
 
-### Running Containers
-
-```bash
-# Bot
+# Run
 docker run -d \
-  -e TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN \
-  -e NOTION_TOKEN=$NOTION_TOKEN \
-  -e NOTION_DATABASE_ID=$NOTION_DATABASE_ID \
-  -e USER_MAPPING=$USER_MAPPING \
+  -e TELEGRAM_BOT_TOKEN -e NOTION_TOKEN -e NOTION_DATABASE_ID -e USER_MAPPING \
   noccounting-bot
 
-# Web App
 docker run -d -p 8080:8080 \
-  -e TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN \
-  -e NOTION_TOKEN=$NOTION_TOKEN \
-  -e NOTION_DATABASE_ID=$NOTION_DATABASE_ID \
-  -e USER_MAPPING=$USER_MAPPING \
+  -e TELEGRAM_BOT_TOKEN -e NOTION_TOKEN -e NOTION_DATABASE_ID -e USER_MAPPING \
   noccounting-web
 ```
 
-## Kubernetes Deployment
+Images are published to Docker Hub on git tag push (`v*`):
+- `omegaatt36/noccounting-bot`
+- `omegaatt36/noccounting-web`
 
-Deploy using Helm:
+Both images support `linux/amd64` and `linux/arm64`.
+
+## Helm
 
 ```bash
-# Install
 helm install noccounting ./helm \
   --set bot.telegramToken=$TELEGRAM_BOT_TOKEN \
   --set notion.token=$NOTION_TOKEN \
   --set notion.databaseId=$NOTION_DATABASE_ID \
   --set userMapping=$USER_MAPPING
-
-# Upgrade
-helm upgrade noccounting ./helm -f custom-values.yaml
 ```
 
-### Helm Values
+## Frontend Architecture
 
-Key configuration options in `values.yaml`:
-
-```yaml
-bot:
-  replicas: 1
-  resources:
-    requests:
-      cpu: 50m
-      memory: 50Mi
-
-webapp:
-  replicas: 1
-  port: 8080
-  resources:
-    requests:
-      cpu: 50m
-      memory: 50Mi
-
-ingress:
-  enabled: true
-  host: your-domain.com
-  tls:
-    enabled: true
-```
-
-## Development
-
-### Project Structure
+The Mini App frontend uses a **Go-only toolchain** with zero `node_modules`:
 
 ```
-.
-├── cmd/
-│   ├── bot/main.go           # Bot entrypoint
-│   └── webapp/main.go        # Web app entrypoint
-├── domain/                   # Business domain models & interfaces
-│   ├── accounting.go         # Expense model & repository interface
-│   ├── category.go           # Expense categories enum
-│   ├── currency.go           # Currency enum (TWD, JPY)
-│   ├── payment_method.go     # Payment method enum
-│   └── user.go               # User model & repository interface
-├── internal/
-│   ├── app/
-│   │   ├── bot/              # Telegram bot handlers
-│   │   └── webapp/           # HTTP handlers & templates
-│   ├── infrastructure/       # External service clients
-│   │   └── finmind/          # Exchange rate fetcher
-│   ├── persistence/          # Data persistence
-│   │   ├── notion/           # Notion API client
-│   │   └── user/             # In-memory user repository
-│   └── service/              # Business services
-├── build/                    # Dockerfiles
-├── helm/                     # Kubernetes Helm chart
-└── .github/workflows/        # CI/CD pipelines
+web/ts/*.ts  →  tsgo compile  →  static/*.js  →  go:embed  →  single binary
+                                  (ES Modules)
 ```
 
-### Code Generation
-
-Generate enum code:
-
-```bash
-go generate ./...
-```
-
-### Building
-
-```bash
-# Bot
-go build -o bin/bot cmd/bot/main.go
-
-# Web App
-go build -o bin/webapp cmd/webapp/main.go
-```
+| Module | Responsibility |
+|--------|---------------|
+| `app.ts` | Entry point, initialization orchestration |
+| `telegram.ts` | Telegram WebApp SDK wrapper, haptic feedback |
+| `auth.ts` | Authentication flow, user loading |
+| `form.ts` | Button groups, HTMX form lifecycle, auto-dismiss |
+| `exchange-rate.ts` | JPY rate fetching (FinMind API) + localStorage cache |
+| `storage.ts` | Smart defaults via localStorage |
 
 ## License
 
-This project is for personal use.
-
-## Acknowledgments
-
-- [Notion API](https://developers.notion.com/) for the backend database
-- [Telegram Bot API](https://core.telegram.org/bots/api) for the bot interface
-- [FinMind](https://finmindtrade.com/) for Taiwan exchange rate data
+[MIT](LICENSE)
