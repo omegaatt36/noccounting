@@ -20,17 +20,77 @@ env:
   WEB_IMAGE: omegaatt36/noccounting-web
 
 jobs:
-  build-and-push:
+  build-binaries:
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.ref_name || github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Install templ and tsgo
+        run: |
+          go install github.com/a-h/templ/cmd/templ@latest
+          go install github.com/microsoft/typescript-go/cmd/tsgo@latest
+
+      - name: Install Tailwind CSS
+        run: |
+          curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64
+          chmod +x tailwindcss-linux-x64
+          sudo mv tailwindcss-linux-x64 /usr/local/bin/tailwindcss
+
+      - name: Generate code (templ + tsgo + tailwind)
+        run: |
+          templ generate
+          tsgo -p web/ts/tsconfig.json
+          tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
+
+      - name: Build bot binary for ${{ matrix.arch }}
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+        run: go build -ldflags="-s -w" -o noccounting-bot-${{ matrix.arch }} ./cmd/bot
+
+      - name: Build webapp binary for ${{ matrix.arch }}
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+        run: go build -ldflags="-s -w" -o noccounting-web-${{ matrix.arch }} ./cmd/webapp
+
+      - name: Upload bot binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-${{ matrix.arch }}
+          path: noccounting-bot-${{ matrix.arch }}
+          retention-days: 1
+
+      - name: Upload webapp binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ matrix.arch }}
+          path: noccounting-web-${{ matrix.arch }}
+          retention-days: 1
+
+  build-and-push-images:
+    needs: build-binaries
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'release' && github.ref_name || github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -57,6 +117,20 @@ jobs:
             echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Move binaries to build context root
+        run: |
+          mv artifacts/bot-amd64/noccounting-bot-amd64 ./noccounting-bot-amd64
+          mv artifacts/bot-arm64/noccounting-bot-arm64 ./noccounting-bot-arm64
+          mv artifacts/web-amd64/noccounting-web-amd64 ./noccounting-web-amd64
+          mv artifacts/web-arm64/noccounting-web-arm64 ./noccounting-web-arm64
+          chmod +x noccounting-*
+          ls -l noccounting-*
+
       - name: Extract metadata for Bot
         id: meta-bot
         uses: docker/metadata-action@v5
@@ -79,7 +153,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/bot/Dockerfile
+          file: ./build/bot/Dockerfile.buildx
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-bot.outputs.tags }}
@@ -91,7 +165,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/webapp/Dockerfile
+          file: ./build/webapp/Dockerfile.buildx
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-web.outputs.tags }}
