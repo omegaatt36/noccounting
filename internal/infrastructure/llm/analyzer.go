@@ -73,7 +73,10 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 				},
 			},
 		},
-		MaxTokens: 1024,
+		ResponseFormat: &responseFormat{
+			Type: "json_object",
+		},
+		MaxTokens: 8192,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -113,7 +116,7 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 
 	var analysis domain.ReceiptAnalysis
 	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
-		return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w", err)
+		return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", err, content)
 	}
 
 	return &analysis, nil
@@ -122,9 +125,14 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 // OpenAI-compatible request/response types (private to this package)
 
 type chatRequest struct {
-	Model     string    `json:"model"`
-	Messages  []message `json:"messages"`
-	MaxTokens int       `json:"max_tokens,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []message       `json:"messages"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+}
+
+type responseFormat struct {
+	Type string `json:"type"`
 }
 
 type message struct {

@@ -6,6 +6,7 @@ import (
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/tabs"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/utils"
 )
 
 templ Page(devMode bool) {
@@ -15,7 +16,7 @@ templ Page(devMode bool) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 			<title>旅行記帳</title>
-			<link rel="stylesheet" href="/static/output.css"/>
+			<link rel="stylesheet" href={ "/static/output.css?v=" + utils.ScriptVersion }/>
 			<script src="https://telegram.org/js/telegram-web-app.js"></script>
 			<script src="https://unpkg.com/htmx.org@2.0.4"></script>
 			@tabs.Script()
@@ -83,5 +84,5 @@ templ initScript(devMode bool) {
 	if devMode {
 		<div id="dev-mode-flag" data-enabled="true" style="display:none;"></div>
 	}
-	<script type="module" src="/static/app.js"></script>
+	<script type="module" src={ "/static/app.js?v=" + utils.ScriptVersion }></script>
 }
