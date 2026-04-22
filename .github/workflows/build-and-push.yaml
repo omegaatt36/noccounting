@@ -36,11 +36,6 @@ jobs:
         with:
           go-version: "1.26"
 
-      - name: Install templ and tsgo
-        run: |
-          go install github.com/a-h/templ/cmd/templ@latest
-          go install github.com/microsoft/typescript-go/cmd/tsgo@latest
-
       - name: Install Tailwind CSS
         run: |
           curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64
@@ -49,8 +44,8 @@ jobs:
 
       - name: Generate code (templ + tsgo + tailwind)
         run: |
-          templ generate
-          tsgo -p web/ts/tsconfig.json
+          go tool templ generate
+          go tool tsgo -p web/ts/tsconfig.json
           tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
 
       - name: Build bot binary for ${{ matrix.arch }}
