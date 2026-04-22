@@ -418,7 +418,9 @@ func (c *Client) UploadFile(ctx context.Context, filePath string) (string, error
 	headerBuf := make([]byte, 512)
 	n, _ := f.Read(headerBuf)
 	contentType := http.DetectContentType(headerBuf[:n])
-	f.Seek(0, 0) // rewind to start
+	if _, err := f.Seek(0, 0); err != nil {
+		return "", fmt.Errorf("failed to seek file: %w", err)
+	}
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)

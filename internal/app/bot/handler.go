@@ -263,7 +263,9 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("❌ 無法取得照片")
 	}
 
-	c.Send("🔍 正在分析收據...")
+	if err := c.Send("🔍 正在分析收據..."); err != nil {
+		slog.Warn("Failed to send analysis message", "error", err)
+	}
 
 	// Download photo from Telegram
 	reader, err := c.Bot().File(&photo.File)

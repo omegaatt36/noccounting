@@ -65,7 +65,9 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+	if _, err := w.Write([]byte("ok")); err != nil {
+		slog.Warn("Failed to write health response", "error", err)
+	}
 }
 
 // InitData expiration time for validation.
@@ -83,10 +85,12 @@ func (h *Handler) handleAuth(w http.ResponseWriter, r *http.Request) {
 
 	// Dev mode: skip Telegram auth
 	if h.devMode {
-		json.NewEncoder(w).Encode(AuthResponse{
+		if err := json.NewEncoder(w).Encode(AuthResponse{
 			Authorized: true,
 			Nickname:   "dev",
-		})
+		}); err != nil {
+			slog.Warn("Failed to encode auth response", "error", err)
+		}
 		return
 	}
 
@@ -94,10 +98,12 @@ func (h *Handler) handleAuth(w http.ResponseWriter, r *http.Request) {
 	initData := r.URL.Query().Get("init_data")
 	if initData == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(AuthResponse{
+		if err := json.NewEncoder(w).Encode(AuthResponse{
 			Authorized: false,
 			Error:      "missing init_data",
-		})
+		}); err != nil {
+			slog.Warn("Failed to encode auth response", "error", err)
+		}
 		return
 	}
 
@@ -106,10 +112,12 @@ func (h *Handler) handleAuth(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("Invalid Telegram initData", "error", err)
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(AuthResponse{
+		if encErr := json.NewEncoder(w).Encode(AuthResponse{
 			Authorized: false,
 			Error:      "invalid authentication",
-		})
+		}); encErr != nil {
+			slog.Warn("Failed to encode auth response", "error", encErr)
+		}
 		return
 	}
 
@@ -118,17 +126,20 @@ func (h *Handler) handleAuth(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(AuthResponse{
+		if encErr := json.NewEncoder(w).Encode(AuthResponse{
 			Authorized: false,
 			Error:      "unauthorized user",
-		})
+		}); encErr != nil {
+			slog.Warn("Failed to encode auth response", "error", encErr)
+		}
 		return
 	}
-
-	json.NewEncoder(w).Encode(AuthResponse{
+	if err := json.NewEncoder(w).Encode(AuthResponse{
 		Authorized: true,
 		Nickname:   user.Nickname,
-	})
+	}); err != nil {
+		slog.Warn("Failed to encode auth response", "error", err)
+	}
 }
 
 // UserInfo is a simplified user info for the frontend.
@@ -150,7 +161,9 @@ func (h *Handler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 		initData := r.URL.Query().Get("init_data")
 		if initData == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "missing init_data"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"error": "missing init_data"}); err != nil {
+				slog.Warn("Failed to encode error response", "error", err)
+			}
 			return
 		}
 
@@ -158,13 +171,17 @@ func (h *Handler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Warn("Invalid Telegram initData", "error", err)
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid authentication"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid authentication"}); err != nil {
+				slog.Warn("Failed to encode error response", "error", err)
+			}
 			return
 		}
 
 		if !h.userService.IsAuthorized(telegramData.UserID) {
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"}); err != nil {
+				slog.Warn("Failed to encode error response", "error", err)
+			}
 			return
 		}
 	}
@@ -172,7 +189,9 @@ func (h *Handler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 	allUsers, err := h.userService.GetAllUsers()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get users"})
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get users"}); encErr != nil {
+			slog.Warn("Failed to encode error response", "error", encErr)
+		}
 		return
 	}
 
@@ -183,8 +202,9 @@ func (h *Handler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 			TelegramID: u.TelegramID,
 		}
 	}
-
-	json.NewEncoder(w).Encode(UsersResponse{Users: users})
+	if err := json.NewEncoder(w).Encode(UsersResponse{Users: users}); err != nil {
+		slog.Warn("Failed to encode users response", "error", err)
+	}
 }
 
 type resultData struct {
@@ -514,7 +534,11 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"noccounting-%s.csv\"", rangeStr))
 
 	// Write BOM
-	w.Write([]byte{0xEF, 0xBB, 0xBF})
+	if _, err := w.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		slog.Error("Failed to write BOM", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
 	// Create CSV writer
 	csvWriter := csv.NewWriter(w)
