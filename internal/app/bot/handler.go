@@ -205,8 +205,8 @@ func (h *Handler) handleList(c tele.Context) error {
 	sb.WriteString("📋 消費記錄\n\n")
 
 	for _, exp := range expenses {
-		sb.WriteString(fmt.Sprintf("• %s: %d %s (%s %s)\n",
-			exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category))
+		fmt.Fprintf(&sb, "• %s: %d %s (%s %s)\n",
+			exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category)
 	}
 
 	return c.Send(sb.String())
@@ -224,8 +224,8 @@ func (h *Handler) handleSummary(c tele.Context) error {
 
 	var sb strings.Builder
 	sb.WriteString("📊 消費總覽\n\n")
-	sb.WriteString(fmt.Sprintf("📝 總筆數: %d\n", summary.ItemCount))
-	sb.WriteString(fmt.Sprintf("💰 總金額: %s TWD\n\n", summary.GrandTotal.StringFixed(0)))
+	fmt.Fprintf(&sb, "📝 總筆數: %d\n", summary.ItemCount)
+	fmt.Fprintf(&sb, "💰 總金額: %s TWD\n\n", summary.GrandTotal.StringFixed(0))
 
 	return c.Send(sb.String())
 }
@@ -280,7 +280,7 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 	}
 
 	// Analyze receipt
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	analysis, err := h.receiptAnalyzer.Analyze(ctx, imageData)
@@ -298,12 +298,12 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 
 	// Format analysis result
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📸 %s\n\n", analysis.Summary))
+	fmt.Fprintf(&sb, "📸 %s\n\n", analysis.Summary)
 	for i, item := range analysis.Items {
-		sb.WriteString(fmt.Sprintf("%d. %s %s ¥%d → %s\n",
-			i+1, item.Category.Emoji(), item.DisplayName(), item.Price, item.Category))
+		fmt.Fprintf(&sb, "%d. %s %s ¥%d → %s\n",
+			i+1, item.Category.Emoji(), item.DisplayName(), item.Price, item.Category)
 	}
-	sb.WriteString(fmt.Sprintf("\n合計: %d (%s)\n", analysis.Total, analysis.Currency))
+	fmt.Fprintf(&sb, "\n合計: %d (%s)\n", analysis.Total, analysis.Currency)
 
 	// Inline buttons
 	keyboard := &tele.ReplyMarkup{}
@@ -1065,19 +1065,19 @@ func (h *Handler) handleToday(c tele.Context) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📅 %s 消費統計\n\n", now.Format("2006/01/02")))
+	fmt.Fprintf(&sb, "📅 %s 消費統計\n\n", now.Format("2006/01/02"))
 
 	// Sort categories for consistent output
 	categories := domain.CategoryValues()
 	for _, cat := range categories {
 		if sum, ok := categoryTotals[cat]; ok {
-			sb.WriteString(fmt.Sprintf("%s %s: %d %s (≈NT$%.0f)\n",
-				cat.Emoji(), cat, sum.total, sum.currency, sum.totalTWD))
+			fmt.Fprintf(&sb, "%s %s: %d %s (≈NT$%.0f)\n",
+				cat.Emoji(), cat, sum.total, sum.currency, sum.totalTWD)
 		}
 	}
 
 	sb.WriteString("─────────────\n")
-	sb.WriteString(fmt.Sprintf("💰 今日合計: NT$%.0f (%d 筆)\n", grandTotalTWD, len(expenses)))
+	fmt.Fprintf(&sb, "💰 今日合計: NT$%.0f (%d 筆)\n", grandTotalTWD, len(expenses))
 
 	return c.Send(sb.String())
 }

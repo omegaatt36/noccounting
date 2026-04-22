@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/omegaatt36/noccounting/domain"
 )
 
@@ -57,6 +59,38 @@ Price must be an integer (no decimals).`
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {
 	b64Image := base64.StdEncoding.EncodeToString(imageData)
 
+	const maxRetries = 2
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 2s, 4s
+			sleepDuration := time.Duration(1<<attempt) * time.Second
+			slog.Info("Retrying LLM request", "attempt", attempt, "sleep", sleepDuration)
+			select {
+			case <-time.After(sleepDuration):
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
+			}
+		}
+
+		analysis, err := a.doAnalyze(ctx, b64Image)
+		if err == nil {
+			return analysis, nil
+		}
+		lastErr = err
+
+		// Don't retry on client errors (4xx) unless it's 429 Too Many Requests
+		if strings.Contains(err.Error(), "LLM API error (status 4") && !strings.Contains(err.Error(), "429") {
+			break
+		}
+	}
+
+	return nil, fmt.Errorf("failed to call LLM API after %d retries: %w", maxRetries, lastErr)
+}
+
+func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.ReceiptAnalysis, error) {
+	reqID := uuid.New().String()
 	reqBody := chatRequest{
 		Model: a.model,
 		Messages: []message{
@@ -73,10 +107,8 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 				},
 			},
 		},
-		ResponseFormat: &responseFormat{
-			Type: "json_object",
-		},
-		MaxTokens: 8192,
+		ResponseFormat: &responseFormat{Type: "json_object"},
+		MaxTokens:      8192,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -88,9 +120,11 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
+	req.Header.Set("X-Request-ID", reqID)
+
+	slog.Debug("Calling LLM API", "request_id", reqID, "url", a.baseURL+"/chat/completions")
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -113,7 +147,6 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 	}
 
 	content := chatResp.Choices[0].Message.Content
-
 	var analysis domain.ReceiptAnalysis
 	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
 		return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", err, content)
