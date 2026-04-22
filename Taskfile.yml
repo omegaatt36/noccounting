@@ -4,12 +4,12 @@ tasks:
   ts:
     desc: Compile TypeScript with tsgo
     cmds:
-      - tsgo -p web/ts/tsconfig.json
+      - go tool tsgo -p web/ts/tsconfig.json
 
   generate:
     cmds:
       - go generate ./...
-      - templ generate
+      - go tool templ generate
       - task ts
       - tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
 

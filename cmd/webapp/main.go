@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/urfave/cli/v3"
-
 	"github.com/omegaatt36/noccounting/internal/app"
 	"github.com/omegaatt36/noccounting/internal/app/webapp"
 	"github.com/omegaatt36/noccounting/internal/persistence/notion"
@@ -16,107 +14,59 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-type config struct {
-	notionToken      string
-	notionDatabaseID string
-	userMapping      string
-	port             string
-	telegramBotToken string
-	logLevel         string
-	devMode          bool
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
-var cfg = config{}
-
-func initLog() {
-	logLevel := slog.LevelDebug
-	if lvlStr := cfg.logLevel; lvlStr != "" {
-		var level slog.Level
-		if err := level.UnmarshalText([]byte(lvlStr)); err == nil {
-			logLevel = level
-		}
+func envRequired(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		slog.Error("required environment variable not set", "key", key)
+		os.Exit(1)
 	}
-
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
-}
-
-func wrapMain(ctx context.Context, _ *cli.Command) error {
-	initLog()
-
-	userRepo := userrepo.NewRepo(cfg.userMapping)
-
-	userService := user.NewService(userRepo)
-	accountingRepo := notion.NewClient(cfg.notionToken, cfg.notionDatabaseID)
-
-	server, err := webapp.NewServer(userService, accountingRepo, cfg.port, cfg.telegramBotToken, cfg.devMode)
-	if err != nil {
-		return fmt.Errorf("failed to create server: %w", err)
-	}
-
-	if err := server.Start(); err != nil {
-		return fmt.Errorf("failed to start server: %w", err)
-	}
-
-	<-ctx.Done()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	return server.Shutdown(shutdownCtx)
+	return v
 }
 
 func main() {
-	app := app.App{
-		Main: wrapMain,
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "notion-token",
-				Usage:       "Notion API token",
-				Sources:     cli.EnvVars("NOTION_TOKEN"),
-				Destination: &cfg.notionToken,
-				Required:    true,
-			},
-			&cli.StringFlag{
-				Name:        "notion-database-id",
-				Usage:       "Notion database ID for accounting",
-				Sources:     cli.EnvVars("NOTION_DATABASE_ID"),
-				Destination: &cfg.notionDatabaseID,
-				Required:    true,
-			},
-			&cli.StringFlag{
-				Name:        "user-mapping",
-				Usage:       "User mapping in format: telegram_id1:notion_id1:nickname1,telegram_id2:notion_id2:nickname2",
-				Sources:     cli.EnvVars("USER_MAPPING"),
-				Destination: &cfg.userMapping,
-			},
-			&cli.StringFlag{
-				Name:        "port",
-				Usage:       "HTTP server port",
-				Sources:     cli.EnvVars("PORT"),
-				Destination: &cfg.port,
-				Value:       "8080",
-			},
-			&cli.StringFlag{
-				Name:        "telegram-bot-token",
-				Usage:       "Telegram bot token for validating WebApp initData",
-				Sources:     cli.EnvVars("TELEGRAM_BOT_TOKEN"),
-				Destination: &cfg.telegramBotToken,
-			},
-			&cli.StringFlag{
-				Name:        "log-level",
-				Usage:       "Log level",
-				Sources:     cli.EnvVars("LOG_LEVEL"),
-				Destination: &cfg.logLevel,
-				Value:       "debug",
-			},
-			&cli.BoolFlag{
-				Name:        "dev-mode",
-				Usage:       "Enable dev mode (skip Telegram auth for local development)",
-				Sources:     cli.EnvVars("DEV_MODE"),
-				Destination: &cfg.devMode,
-			},
-		},
-	}
+	notionToken := envRequired("NOTION_TOKEN")
+	notionDatabaseID := envRequired("NOTION_DATABASE_ID")
 
-	app.Run()
+	userMapping := env("USER_MAPPING", "")
+	port := env("PORT", "8080")
+	telegramBotToken := env("TELEGRAM_BOT_TOKEN", "")
+	logLevel := env("LOG_LEVEL", "debug")
+	devMode := os.Getenv("DEV_MODE") == "true"
+
+	app.App{Main: func(ctx context.Context) error {
+		// Initialize logger
+		lvl := slog.LevelDebug
+		if logLevel != "" {
+			if err := lvl.UnmarshalText([]byte(logLevel)); err == nil {
+				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
+			}
+		}
+
+		userRepo := userrepo.NewRepo(userMapping)
+		userService := user.NewService(userRepo)
+		accountingRepo := notion.NewClient(notionToken, notionDatabaseID)
+
+		server, err := webapp.NewServer(userService, accountingRepo, port, telegramBotToken, devMode)
+		if err != nil {
+			return fmt.Errorf("failed to create server: %w", err)
+		}
+
+		if err := server.Start(); err != nil {
+			return fmt.Errorf("failed to start server: %w", err)
+		}
+
+		<-ctx.Done()
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+
+		return server.Shutdown(shutdownCtx)
+	}}.Run()
 }
