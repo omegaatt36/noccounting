@@ -1,8 +1,0 @@
-FROM gcr.io/distroless/static:nonroot
-
-ARG TARGETARCH
-
-COPY noccounting-bot-${TARGETARCH} /bot
-
-USER nonroot:nonroot
-ENTRYPOINT ["/bot"]

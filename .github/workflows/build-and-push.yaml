@@ -20,9 +20,29 @@ env:
   WEB_IMAGE: omegaatt36/noccounting-web
 
 jobs:
-  build-binaries:
+  determine-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Determine image tag
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    needs: determine-tag
     strategy:
       matrix:
+        type: [bot, webapp]
         arch: [amd64, arm64]
     runs-on: ubuntu-24.04
     steps:
@@ -48,47 +68,14 @@ jobs:
           go tool tsgo -p web/ts/tsconfig.json
           tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
 
-      - name: Build bot binary for ${{ matrix.arch }}
+      - name: Build binary for ${{ matrix.type }} on ${{ matrix.arch }}
         env:
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w" -o noccounting-bot-${{ matrix.arch }} ./cmd/bot
-
-      - name: Build webapp binary for ${{ matrix.arch }}
-        env:
-          GOOS: linux
-          GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w" -o noccounting-web-${{ matrix.arch }} ./cmd/webapp
-
-      - name: Upload bot binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: bot-${{ matrix.arch }}
-          path: noccounting-bot-${{ matrix.arch }}
-          retention-days: 1
-
-      - name: Upload webapp binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-${{ matrix.arch }}
-          path: noccounting-web-${{ matrix.arch }}
-          retention-days: 1
-
-  build-and-push-images:
-    needs: build-binaries
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          BINARY_NAME: noccounting-${{ matrix.type }}-${{ matrix.arch }}
+        run: |
+          go build -ldflags="-s -w" -o ${BINARY_NAME} ./cmd/${{ matrix.type }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -99,71 +86,43 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Determine image tag
-        id: version
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Move binaries to build context root
-        run: |
-          mv artifacts/bot-amd64/noccounting-bot-amd64 ./noccounting-bot-amd64
-          mv artifacts/bot-arm64/noccounting-bot-arm64 ./noccounting-bot-arm64
-          mv artifacts/web-amd64/noccounting-web-amd64 ./noccounting-web-amd64
-          mv artifacts/web-arm64/noccounting-web-arm64 ./noccounting-web-arm64
-          chmod +x noccounting-*
-          ls -l noccounting-*
-
-      - name: Extract metadata for Bot
-        id: meta-bot
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.BOT_IMAGE }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.tag }}
-
-      - name: Extract metadata for Web
-        id: meta-web
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.WEB_IMAGE }}
-          tags: |
-            type=raw,value=latest
-            type=raw,value=${{ steps.version.outputs.tag }}
-
-      - name: Build and push Bot image
+      - name: Build and push ${{ matrix.type }} image (${{ matrix.arch }})
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/bot/Dockerfile.buildx
-          platforms: linux/amd64,linux/arm64
+          file: ./build/${{ matrix.type }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: TARGETARCH=${{ matrix.arch }}
           push: true
-          tags: ${{ steps.meta-bot.outputs.tags }}
-          labels: ${{ steps.meta-bot.outputs.labels }}
+          tags: ${{ matrix.type == 'bot' && env.BOT_IMAGE || env.WEB_IMAGE }}-linux-${{ matrix.arch }}:${{ needs.determine-tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push Web image
-        uses: docker/build-push-action@v6
+  create-manifests:
+    needs: [determine-tag, build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
-          context: .
-          file: ./build/webapp/Dockerfile.buildx
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-web.outputs.tags }}
-          labels: ${{ steps.meta-web.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Create Bot multi-platform manifest
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.BOT_IMAGE }}:latest \
+            --tag ${{ env.BOT_IMAGE }}:${{ needs.determine-tag.outputs.tag }} \
+            ${{ env.BOT_IMAGE }}-linux-amd64:${{ needs.determine-tag.outputs.tag }} \
+            ${{ env.BOT_IMAGE }}-linux-arm64:${{ needs.determine-tag.outputs.tag }}
+
+      - name: Create Web multi-platform manifest
+        run: |
+          docker buildx imagetools create \
+            --tag ${{ env.WEB_IMAGE }}:latest \
+            --tag ${{ env.WEB_IMAGE }}:${{ needs.determine-tag.outputs.tag }} \
+            ${{ env.WEB_IMAGE }}-linux-amd64:${{ needs.determine-tag.outputs.tag }} \
+            ${{ env.WEB_IMAGE }}-linux-arm64:${{ needs.determine-tag.outputs.tag }}

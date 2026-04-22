@@ -39,8 +39,10 @@ func TestFinMindClient_GetRate_JPY(t *testing.T) {
 		},
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(response)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Fatalf("Encode error = %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -70,8 +72,10 @@ func TestFinMindClient_GetRate_EmptyData(t *testing.T) {
 		"data":   []any{},
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(response)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Fatalf("Encode error = %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -83,7 +87,7 @@ func TestFinMindClient_GetRate_EmptyData(t *testing.T) {
 }
 
 func TestFinMindClient_GetRate_ServerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
