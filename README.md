@@ -11,41 +11,15 @@ A travel expense tracker with Telegram Bot and Web Mini App interfaces, using No
 - **Notion as DB** - All data stored in Notion for easy viewing and collaboration
 - **Smart Defaults** - The Mini App remembers your last currency, category, and payment method via localStorage
 
-## Architecture
-
-```
-cmd/
-├── bot/            Telegram Bot binary
-└── webapp/         Web Mini App binary (HTTP server)
-
-domain/             Business models, enums, repository interfaces
-
-internal/
-├── app/
-│   ├── bot/        Telegram handlers (text commands, receipt photo, inline callbacks)
-│   └── webapp/     HTTP handlers, Templ components (+ templui UI), middleware, static serving
-├── infrastructure/
-│   ├── llm/        OpenAI-compatible vision API client (receipt analysis)
-│   └── exchangerate/  FinMind exchange rate client
-├── persistence/
-│   ├── notion/     Notion API client (expenses CRUD + file upload)
-│   └── user/       In-memory user repository (from USER_MAPPING)
-└── service/        Business service layer
-
-web/ts/             TypeScript source (compiled to JS via tsgo)
-build/              Dockerfiles (bot, webapp)
-helm/               Kubernetes Helm chart
-```
-
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Language | Go 1.26 |
 | Bot | [telebot.v4](https://gopkg.in/telebot.v4) |
-| Web Frontend | [Templ](https://templ.guide) components + [HTMX](https://htmx.org) + [Tailwind CSS v4](https://tailwindcss.com) |
+| Web Frontend | [Templ](https://templ.guide) + [HTMX](https://htmx.org) + [Tailwind CSS v4](https://tailwindcss.com) |
 | TypeScript | [tsgo](https://github.com/microsoft/typescript-go) (Go-native compiler, zero node_modules) |
-| UI Components | [templui](https://templui.com) (Button, Input, Tabs, Toast, etc.) |
+| UI Components | [templui](https://templui.com) |
 | Theme | [Flexoki Dark](https://stephango.com/flexoki) palette |
 | Database | Notion API |
 | Receipt Analysis | OpenAI-compatible vision API (via LiteLLM or similar) |
@@ -80,7 +54,7 @@ LOG_LEVEL=INFO                            # DEBUG, INFO, WARN, ERROR
 # Receipt scanning (optional)
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://your-llm-endpoint/  # OpenAI-compatible endpoint
-LLM_MODEL=your_model_name                # e.g. gpt-5
+LLM_MODEL=your_model_name                # e.g. gpt-4o
 ```
 
 ### Build & Run
@@ -132,8 +106,6 @@ task build
 
 ## Notion Database Setup
 
-Create a Notion database with these properties:
-
 | Property | Type | Values |
 |----------|------|--------|
 | name | Title | Expense name |
@@ -164,12 +136,12 @@ Create a Notion database with these properties:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | Serves the Mini App (Templ-rendered) |
+| GET | `/` | Serves the Mini App |
 | GET | `/api/auth` | Validates Telegram WebApp initData |
 | GET | `/api/users` | Lists authorized users |
-| POST | `/api/expense` | Creates a new expense (HTMX) |
+| POST | `/api/expense` | Creates a new expense |
+| GET | `/api/export/csv` | Export expenses as CSV |
 | GET | `/health` | Health check |
-| GET | `/static/*` | Static assets (CSS, JS) |
 
 ## Docker
 
@@ -203,24 +175,6 @@ helm install noccounting ./helm \
   --set notion.databaseId=$NOTION_DATABASE_ID \
   --set userMapping=$USER_MAPPING
 ```
-
-## Frontend Architecture
-
-The Mini App frontend uses a **Go-only toolchain** with zero `node_modules`:
-
-```
-web/ts/*.ts  →  tsgo compile  →  static/*.js  →  go:embed  →  single binary
-                                  (ES Modules)
-```
-
-| Module | Responsibility |
-|--------|---------------|
-| `app.ts` | Entry point, initialization orchestration |
-| `telegram.ts` | Telegram WebApp SDK wrapper, haptic feedback |
-| `auth.ts` | Authentication flow, user loading |
-| `form.ts` | Button groups, HTMX form lifecycle, auto-dismiss |
-| `exchange-rate.ts` | JPY rate fetching (FinMind API) + localStorage cache |
-| `storage.ts` | Smart defaults via localStorage |
 
 ## License
 
