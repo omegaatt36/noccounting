@@ -10,7 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/omegaatt36/noccounting/domain"
-	"github.com/omegaatt36/noccounting/internal/infrastructure/exchangerate"
+	"github.com/omegaatt36/noccounting/internal/repository/exchangerate"
 )
 
 func TestFinMindClient_GetRate_TWD(t *testing.T) {

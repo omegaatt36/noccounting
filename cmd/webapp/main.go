@@ -9,8 +9,9 @@ import (
 
 	"github.com/omegaatt36/noccounting/internal/app"
 	"github.com/omegaatt36/noccounting/internal/app/webapp"
-	"github.com/omegaatt36/noccounting/internal/persistence/notion"
-	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
+	"github.com/omegaatt36/noccounting/internal/repository/notion"
+	userrepo "github.com/omegaatt36/noccounting/internal/repository/user"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -52,8 +53,9 @@ func main() {
 		userRepo := userrepo.NewRepo(userMapping)
 		userService := user.NewService(userRepo)
 		accountingRepo := notion.NewClient(notionToken, notionDatabaseID)
+		expenseService := expense.NewService(accountingRepo, nil, nil)
 
-		server, err := webapp.NewServer(userService, accountingRepo, port, telegramBotToken, devMode)
+		server, err := webapp.NewServer(userService, expenseService, port, telegramBotToken, devMode)
 		if err != nil {
 			return fmt.Errorf("failed to create server: %w", err)
 		}

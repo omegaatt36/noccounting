@@ -3,10 +3,10 @@ package user
 import "github.com/omegaatt36/noccounting/domain"
 
 type Service struct {
-	userRepo domain.UserRepo
+	userRepo UserRepo
 }
 
-func NewService(userRepo domain.UserRepo) *Service {
+func NewService(userRepo UserRepo) *Service {
 	return &Service{
 		userRepo: userRepo,
 	}

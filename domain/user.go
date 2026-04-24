@@ -13,9 +13,3 @@ type GetUserRequest struct {
 	TelegramID *int64
 	NotionID   *string
 }
-
-// UserRepo defines the interface for user management.
-type UserRepo interface {
-	GetUser(req GetUserRequest) (*User, error)
-	GetUsers() ([]User, error)
-}

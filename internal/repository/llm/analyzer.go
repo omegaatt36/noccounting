@@ -14,9 +14,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 )
 
-// Analyzer implements domain.ReceiptAnalyzer using an OpenAI-compatible Vision API.
+// Analyzer implements expense.ReceiptAnalyzer using an OpenAI-compatible Vision API.
 type Analyzer struct {
 	httpClient *http.Client
 	baseURL    string
@@ -24,7 +25,7 @@ type Analyzer struct {
 	model      string
 }
 
-var _ domain.ReceiptAnalyzer = (*Analyzer)(nil)
+var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
 
 // NewAnalyzer creates a new LLM receipt analyzer.
 func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {

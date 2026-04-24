@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -19,8 +19,8 @@ type Server struct {
 }
 
 // NewServer creates a new Server instance with all dependencies.
-func NewServer(userService *user.Service, accountingRepo domain.AccountingRepo, port, botToken string, devMode bool) (*Server, error) {
-	handler, err := NewHandler(userService, accountingRepo, botToken, devMode)
+func NewServer(userService *user.Service, expenseService *expense.Service, port, botToken string, devMode bool) (*Server, error) {
+	handler, err := NewHandler(userService, expenseService, botToken, devMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create handler: %w", err)
 	}

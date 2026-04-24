@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 )
 
 const (
@@ -23,8 +24,8 @@ type FinMindClient struct {
 	baseURL    string
 }
 
-// Ensure FinMindClient implements domain.ExchangeRateFetcher at compile time.
-var _ domain.ExchangeRateFetcher = (*FinMindClient)(nil)
+// Ensure FinMindClient implements expense.ExchangeRateFetcher at compile time.
+var _ expense.ExchangeRateFetcher = (*FinMindClient)(nil)
 
 // NewFinMindClient creates a new FinMind client.
 func NewFinMindClient() *FinMindClient {

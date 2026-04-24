@@ -17,25 +17,26 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
 // Handler handles HTTP requests for the Mini App.
 type Handler struct {
 	userService    *user.Service
-	accountingRepo domain.AccountingRepo
+	expenseService *expense.Service
 	botToken       string
 	devMode        bool
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(userService *user.Service, accountingRepo domain.AccountingRepo, botToken string, devMode bool) (*Handler, error) {
+func NewHandler(userService *user.Service, expenseService *expense.Service, botToken string, devMode bool) (*Handler, error) {
 	if devMode {
 		slog.Warn("Running in dev mode — Telegram auth is disabled")
 	}
 	return &Handler{
 		userService:    userService,
-		accountingRepo: accountingRepo,
+		expenseService: expenseService,
 		botToken:       botToken,
 		devMode:        devMode,
 	}, nil
@@ -366,7 +367,7 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
+	if err := h.expenseService.CreateExpense(ctx, expense); err != nil {
 		slog.Error("Failed to create expense", "error", err)
 		h.renderResult(w, r, resultData{Error: "新增失敗，請稍後再試"})
 		return
@@ -417,7 +418,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	fromTime, toTime := parseDateRange(rangeStr, now)
 
 	// Build filter
-	filter := domain.ExpenseFilter{
+	filter := expense.ExpenseFilter{
 		DateFrom: fromTime,
 		DateTo:   toTime,
 	}
@@ -426,7 +427,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	expenses, err := h.accountingRepo.QueryExpensesWithFilter(ctx, filter)
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, filter)
 	if err != nil {
 		slog.Error("Failed to query expenses", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -495,7 +496,7 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	fromTime, toTime := parseDateRange(rangeStr, now)
 
 	// Build filter
-	filter := domain.ExpenseFilter{
+	filter := expense.ExpenseFilter{
 		DateFrom: fromTime,
 		DateTo:   toTime,
 	}
@@ -504,7 +505,7 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	expenses, err := h.accountingRepo.QueryExpensesWithFilter(ctx, filter)
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, filter)
 	if err != nil {
 		slog.Error("Failed to query expenses", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

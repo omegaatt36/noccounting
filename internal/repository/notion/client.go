@@ -17,6 +17,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 )
 
 const (
@@ -25,7 +26,7 @@ const (
 	notionBaseURL              = "https://api.notion.com/v1"
 )
 
-// Client is a Notion API client that implements domain.AccountingRepo.
+// Client is a Notion API client that implements expense.AccountingRepo.
 type Client struct {
 	httpClient *http.Client
 	token      string
@@ -33,8 +34,8 @@ type Client struct {
 	baseURL    string
 }
 
-// Ensure Client implements domain.AccountingRepo at compile time.
-var _ domain.AccountingRepo = (*Client)(nil)
+// Ensure Client implements expense.AccountingRepo at compile time.
+var _ expense.AccountingRepo = (*Client)(nil)
 
 // NewClient creates a new Notion client.
 func NewClient(token, databaseID string) *Client {
@@ -211,7 +212,7 @@ func (c *Client) CreateExpense(ctx context.Context, expense *domain.Expense) err
 
 // QueryExpenses queries all expenses from the database.
 func (c *Client) QueryExpenses(ctx context.Context) ([]domain.Expense, error) {
-	return c.QueryExpensesWithFilter(ctx, domain.ExpenseFilter{})
+	return c.QueryExpensesWithFilter(ctx, expense.ExpenseFilter{})
 }
 
 // GetExpenseSummary calculates the expense summary for splitting.
@@ -242,7 +243,7 @@ func (c *Client) GetExpenseSummary(ctx context.Context) (*domain.ExpenseSummary,
 }
 
 // QueryExpensesWithFilter queries expenses with the given filter.
-func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter domain.ExpenseFilter) ([]domain.Expense, error) {
+func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter expense.ExpenseFilter) ([]domain.Expense, error) {
 	var allExpenses []domain.Expense
 	var startCursor string
 

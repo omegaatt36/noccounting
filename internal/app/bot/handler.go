@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,35 +12,29 @@ import (
 	tele "gopkg.in/telebot.v4"
 
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 	"github.com/omegaatt36/noccounting/internal/service/user"
-	"github.com/shopspring/decimal"
 )
 
 // Handler handles Telegram bot commands.
 type Handler struct {
-	userService     *user.Service
-	accountingRepo  domain.AccountingRepo
-	rateFetcher     domain.ExchangeRateFetcher
-	receiptAnalyzer domain.ReceiptAnalyzer
-	webAppURL       string
-	convManager     *ConversationManager
+	userService    *user.Service
+	expenseService *expense.Service
+	webAppURL      string
+	convManager    *ConversationManager
 }
 
 // NewHandler creates a new bot Handler.
 func NewHandler(
 	userService *user.Service,
-	accountingRepo domain.AccountingRepo,
-	rateFetcher domain.ExchangeRateFetcher,
-	receiptAnalyzer domain.ReceiptAnalyzer,
+	expenseService *expense.Service,
 	webAppURL string,
 ) *Handler {
 	return &Handler{
-		userService:     userService,
-		accountingRepo:  accountingRepo,
-		rateFetcher:     rateFetcher,
-		receiptAnalyzer: receiptAnalyzer,
-		webAppURL:       webAppURL,
-		convManager:     NewConversationManager(),
+		userService:    userService,
+		expenseService: expenseService,
+		webAppURL:      webAppURL,
+		convManager:    NewConversationManager(),
 	}
 }
 
@@ -160,7 +153,7 @@ func (h *Handler) handleAdd(c tele.Context) error {
 		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
 	}
 
-	expense := &domain.Expense{
+	exp := &domain.Expense{
 		Name:      name,
 		Price:     price,
 		Currency:  currency,
@@ -173,7 +166,7 @@ func (h *Handler) handleAdd(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
+	if err := h.expenseService.CreateExpense(ctx, exp); err != nil {
 		slog.Error("Failed to create expense", "error", err)
 		return c.Send("❌ 新增失敗，連線資料庫錯誤，請稍後再試")
 	}
@@ -191,7 +184,7 @@ func (h *Handler) handleList(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	expenses, err := h.accountingRepo.QueryExpenses(ctx)
+	expenses, err := h.expenseService.QueryExpenses(ctx)
 	if err != nil {
 		slog.Error("Failed to query expenses", "error", err)
 		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
@@ -216,7 +209,7 @@ func (h *Handler) handleSummary(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	summary, err := h.accountingRepo.GetExpenseSummary(ctx)
+	summary, err := h.expenseService.GetSummary(ctx)
 	if err != nil {
 		slog.Error("Failed to get summary", "error", err)
 		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
@@ -250,7 +243,7 @@ func (h *Handler) handleQuick(c tele.Context) error {
 }
 
 func (h *Handler) handlePhoto(c tele.Context) error {
-	if h.receiptAnalyzer == nil {
+	if !h.expenseService.HasReceiptAnalyzer() {
 		return c.Send("📸 收據分析功能尚未啟用")
 	}
 
@@ -276,6 +269,10 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 
 	imageData, err := io.ReadAll(reader)
 	if err != nil {
+		slog.Error("Failed to read photo data", "error", err)
+		return c.Send("❌ 無法讀取照片")
+	}
+	if len(imageData) == 0 {
 		return c.Send("❌ 無法讀取照片")
 	}
 
@@ -283,7 +280,7 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	analysis, err := h.receiptAnalyzer.Analyze(ctx, imageData)
+	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imageData)
 	if err != nil {
 		slog.Error("Receipt analysis failed", "error", err)
 		return c.Send("❌ 無法辨識收據，請嘗試手動輸入\n/quick")
@@ -421,15 +418,13 @@ func (h *Handler) handleQuickCurrency(c tele.Context, state *ConversationState, 
 	state.ExpenseDraft.Currency = currency
 
 	// Fetch exchange rate for JPY
-	if currency == domain.CurrencyJPY && h.rateFetcher != nil {
+	if currency == domain.CurrencyJPY {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
-		rate, err := h.rateFetcher.GetRate(ctx, currency)
+		rate, err := h.expenseService.FetchExchangeRate(ctx, currency)
 		if err != nil {
 			slog.Warn("Failed to fetch exchange rate", "error", err)
-			// Continue without rate, user can still proceed
-		} else {
+		} else if !rate.IsZero() {
 			state.ExpenseDraft.ExchangeRate = rate
 			slog.Info("Fetched exchange rate", "currency", currency, "rate", rate.String())
 		}
@@ -509,7 +504,7 @@ func (h *Handler) handleQuickConfirm(c tele.Context, state *ConversationState, v
 	defer cancel()
 
 	exp := state.ExpenseDraft
-	if err := h.accountingRepo.CreateExpense(ctx, exp); err != nil {
+	if err := h.expenseService.CreateExpense(ctx, exp); err != nil {
 		slog.Error("Failed to create expense", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
 		return c.Send("❌ 新增失敗，連線資料庫錯誤，請稍後再試")
@@ -532,11 +527,11 @@ func (h *Handler) handleEdit(c tele.Context) error {
 
 	// Get recent 5 expenses
 	limit := 5
-	filter := domain.ExpenseFilter{
+	filter := expense.ExpenseFilter{
 		Limit: &limit,
 	}
 
-	expenses, err := h.accountingRepo.QueryExpensesWithFilter(ctx, filter)
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, filter)
 	if err != nil {
 		slog.Error("Failed to query expenses for edit", "error", err)
 		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
@@ -587,7 +582,7 @@ func (h *Handler) handleEditSelectCallback(c tele.Context, data string) error {
 
 	// Query all and find by ID (Notion doesn't have get by ID in our current impl)
 	limit := 20
-	expenses, err := h.accountingRepo.QueryExpensesWithFilter(ctx, domain.ExpenseFilter{Limit: &limit})
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, expense.ExpenseFilter{Limit: &limit})
 	if err != nil {
 		return c.Respond(&tele.CallbackResponse{Text: "查詢失敗"})
 	}
@@ -705,7 +700,7 @@ func (h *Handler) handleEditValue(c tele.Context, state *ConversationState, text
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := h.accountingRepo.UpdateExpense(ctx, exp); err != nil {
+	if err := h.expenseService.UpdateExpense(ctx, exp); err != nil {
 		slog.Error("Failed to update expense", "error", err)
 		return c.Send("❌ 更新失敗，請稍後再試")
 	}
@@ -730,7 +725,7 @@ func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) err
 	defer cancel()
 
 	exp := state.EditingExpense
-	if err := h.accountingRepo.DeleteExpense(ctx, exp.ID); err != nil {
+	if err := h.expenseService.DeleteExpense(ctx, exp.ID); err != nil {
 		slog.Error("Failed to delete expense", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "刪除失敗"})
 		return c.Send("❌ 刪除失敗，請稍後再試")
@@ -757,7 +752,7 @@ func (h *Handler) handleEditCategory(c tele.Context, state *ConversationState, v
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := h.accountingRepo.UpdateExpense(ctx, state.EditingExpense); err != nil {
+	if err := h.expenseService.UpdateExpense(ctx, state.EditingExpense); err != nil {
 		slog.Error("Failed to update expense category", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "更新失敗"})
 		return c.Send("❌ 更新失敗，請稍後再試")
@@ -791,7 +786,7 @@ func (h *Handler) handleEditMethod(c tele.Context, state *ConversationState, val
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := h.accountingRepo.UpdateExpense(ctx, state.EditingExpense); err != nil {
+	if err := h.expenseService.UpdateExpense(ctx, state.EditingExpense); err != nil {
 		slog.Error("Failed to update expense method", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "更新失敗"})
 		return c.Send("❌ 更新失敗，請稍後再試")
@@ -850,7 +845,6 @@ func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get user's Notion ID
 	telegramUserID := c.Sender().ID
 	u, err := h.userService.GetUser(domain.GetUserRequest{
 		TelegramID: &telegramUserID,
@@ -860,59 +854,24 @@ func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) 
 		return c.Send("❌ 無法取得用戶資訊")
 	}
 
-	analysis := state.ReceiptAnalysis
-	imageData := state.ReceiptImage
-
-	// Upload photo to Notion
-	receiptURL := ""
-	if len(imageData) > 0 {
-		tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
-		if err != nil {
-			slog.Error("Failed to create temp file", "error", err)
-		} else {
-			defer os.Remove(tmpFile.Name())
-
-			if _, err := tmpFile.Write(imageData); err != nil {
-				slog.Error("Failed to write image to temp file", "error", err)
-			} else {
-				tmpFile.Close()
-				if uploadID, err := h.accountingRepo.UploadFile(ctx, tmpFile.Name()); err != nil {
-					slog.Error("Failed to upload receipt", "error", err)
-				} else {
-					receiptURL = uploadID
-				}
-			}
-		}
-	}
-
-	// Create ONE expense with total amount
-	expense := &domain.Expense{
-		Name:         analysis.Summary,
-		Price:        analysis.Total,
-		Currency:     analysis.Currency,
-		Category:     domain.Category食, // Default to food
-		Method:       domain.PaymentMethodCash,
-		PaidByID:     u.NotionID,
-		ShoppedAt:    time.Now(),
-		ReceiptURL:   receiptURL,
-		ReceiptItems: analysis.Items,
-	}
-
-	if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
-		slog.Error("Failed to create expense", "error", err)
+	if err := h.expenseService.CreateFromAnalysis(ctx, state.ReceiptAnalysis, state.ReceiptImage, u.NotionID, false); err != nil {
+		slog.Error("Failed to create expense from receipt", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
 		return c.Send("❌ 新增失敗，請稍後再試")
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
+	analysis := state.ReceiptAnalysis
 	return c.Send(fmt.Sprintf(`✅ 已新增消費記錄
 
 📝 %s
 💰 %d %s
 📂 %s %s
 💳 %s`,
-		expense.Name, expense.Price, expense.Currency, expense.Category.Emoji(), expense.Category, expense.Method.DisplayName()))
+		analysis.Summary, analysis.Total, analysis.Currency,
+		domain.Category食.Emoji(), domain.Category食,
+		domain.PaymentMethodCash.DisplayName()))
 }
 
 func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) error {
@@ -921,7 +880,6 @@ func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) e
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get user's Notion ID
 	telegramUserID := c.Sender().ID
 	u, err := h.userService.GetUser(domain.GetUserRequest{
 		TelegramID: &telegramUserID,
@@ -932,152 +890,53 @@ func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) e
 	}
 
 	analysis := state.ReceiptAnalysis
-	imageData := state.ReceiptImage
-
-	// Upload photo to Notion
-	receiptURL := ""
-	if len(imageData) > 0 {
-		tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
-		if err != nil {
-			slog.Error("Failed to create temp file", "error", err)
-		} else {
-			defer os.Remove(tmpFile.Name())
-
-			if _, err := tmpFile.Write(imageData); err != nil {
-				slog.Error("Failed to write image to temp file", "error", err)
-			} else {
-				tmpFile.Close()
-				if uploadID, err := h.accountingRepo.UploadFile(ctx, tmpFile.Name()); err != nil {
-					slog.Error("Failed to upload receipt", "error", err)
-				} else {
-					receiptURL = uploadID
-				}
-			}
-		}
-	}
-
-	// Create MULTIPLE expenses (one per item)
-	successCount := 0
-	for _, item := range analysis.Items {
-		expense := &domain.Expense{
-			Name:       item.DisplayName(),
-			Price:      item.Price,
-			Currency:   analysis.Currency,
-			Category:   item.Category,
-			Method:     domain.PaymentMethodCash,
-			PaidByID:   u.NotionID,
-			ShoppedAt:  time.Now(),
-			ReceiptURL: receiptURL,
-		}
-
-		if err := h.accountingRepo.CreateExpense(ctx, expense); err != nil {
-			slog.Error("Failed to create expense", "error", err, "item", item.Name)
-			continue
-		}
-		successCount++
+	if err := h.expenseService.CreateFromAnalysis(ctx, analysis, state.ReceiptImage, u.NotionID, true); err != nil {
+		slog.Error("Failed to create expenses from receipt", "error", err)
+		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
+		return c.Send("❌ 新增失敗，請稍後再試")
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
-	var msgText string
-	if successCount == len(analysis.Items) {
-		msgText = fmt.Sprintf("✅ 已拆開新增 %d 項消費\n\n", successCount)
-		for i, item := range analysis.Items {
-			msgText += fmt.Sprintf("%d. %s %s %d %s\n", i+1, item.Category.Emoji(), item.DisplayName(), item.Price, analysis.Currency)
-		}
-	} else {
-		msgText = fmt.Sprintf("⚠️ 成功新增 %d/%d 項\n\n部分項目新增失敗，請稍後重試", successCount, len(analysis.Items))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "✅ 已拆開新增 %d 項消費\n\n", len(analysis.Items))
+	for i, item := range analysis.Items {
+		fmt.Fprintf(&sb, "%d. %s %s %d %s\n",
+			i+1, item.Category.Emoji(), item.DisplayName(), item.Price, analysis.Currency)
 	}
-
-	return c.Send(msgText)
+	return c.Send(sb.String())
 }
 
 func (h *Handler) handleToday(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get today's date range (local timezone)
-	now := time.Now()
-	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
-
-	filter := domain.ExpenseFilter{
-		DateFrom: &startOfDay,
-		DateTo:   &endOfDay,
-	}
-
-	expenses, err := h.accountingRepo.QueryExpensesWithFilter(ctx, filter)
+	summary, err := h.expenseService.GetTodaySummary(ctx)
 	if err != nil {
-		slog.Error("Failed to query today's expenses", "error", err)
+		slog.Error("Failed to get today's summary", "error", err)
 		return c.Send("❌ 查詢失敗，請稍後再試")
 	}
 
-	if len(expenses) == 0 {
-		return c.Send(fmt.Sprintf("📅 %s 消費統計\n\n📭 今日尚無消費記錄", now.Format("2006/01/02")))
-	}
-
-	// Fetch fallback exchange rate for JPY expenses without rate
-	var fallbackJPYRate decimal.Decimal
-	needsFallbackRate := false
-	for _, exp := range expenses {
-		if exp.Currency == domain.CurrencyJPY && exp.ExchangeRate.IsZero() {
-			needsFallbackRate = true
-			break
-		}
-	}
-
-	if needsFallbackRate && h.rateFetcher != nil {
-		rate, err := h.rateFetcher.GetRate(ctx, domain.CurrencyJPY)
-		if err != nil {
-			slog.Warn("Failed to fetch fallback exchange rate", "error", err)
-		} else {
-			fallbackJPYRate = rate
-		}
-	}
-
-	type categorySum struct {
-		total    uint64
-		totalTWD float64
-		currency domain.Currency
-	}
-
-	// Aggregate by category
-	categoryTotals := make(map[domain.Category]*categorySum)
-	var grandTotalTWD float64
-
-	for _, exp := range expenses {
-		if _, ok := categoryTotals[exp.Category]; !ok {
-			categoryTotals[exp.Category] = &categorySum{}
-		}
-		categoryTotals[exp.Category].total += exp.Price
-		categoryTotals[exp.Category].currency = exp.Currency
-
-		// Calculate TWD amount, using fallback rate if needed
-		var twdAmount float64
-		if exp.Currency == domain.CurrencyJPY && exp.ExchangeRate.IsZero() && !fallbackJPYRate.IsZero() {
-			// Use fallback rate for expenses without stored rate
-			twdAmount, _ = exp.PriceDecimal().Mul(fallbackJPYRate).Float64()
-		} else {
-			twdAmount, _ = exp.TotalInTWD().Float64()
-		}
-		categoryTotals[exp.Category].totalTWD += twdAmount
-		grandTotalTWD += twdAmount
+	if len(summary.Items) == 0 {
+		return c.Send(fmt.Sprintf("📅 %s 消費統計\n\n📭 今日尚無消費記錄", summary.Date.Format("2006/01/02")))
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "📅 %s 消費統計\n\n", now.Format("2006/01/02"))
+	fmt.Fprintf(&sb, "📅 %s 消費統計\n\n", summary.Date.Format("2006/01/02"))
 
-	// Sort categories for consistent output
 	categories := domain.CategoryValues()
 	for _, cat := range categories {
-		if sum, ok := categoryTotals[cat]; ok {
-			fmt.Fprintf(&sb, "%s %s: %d %s (≈NT$%.0f)\n",
-				cat.Emoji(), cat, sum.total, sum.currency, sum.totalTWD)
+		for _, item := range summary.Items {
+			if item.Category == cat {
+				fmt.Fprintf(&sb, "%s %s: %d %s (≈NT$%s)\n",
+					cat.Emoji(), cat, item.Total, item.Currency, item.TotalTWD.Round(0).String())
+				break
+			}
 		}
 	}
 
 	sb.WriteString("─────────────\n")
-	fmt.Fprintf(&sb, "💰 今日合計: NT$%.0f (%d 筆)\n", grandTotalTWD, len(expenses))
+	fmt.Fprintf(&sb, "💰 今日合計: NT$%s (%d 筆)\n", summary.GrandTotalTWD.Round(0).String(), summary.ItemCount)
 
 	return c.Send(sb.String())
 }

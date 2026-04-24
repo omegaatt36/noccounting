@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/omegaatt36/noccounting/domain"
-	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
+	userrepo "github.com/omegaatt36/noccounting/internal/repository/user"
 )
 
 func TestRepo_GetUser_ByTelegramID(t *testing.T) {

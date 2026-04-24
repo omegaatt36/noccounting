@@ -11,7 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/omegaatt36/noccounting/domain"
-	"github.com/omegaatt36/noccounting/internal/persistence/notion"
+	"github.com/omegaatt36/noccounting/internal/repository/notion"
 )
 
 func TestClient_CreateExpense(t *testing.T) {

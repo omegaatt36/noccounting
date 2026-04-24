@@ -8,7 +8,7 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -23,9 +23,7 @@ func New(
 	token string,
 	webAppURL string,
 	userService *user.Service,
-	accountingRepo domain.AccountingRepo,
-	rateFetcher domain.ExchangeRateFetcher,
-	receiptAnalyzer domain.ReceiptAnalyzer,
+	expenseService *expense.Service,
 ) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
@@ -37,7 +35,7 @@ func New(
 		return nil, fmt.Errorf("failed to create bot: %w", err)
 	}
 
-	handler := NewHandler(userService, accountingRepo, rateFetcher, receiptAnalyzer, webAppURL)
+	handler := NewHandler(userService, expenseService, webAppURL)
 	handler.RegisterHandlers(teleBot)
 
 	return &Bot{

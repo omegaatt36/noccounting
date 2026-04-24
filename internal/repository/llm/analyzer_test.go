@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/omegaatt36/noccounting/domain"
-	"github.com/omegaatt36/noccounting/internal/infrastructure/llm"
+	"github.com/omegaatt36/noccounting/internal/repository/llm"
 )
 
 func TestAnalyzer_Analyze(t *testing.T) {

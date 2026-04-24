@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/omegaatt36/noccounting/domain"
-	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
+	userrepo "github.com/omegaatt36/noccounting/internal/repository/user"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 

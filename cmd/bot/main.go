@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app"
 	"github.com/omegaatt36/noccounting/internal/app/bot"
-	"github.com/omegaatt36/noccounting/internal/infrastructure/exchangerate"
-	"github.com/omegaatt36/noccounting/internal/infrastructure/llm"
-	"github.com/omegaatt36/noccounting/internal/persistence/notion"
-	userrepo "github.com/omegaatt36/noccounting/internal/persistence/user"
+	"github.com/omegaatt36/noccounting/internal/repository/exchangerate"
+	"github.com/omegaatt36/noccounting/internal/repository/llm"
+	"github.com/omegaatt36/noccounting/internal/repository/notion"
+	userrepo "github.com/omegaatt36/noccounting/internal/repository/user"
+	"github.com/omegaatt36/noccounting/internal/service/expense"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -58,18 +58,18 @@ func main() {
 		accountingRepo := notion.NewClient(notionToken, notionDatabaseID)
 		rateFetcher := exchangerate.NewFinMindClient()
 
-		var receiptAnalyzer domain.ReceiptAnalyzer
+		var analyzer expense.ReceiptAnalyzer
 		if llmAPIKey != "" && llmBaseURL != "" {
-			receiptAnalyzer = llm.NewAnalyzer(llmBaseURL, llmAPIKey, llmModel)
+			analyzer = llm.NewAnalyzer(llmBaseURL, llmAPIKey, llmModel)
 		}
+
+		expenseService := expense.NewService(accountingRepo, rateFetcher, analyzer)
 
 		telegramBot, err := bot.New(
 			telegramToken,
 			webAppURL,
 			userService,
-			accountingRepo,
-			rateFetcher,
-			receiptAnalyzer,
+			expenseService,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create bot: %w", err)
