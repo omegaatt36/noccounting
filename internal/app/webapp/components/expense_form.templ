@@ -71,13 +71,14 @@ templ ExpenseForm() {
 				@input.Input(input.Props{
 					ID:          "price",
 					Name:        "price",
-					Type:        input.TypeNumber,
+					Type:        input.TypeText,
 					Placeholder: "0",
 					Attributes: templ.Attributes{
 						"required":  true,
-						"min":       "1",
-						"inputmode": "numeric",
+						"readonly":  true,
+						"inputmode": "none",
 					},
+					Class: "cursor-pointer",
 				})
 				<p id="price-error" class="hidden text-xs text-destructive mt-1">請輸入有效金額</p>
 			</div>
@@ -162,6 +163,18 @@ templ ExpenseForm() {
 				@label.Label(label.Props{For: "date-input"}) {
 					日期
 				}
+				<div class="flex gap-1.5 mb-1.5 mt-1">
+					<button
+						type="button"
+						id="date-today-btn"
+						class="flex-1 text-xs rounded-md border border-input bg-primary text-primary-foreground py-1 transition-colors"
+					>今天</button>
+					<button
+						type="button"
+						id="date-yesterday-btn"
+						class="flex-1 text-xs rounded-md border border-input bg-muted text-muted-foreground py-1 transition-colors"
+					>昨天</button>
+				</div>
 				@input.Input(input.Props{
 					ID:   "date-input",
 					Name: "shopped_at",
@@ -180,5 +193,57 @@ templ ExpenseForm() {
 			<span class="btn-text">✅ 新增消費</span>
 			<span class="btn-loading hidden">⏳ 處理中...</span>
 		}
+
+		<!-- Numpad sheet (hidden by default) -->
+		<div
+			id="numpad-sheet"
+			class="hidden fixed bottom-0 left-0 right-0 flex-col bg-background border-t border-border rounded-t-2xl p-3 pb-8 z-50 shadow-2xl"
+		>
+			<!-- Preview -->
+			<div class="flex items-baseline justify-between px-1 mb-3">
+				<div class="flex items-baseline gap-2">
+					<span id="numpad-display" class="text-3xl font-bold tracking-tight">0</span>
+					<span class="text-sm text-muted-foreground" id="numpad-currency-label">JPY</span>
+				</div>
+				<span id="numpad-convert" class="text-sm text-cyan-500"></span>
+			</div>
+			<!-- Grid -->
+			<div class="grid grid-cols-3 gap-2 mb-3">
+				@numpadKey("1")
+				@numpadKey("2")
+				@numpadKey("3")
+				@numpadKey("4")
+				@numpadKey("5")
+				@numpadKey("6")
+				@numpadKey("7")
+				@numpadKey("8")
+				@numpadKey("9")
+				@numpadKey(".")
+				@numpadKey("0")
+				@numpadKeyIcon("backspace", "⌫")
+			</div>
+			<!-- Confirm -->
+			<button
+				type="button"
+				id="numpad-confirm"
+				class="w-full bg-primary text-primary-foreground rounded-lg py-3 font-semibold text-sm hover:bg-primary/90"
+			>確認</button>
+		</div>
 	</form>
+}
+
+templ numpadKey(digit string) {
+	<button
+		type="button"
+		data-numpad-key={ digit }
+		class="bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-base font-medium text-foreground transition-all"
+	>{ digit }</button>
+}
+
+templ numpadKeyIcon(key string, icon string) {
+	<button
+		type="button"
+		data-numpad-key={ key }
+		class="bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-lg text-foreground transition-all"
+	>{ icon }</button>
 }

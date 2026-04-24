@@ -33,6 +33,18 @@ tasks:
       - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/bot ./cmd/bot
       - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/webapp ./cmd/webapp
 
+  run:bot:
+    desc: Run bot locally (loads .env)
+    dotenv: [".env"]
+    cmds:
+      - go run ./cmd/bot
+
+  run:webapp:
+    desc: Run webapp locally (loads .env)
+    dotenv: [".env"]
+    cmds:
+      - go run ./cmd/webapp
+
   lint:
     cmds:
       - go vet ./...

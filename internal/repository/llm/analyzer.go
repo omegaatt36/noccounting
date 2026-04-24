@@ -30,7 +30,7 @@ var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
 // NewAnalyzer creates a new LLM receipt analyzer.
 func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 	return &Analyzer{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 60 * time.Second},
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
 		model:      model,

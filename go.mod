@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/Oudwins/tailwind-merge-go v0.2.1
 	github.com/a-h/templ v0.3.1001
+	github.com/google/uuid v1.6.0
 	github.com/shopspring/decimal v1.4.0
 	gopkg.in/telebot.v4 v4.0.0-beta.7
 )
@@ -82,7 +83,6 @@ require (
 	github.com/go-task/task/v3 v3.50.0 // indirect
 	github.com/go-task/template v0.2.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/hashicorp/aws-sdk-go-base/v2 v2.0.0-beta.72 // indirect

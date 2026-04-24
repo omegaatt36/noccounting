@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"math"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
 )
 
@@ -27,7 +28,25 @@ type PayerBar struct {
 	Percentage int
 }
 
-templ DashboardContent(grandTotal string, itemCount int, categories []CategoryBar, dates []DateBar, payers []PayerBar, dateRange string) {
+// ExpenseItem represents a single expense item for drill-down
+type ExpenseItem struct {
+	ID            string
+	Name          string
+	Date          string
+	AmountDisplay string
+}
+
+// CategoryColors maps category name to hex colors
+var CategoryColors = map[string]string{
+	"食": "#D0A215",
+	"住": "#3AA99F",
+	"行": "#4385BE",
+	"購": "#CE5D97",
+	"樂": "#879A39",
+	"雜": "#6F6E69",
+}
+
+templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGradient string, categories []CategoryBar, dates []DateBar, payers []PayerBar, dateRange string) {
 	<div id="dashboard-content" class="space-y-6 pb-6">
 		<!-- Date Range Tabs -->
 		<div class="flex gap-2 justify-center flex-wrap">
@@ -67,10 +86,56 @@ templ DashboardContent(grandTotal string, itemCount int, categories []CategoryBa
 
 		<!-- Grand Total Card -->
 		@card.Card() {
-			<div class="text-center py-6">
-				<p class="text-sm text-muted-foreground mb-2">總消費</p>
-				<p class="text-4xl font-bold text-primary mb-2">{ "NT$ " + grandTotal }</p>
-				<p class="text-sm text-muted-foreground">{ fmt.Sprintf("%d 筆消費", itemCount) }</p>
+			<div class="p-4">
+				<div class="flex items-center gap-4 py-2">
+					<!-- Donut -->
+					<div class="relative w-24 h-24 flex-shrink-0">
+						<div
+							class="w-24 h-24 rounded-full"
+							style={ fmt.Sprintf("background: %s", donutGradient) }
+						></div>
+						<!-- Hole -->
+						<div class="absolute inset-0 m-auto w-14 h-14 rounded-full bg-card"></div>
+					</div>
+
+					<!-- Stats -->
+					<div class="flex-1 min-w-0">
+						<p class="text-xs text-muted-foreground mb-1 tracking-widest uppercase">總消費</p>
+						<p class="text-3xl font-bold text-primary leading-none mb-2 tracking-tight">
+							NT$ { grandTotal }
+						</p>
+						<div class="flex items-center gap-2 flex-wrap">
+							<span class="text-xs text-muted-foreground">{ fmt.Sprintf("%d 筆", itemCount) }</span>
+							if trendPct != 0 {
+								<span class={
+									templ.KV("text-xs font-semibold px-1.5 py-0.5 rounded", true),
+									templ.KV("bg-red-500/15 text-red-500 dark:text-red-400", trendPct > 0),
+									templ.KV("bg-green-500/15 text-green-500 dark:text-green-400", trendPct < 0),
+								}>
+									if trendPct > 0 {
+										{ "↑" }
+									} else {
+										{ "↓" }
+									}
+									{ fmt.Sprintf("%d%% vs 上期", int(math.Abs(float64(trendPct)))) }
+								</span>
+							}
+						</div>
+					</div>
+				</div>
+
+				<!-- Donut legend -->
+				<div class="flex flex-wrap gap-x-3 gap-y-1 pt-3 mt-2 border-t border-border">
+					for _, cat := range categories {
+						<div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+							<span
+								class="w-2 h-2 rounded-sm inline-block"
+								style={ fmt.Sprintf("background: %s", CategoryColors[cat.Name]) }
+							></span>
+							{ cat.Emoji } { cat.Name }
+						</div>
+					}
+				</div>
 			</div>
 		}
 
@@ -84,17 +149,26 @@ templ DashboardContent(grandTotal string, itemCount int, categories []CategoryBa
 			<div class="space-y-3">
 				<h3 class="text-lg font-semibold text-foreground">分類明細</h3>
 				for _, cat := range categories {
-					<div class="flex items-center gap-3">
-						<div class="w-8 text-center">{ cat.Emoji }</div>
-						<div class="w-16 text-sm text-muted-foreground">{ cat.Name }</div>
-						<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
-							<div
-								class="bg-primary h-6 transition-all"
-								style={ fmt.Sprintf("width: %d%%", cat.Percentage) }
-							></div>
+					<div>
+						<div
+							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+							hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Name, dateRange) }
+							hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Name) }
+							hx-swap="innerHTML"
+						>
+							<div class="w-8 text-center">{ cat.Emoji }</div>
+							<div class="w-16 text-sm text-muted-foreground">{ cat.Name }</div>
+							<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
+								<div
+									class="h-6 transition-all"
+									style={ fmt.Sprintf("width: %d%%; background: %s;", cat.Percentage, CategoryColors[cat.Name]) }
+								></div>
+							</div>
+							<div class="w-16 text-right text-sm font-medium">{ cat.AmountTWD }</div>
+							<div class="w-10 text-right text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", cat.Percentage) }</div>
 						</div>
-						<div class="w-16 text-right text-sm font-medium">{ cat.AmountTWD }</div>
-						<div class="w-10 text-right text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", cat.Percentage) }</div>
+						<!-- Detail target -->
+						<div id={ fmt.Sprintf("cat-detail-%s", cat.Name) } class="pl-8 mt-1 empty:hidden"></div>
 					</div>
 				}
 			</div>
@@ -139,6 +213,18 @@ templ DashboardContent(grandTotal string, itemCount int, categories []CategoryBa
 				>
 					📥 導出 CSV
 				</a>
+			</div>
+		}
+	</div>
+}
+
+templ CategoryDetailPartial(items []ExpenseItem, color string) {
+	<div class="border-l-2 pl-3 space-y-0.5 mb-2" style={ fmt.Sprintf("border-color: %s", color) }>
+		for _, item := range items {
+			<div class="flex items-center py-1.5 border-b border-border/50 text-sm">
+				<span class="flex-1 text-muted-foreground truncate">{ item.Name }</span>
+				<span class="text-xs text-muted-foreground mr-3">{ item.Date }</span>
+				<span class="font-medium whitespace-nowrap">{ item.AmountDisplay }</span>
 			</div>
 		}
 	</div>

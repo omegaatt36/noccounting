@@ -1,5 +1,5 @@
 import type { TelegramContext } from "./telegram.js";
-import { haptic } from "./telegram.js";
+import { haptic, setupMainButton, setMainButtonLoading } from "./telegram.js";
 import { saveDefaults } from "./storage.js";
 import {
   updateExchangeRateVisibility,
@@ -8,7 +8,11 @@ import {
 
 const $ = (id: string) => document.getElementById(id);
 
-function validateField(fieldId: string, errorId: string, check: (value: string) => boolean): boolean {
+function validateField(
+  fieldId: string,
+  errorId: string,
+  check: (value: string) => boolean,
+): boolean {
   const field = document.getElementById(fieldId) as HTMLInputElement | null;
   const errorEl = document.getElementById(errorId);
   if (!field) return true;
@@ -41,48 +45,98 @@ function validateForm(): boolean {
   return nameOk && priceOk;
 }
 
+function formatDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function setupEventListeners(ctx: TelegramContext): void {
-  // Category tabs listener
-  document.querySelectorAll("#category-tabs [data-tui-tabs-trigger]").forEach((trigger) => {
-    trigger.addEventListener("click", () => {
-      const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
-      const input = $("category-input") as HTMLInputElement | null;
-      if (input) input.value = value;
-      haptic(ctx, "impact", "light");
-    });
+  // Date chips logic
+  const todayBtn = document.getElementById("date-today-btn");
+  const yesterdayBtn = document.getElementById("date-yesterday-btn");
+  const dateInput = document.getElementById(
+    "date-input",
+  ) as HTMLInputElement | null;
+
+  function setDateChip(which: "today" | "yesterday"): void {
+    const d = new Date();
+    if (which === "yesterday") d.setDate(d.getDate() - 1);
+    if (dateInput) dateInput.value = formatDate(d);
+
+    todayBtn?.classList.toggle("bg-primary", which === "today");
+    todayBtn?.classList.toggle("text-primary-foreground", which === "today");
+    todayBtn?.classList.toggle("bg-muted", which !== "today");
+    todayBtn?.classList.toggle("text-muted-foreground", which !== "today");
+
+    yesterdayBtn?.classList.toggle("bg-primary", which === "yesterday");
+    yesterdayBtn?.classList.toggle(
+      "text-primary-foreground",
+      which === "yesterday",
+    );
+    yesterdayBtn?.classList.toggle("bg-muted", which !== "yesterday");
+    yesterdayBtn?.classList.toggle(
+      "text-muted-foreground",
+      which !== "yesterday",
+    );
+  }
+
+  todayBtn?.addEventListener("click", () => {
+    setDateChip("today");
+    haptic(ctx, "impact", "light");
   });
+  yesterdayBtn?.addEventListener("click", () => {
+    setDateChip("yesterday");
+    haptic(ctx, "impact", "light");
+  });
+
+  // Initialize: default to today if empty
+  if (dateInput && !dateInput.value) {
+    setDateChip("today");
+  }
+
+  // Category tabs listener
+  document
+    .querySelectorAll("#category-tabs [data-tui-tabs-trigger]")
+    .forEach((trigger) => {
+      trigger.addEventListener("click", () => {
+        const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
+        const input = $("category-input") as HTMLInputElement | null;
+        if (input) input.value = value;
+        haptic(ctx, "impact", "light");
+      });
+    });
 
   // Payment method tabs listener
-  document.querySelectorAll("#method-tabs [data-tui-tabs-trigger]").forEach((trigger) => {
-    trigger.addEventListener("click", () => {
-      const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
-      const input = $("method-input") as HTMLInputElement | null;
-      if (input) input.value = value;
-      haptic(ctx, "impact", "light");
+  document
+    .querySelectorAll("#method-tabs [data-tui-tabs-trigger]")
+    .forEach((trigger) => {
+      trigger.addEventListener("click", () => {
+        const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
+        const input = $("method-input") as HTMLInputElement | null;
+        if (input) input.value = value;
+        haptic(ctx, "impact", "light");
+      });
     });
-  });
 
   // Currency tabs listener
-  document.querySelectorAll("#currency-tabs [data-tui-tabs-trigger]").forEach((trigger) => {
-    trigger.addEventListener("click", () => {
-      const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
-      const input = $("currency-input") as HTMLInputElement | null;
-      if (input) input.value = value;
-      haptic(ctx, "impact", "light");
-      updateExchangeRateVisibility();
+  document
+    .querySelectorAll("#currency-tabs [data-tui-tabs-trigger]")
+    .forEach((trigger) => {
+      trigger.addEventListener("click", () => {
+        const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
+        const input = $("currency-input") as HTMLInputElement | null;
+        if (input) input.value = value;
+        haptic(ctx, "impact", "light");
+        updateExchangeRateVisibility();
+      });
     });
-  });
 
   // Name field blur validation
   const nameInput = document.getElementById("name");
   if (nameInput) {
     nameInput.addEventListener("blur", validateName);
-  }
-
-  // Price field blur validation
-  const priceInputEl = document.getElementById("price");
-  if (priceInputEl) {
-    priceInputEl.addEventListener("blur", validatePrice);
   }
 
   const fetchRateBtn = $("fetch-rate-btn");
@@ -95,6 +149,14 @@ export function setupEventListeners(ctx: TelegramContext): void {
 
   const form = $("expense-form");
   const submitBtn = $("submit-btn");
+
+  setupMainButton(ctx, () => {
+    if (!validateForm()) return;
+    setMainButtonLoading(ctx, true);
+    (
+      document.getElementById("expense-form") as HTMLFormElement
+    )?.requestSubmit();
+  });
 
   if (form && submitBtn) {
     form.addEventListener("htmx:beforeRequest", (e: Event) => {
@@ -109,6 +171,7 @@ export function setupEventListeners(ctx: TelegramContext): void {
       (submitBtn as HTMLButtonElement).disabled = true;
       submitBtn.querySelector(".btn-text")?.classList.add("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.remove("hidden");
+      setMainButtonLoading(ctx, true);
     });
 
     form.addEventListener("htmx:afterRequest", ((e: Event) => {
@@ -116,6 +179,7 @@ export function setupEventListeners(ctx: TelegramContext): void {
       (submitBtn as HTMLButtonElement).disabled = false;
       submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
+      setMainButtonLoading(ctx, false);
 
       // Read success state for haptic
       const toastTrigger = $("toast-trigger");
@@ -127,7 +191,14 @@ export function setupEventListeners(ctx: TelegramContext): void {
         const nameInput = $("name") as HTMLInputElement | null;
         const priceInput = $("price") as HTMLInputElement | null;
         if (nameInput) nameInput.value = "";
-        if (priceInput) priceInput.value = "";
+        if (priceInput) {
+          priceInput.value = "";
+          // update display if numpad is active
+          const numpadDisplay = document.getElementById("numpad-display");
+          if (numpadDisplay) numpadDisplay.textContent = "0";
+          const numpadConvert = document.getElementById("numpad-convert");
+          if (numpadConvert) numpadConvert.textContent = "";
+        }
         if (nameInput) nameInput.focus();
         // Clear validation errors
         nameInput?.classList.remove("border-destructive");
@@ -140,9 +211,13 @@ export function setupEventListeners(ctx: TelegramContext): void {
 
       // Auto-dismiss templui toast after duration
       document.querySelectorAll("#result [data-tui-toast]").forEach((el) => {
-        const duration = parseInt(el.getAttribute("data-tui-toast-duration") || "3000", 10);
+        const duration = parseInt(
+          el.getAttribute("data-tui-toast-duration") || "3000",
+          10,
+        );
         setTimeout(() => {
-          (el as HTMLElement).style.transition = "opacity 300ms, transform 300ms";
+          (el as HTMLElement).style.transition =
+            "opacity 300ms, transform 300ms";
           (el as HTMLElement).style.opacity = "0";
           (el as HTMLElement).style.transform = "translateY(-1rem)";
           setTimeout(() => el.remove(), 300);

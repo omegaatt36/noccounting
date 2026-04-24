@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -51,6 +52,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.handleHealth)
 	mux.HandleFunc("GET /partial/form", h.handlePartialForm)
 	mux.HandleFunc("GET /partial/dashboard", h.handleDashboardContent)
+	mux.HandleFunc("GET /partial/dashboard/category", h.handleCategoryDetail)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 
 	sub, _ := fs.Sub(staticFiles, "static")
@@ -445,6 +447,24 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	// Aggregate dashboard data
 	dashboardData := aggregateDashboard(expenses, allUsers)
 
+	// compute previous period totals for TrendPct
+	var trendPct int
+	if rangeStr != "all" && rangeStr != "" {
+		prevFrom, prevTo := getPreviousDateRange(rangeStr, now)
+		prevFilter := expense.ExpenseFilter{DateFrom: prevFrom, DateTo: prevTo}
+		prevExpenses, _ := h.expenseService.QueryExpensesWithFilter(ctx, prevFilter)
+		prevData := aggregateDashboard(prevExpenses, allUsers)
+
+		currTotal, _ := dashboardData.GrandTotalTWD.Float64()
+		prevTotal, _ := prevData.GrandTotalTWD.Float64()
+
+		if prevTotal > 0 {
+			trendPct = int(math.Round((currTotal - prevTotal) / prevTotal * 100))
+		}
+	}
+
+	donutGradient := BuildDonutGradient(dashboardData.ByCategory)
+
 	// Convert to component types
 	categories := make([]components.CategoryBar, len(dashboardData.ByCategory))
 	for i, stat := range dashboardData.ByCategory {
@@ -477,7 +497,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	grandTotalStr := dashboardData.GrandTotalTWD.Round(0).String()
 
 	// Render dashboard content
-	if err := components.DashboardContent(grandTotalStr, dashboardData.ItemCount, categories, dates, payers, rangeStr).Render(r.Context(), w); err != nil {
+	if err := components.DashboardContent(grandTotalStr, dashboardData.ItemCount, trendPct, donutGradient, categories, dates, payers, rangeStr).Render(r.Context(), w); err != nil {
 		slog.Error("Failed to render dashboard content", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
@@ -584,5 +604,76 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
+	}
+}
+
+// handleCategoryDetail renders the partial items for a specific category
+func (h *Handler) handleCategoryDetail(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	rangeStr := r.URL.Query().Get("range")
+	if rangeStr == "" {
+		rangeStr = "all"
+	}
+
+	now := time.Now()
+	fromTime, toTime := parseDateRange(rangeStr, now)
+
+	filter := expense.ExpenseFilter{
+		DateFrom: fromTime,
+		DateTo:   toTime,
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, filter)
+	if err != nil {
+		slog.Error("Failed to query expenses for category detail", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Get all users to build nickname map
+	allUsers, err := h.userService.GetAllUsers()
+	nicknameMap := make(map[string]string)
+	if err == nil {
+		for i := range allUsers {
+			nicknameMap[allUsers[i].NotionID] = allUsers[i].Nickname
+		}
+	}
+
+	var items []components.ExpenseItem
+	for _, exp := range expenses {
+		if string(exp.Category) == name {
+			// Convert JPY to TWD equivalent string
+			amtStr := ""
+			if exp.Currency == domain.CurrencyJPY && !exp.ExchangeRate.IsZero() {
+				amtStr = fmt.Sprintf("¥%d (NT$ %s)", exp.Price, exp.TotalInTWD().Round(0).String())
+			} else {
+				amtStr = fmt.Sprintf("NT$ %s", exp.TotalInTWD().Round(0).String())
+			}
+
+			items = append(items, components.ExpenseItem{
+				ID:            exp.ID,
+				Name:          exp.Name,
+				Date:          exp.ShoppedAt.Format("01/02"),
+				AmountDisplay: amtStr,
+			})
+		}
+	}
+
+	// Sort items descending by date
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Date > items[j].Date
+	})
+
+	color := components.CategoryColors[name]
+	if color == "" {
+		color = "#575653"
+	}
+
+	if err := components.CategoryDetailPartial(items, color).Render(r.Context(), w); err != nil {
+		slog.Error("Failed to render category detail partial", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }

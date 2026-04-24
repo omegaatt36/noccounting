@@ -59,6 +59,9 @@ LLM_MODEL=your_model_name                # e.g. gpt-4o
 
 ### Build & Run
 
+Both binaries read configuration exclusively from environment variables.
+Copy `.env.example` to `.env` and fill in values — `godotenv` loads it automatically at startup.
+
 ```bash
 # Generate all (templ + tsgo + tailwind)
 task generate
@@ -69,27 +72,14 @@ task test
 # Build binaries
 task build
 
-# Run bot
-./bin/bot \
-  --telegram-token=$TELEGRAM_BOT_TOKEN \
-  --notion-token=$NOTION_TOKEN \
-  --notion-database-id=$NOTION_DATABASE_ID \
-  --user-mapping=$USER_MAPPING
+# Run bot (.env loaded automatically)
+./bin/bot
 
-# Run webapp (with Telegram auth)
-./bin/webapp \
-  --telegram-bot-token=$TELEGRAM_BOT_TOKEN \
-  --notion-token=$NOTION_TOKEN \
-  --notion-database-id=$NOTION_DATABASE_ID \
-  --user-mapping=$USER_MAPPING \
-  --port=8080
+# Run webapp (.env loaded automatically)
+./bin/webapp
 
-# Run webapp (dev mode — skips Telegram auth)
-./bin/webapp --dev-mode \
-  --notion-token=$NOTION_TOKEN \
-  --notion-database-id=$NOTION_DATABASE_ID \
-  --user-mapping=$USER_MAPPING \
-  --port=8080
+# Run webapp in dev mode (skips Telegram auth)
+DEV_MODE=true ./bin/webapp
 ```
 
 ### Taskfile Commands
