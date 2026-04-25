@@ -38,30 +38,3 @@ export function haptic(
   }
 }
 
-export function setupMainButton(
-  ctx: TelegramContext,
-  onSubmit: () => void,
-): void {
-  if (!ctx.tg?.MainButton) return;
-
-  const btn = ctx.tg.MainButton;
-  btn.setText("✅ 新增消費");
-  btn.color = "#4385BE"; // Flexoki blue
-  btn.textColor = "#FFFFFF";
-  btn.show();
-  btn.onClick(onSubmit);
-}
-
-export function setMainButtonLoading(
-  ctx: TelegramContext,
-  loading: boolean,
-): void {
-  if (!ctx.tg?.MainButton) return;
-  if (loading) {
-    ctx.tg.MainButton.showProgress(false);
-    ctx.tg.MainButton.disable();
-  } else {
-    ctx.tg.MainButton.hideProgress();
-    ctx.tg.MainButton.enable();
-  }
-}

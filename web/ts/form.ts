@@ -1,5 +1,5 @@
 import type { TelegramContext } from "./telegram.js";
-import { haptic, setupMainButton, setMainButtonLoading } from "./telegram.js";
+import { haptic } from "./telegram.js";
 import { saveDefaults } from "./storage.js";
 import {
   updateExchangeRateVisibility,
@@ -150,14 +150,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
   const form = $("expense-form");
   const submitBtn = $("submit-btn");
 
-  setupMainButton(ctx, () => {
-    if (!validateForm()) return;
-    setMainButtonLoading(ctx, true);
-    (
-      document.getElementById("expense-form") as HTMLFormElement
-    )?.requestSubmit();
-  });
-
   if (form && submitBtn) {
     form.addEventListener("htmx:beforeRequest", (e: Event) => {
       if (!validateForm()) {
@@ -171,7 +163,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
       (submitBtn as HTMLButtonElement).disabled = true;
       submitBtn.querySelector(".btn-text")?.classList.add("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.remove("hidden");
-      setMainButtonLoading(ctx, true);
     });
 
     form.addEventListener("htmx:afterRequest", ((e: Event) => {
@@ -179,7 +170,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
       (submitBtn as HTMLButtonElement).disabled = false;
       submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
-      setMainButtonLoading(ctx, false);
 
       // Read success state for haptic
       const toastTrigger = $("toast-trigger");
