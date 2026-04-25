@@ -746,6 +746,7 @@ func ExpenseForm() templ.Component {
 			FullWidth: true,
 			Variant:   button.VariantDefault,
 			Size:      button.SizeLg,
+			Class:     "hidden",
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -838,7 +839,7 @@ func numpadKey(digit string) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(digit)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 238, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 239, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -851,7 +852,7 @@ func numpadKey(digit string) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(digit)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 240, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 241, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -893,7 +894,7 @@ func numpadKeyIcon(key string, icon string) templ.Component {
 		var templ_7745c5c3_Var33 string
 		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 246, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 247, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 		if templ_7745c5c3_Err != nil {
@@ -906,7 +907,7 @@ func numpadKeyIcon(key string, icon string) templ.Component {
 		var templ_7745c5c3_Var34 string
 		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(icon)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 248, Col: 8}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 249, Col: 8}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 		if templ_7745c5c3_Err != nil {
