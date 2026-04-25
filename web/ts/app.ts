@@ -13,7 +13,7 @@ const DEV_MODE = !!document.getElementById("dev-mode-flag");
 const ctx = initTelegram(DEV_MODE);
 
 if (!ctx.tg?.MainButton) {
-  document.getElementById("submit-btn")?.classList.remove("hidden");
+  document.getElementById("submit-btn-wrapper")?.classList.remove("hidden");
 }
 
 // Set init_data hidden field

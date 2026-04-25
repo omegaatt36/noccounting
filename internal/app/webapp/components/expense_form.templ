@@ -183,17 +183,18 @@ templ ExpenseForm() {
 			</div>
 		</div>
 		<!-- 6. Submit -->
-		@button.Button(button.Props{
-			ID:        "submit-btn",
-			Type:      button.TypeSubmit,
-			FullWidth: true,
-			Variant:   button.VariantDefault,
-			Size:      button.SizeLg,
-			Class:     "hidden",
-		}) {
-			<span class="btn-text">✅ 新增消費</span>
-			<span class="btn-loading hidden">⏳ 處理中...</span>
-		}
+		<div id="submit-btn-wrapper" class="hidden">
+			@button.Button(button.Props{
+				ID:        "submit-btn",
+				Type:      button.TypeSubmit,
+				FullWidth: true,
+				Variant:   button.VariantDefault,
+				Size:      button.SizeLg,
+			}) {
+				<span class="btn-text">✅ 新增消費</span>
+				<span class="btn-loading hidden">⏳ 處理中...</span>
+			}
+		</div>
 
 		<!-- Numpad sheet (hidden by default) -->
 		<div
