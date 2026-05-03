@@ -87,9 +87,10 @@ func (h *Handler) handleHelp(c tele.Context) error {
 
 	help := fmt.Sprintf(`📖 指令說明
 
-/add <名稱> <金額> <幣別> <分類> <付款方式>
-  新增一筆消費記錄
+/add <名稱> <金額> <幣別> <分類> <付款方式> [日期]
+  新增一筆消費記錄，日期選填，格式 2006-01-02
   範例: /add 拉麵 1200 JPY 食 cash
+        /add 拉麵 1200 JPY 食 cash 2026-05-01
 
 /quick
   互動式新增消費（一步步引導）
@@ -118,8 +119,9 @@ func (h *Handler) handleAdd(c tele.Context) error {
 	if len(args) < 5 {
 		return c.Send(`❌ 格式錯誤
 
-用法: /add <名稱> <金額> <幣別> <分類> <付款方式>
-範例: /add 拉麵 1200 JPY 食 cash`)
+用法: /add <名稱> <金額> <幣別> <分類> <付款方式> [日期]
+範例: /add 拉麵 1200 JPY 食 cash
+      /add 拉麵 1200 JPY 食 cash 2026-05-01`)
 	}
 
 	name := args[0]
@@ -144,6 +146,15 @@ func (h *Handler) handleAdd(c tele.Context) error {
 		return c.Send(fmt.Sprintf("❌ 付款方式錯誤，請使用: %s", strings.Join(domain.PaymentMethodNames(), ", ")))
 	}
 
+	shoppedAt := time.Now()
+	if len(args) >= 6 {
+		t, err := time.Parse("2006-01-02", args[5])
+		if err != nil {
+			return c.Send("❌ 日期格式錯誤，請使用 2006-01-02（例如 2026-05-03）")
+		}
+		shoppedAt = t
+	}
+
 	// Get Notion user ID from mapping
 	telegramUserID := c.Sender().ID
 	u, err := h.userService.GetUser(domain.GetUserRequest{
@@ -160,7 +171,7 @@ func (h *Handler) handleAdd(c tele.Context) error {
 		Category:  category,
 		Method:    method,
 		PaidByID:  u.NotionID,
-		ShoppedAt: time.Now(),
+		ShoppedAt: shoppedAt,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
