@@ -63,6 +63,7 @@ type Expense struct {
 	Price        uint64 // Price in smallest currency unit (no decimals)
 	Currency     Currency
 	ExchangeRate decimal.Decimal // Exchange rate to TWD
+	TotalTWD     decimal.Decimal // Pre-calculated TWD total from storage (formula field)
 	Category     Category
 	Method       PaymentMethod
 	PaidByID     string // User ID in the storage system
@@ -76,10 +77,14 @@ func (e *Expense) PriceDecimal() decimal.Decimal {
 	return decimal.NewFromUint64(e.Price)
 }
 
-// TotalInTWD calculates the total amount in TWD.
+// TotalInTWD returns the TWD-equivalent total.
+// Uses the pre-calculated TotalTWD from storage when available (matches Notion formula).
 func (e *Expense) TotalInTWD() decimal.Decimal {
+	if !e.TotalTWD.IsZero() {
+		return e.TotalTWD
+	}
 	price := e.PriceDecimal()
-	if e.Currency == CurrencyJPY && !e.ExchangeRate.IsZero() {
+	if e.Currency != CurrencyTWD && !e.ExchangeRate.IsZero() {
 		return price.Mul(e.ExchangeRate)
 	}
 	return price

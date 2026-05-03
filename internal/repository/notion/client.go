@@ -502,6 +502,15 @@ func parseExpenseFromPage(page PageObject) (domain.Expense, error) {
 		}
 	}
 
+	// Parse total (Notion formula: TWD equivalent)
+	if total, ok := props["total"].(map[string]any); ok {
+		if formula, ok := total["formula"].(map[string]any); ok {
+			if num, ok := formula["number"].(float64); ok {
+				expense.TotalTWD = decimal.NewFromFloat(num)
+			}
+		}
+	}
+
 	// Parse category
 	if category, ok := props["category"].(map[string]any); ok {
 		if sel, ok := category["select"].(map[string]any); ok && sel != nil {
