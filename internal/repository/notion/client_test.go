@@ -27,7 +27,7 @@ func TestClient_CreateExpense(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := notion.NewClientWithBaseURL("test-token", "db-123", server.URL)
+	client := notion.NewClientWithBaseURL("test-token", server.URL)
 
 	expense := &domain.Expense{
 		Name:         "拉麵",
@@ -40,7 +40,7 @@ func TestClient_CreateExpense(t *testing.T) {
 		ShoppedAt:    time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC),
 	}
 
-	err := client.CreateExpense(context.Background(), expense)
+	err := client.CreateExpense(context.Background(), "db-123", expense)
 	if err != nil {
 		t.Fatalf("CreateExpense() error = %v", err)
 	}
@@ -83,9 +83,9 @@ func TestClient_QueryExpenses(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := notion.NewClientWithBaseURL("test-token", "db-123", server.URL)
+	client := notion.NewClientWithBaseURL("test-token", server.URL)
 
-	expenses, err := client.QueryExpenses(context.Background())
+	expenses, err := client.QueryExpenses(context.Background(), "db-123")
 	if err != nil {
 		t.Fatalf("QueryExpenses() error = %v", err)
 	}
@@ -116,16 +116,16 @@ func TestClient_DeleteExpense(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := notion.NewClientWithBaseURL("test-token", "db-123", server.URL)
-	err := client.DeleteExpense(context.Background(), "page-123")
+	client := notion.NewClientWithBaseURL("test-token", server.URL)
+	err := client.DeleteExpense(context.Background(), "db-123", "page-123")
 	if err != nil {
 		t.Fatalf("DeleteExpense() error = %v", err)
 	}
 }
 
 func TestClient_DeleteExpense_EmptyID(t *testing.T) {
-	client := notion.NewClientWithBaseURL("test-token", "db-123", "http://unused")
-	err := client.DeleteExpense(context.Background(), "")
+	client := notion.NewClientWithBaseURL("test-token", "http://unused")
+	err := client.DeleteExpense(context.Background(), "db-123", "")
 	if err == nil {
 		t.Fatal("expected error for empty ID, got nil")
 	}
@@ -138,8 +138,8 @@ func TestClient_APIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := notion.NewClientWithBaseURL("bad-token", "db-123", server.URL)
-	_, err := client.QueryExpenses(context.Background())
+	client := notion.NewClientWithBaseURL("bad-token", server.URL)
+	_, err := client.QueryExpenses(context.Background(), "db-123")
 	if err == nil {
 		t.Fatal("expected error for unauthorized request")
 	}

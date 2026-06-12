@@ -30,7 +30,6 @@ const (
 type Client struct {
 	httpClient *http.Client
 	token      string
-	databaseID string
 	baseURL    string
 }
 
@@ -38,21 +37,19 @@ type Client struct {
 var _ expense.AccountingRepo = (*Client)(nil)
 
 // NewClient creates a new Notion client.
-func NewClient(token, databaseID string) *Client {
+func NewClient(token string) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		token:      token,
-		databaseID: databaseID,
 		baseURL:    notionBaseURL,
 	}
 }
 
 // NewClientWithBaseURL creates a new Notion client with a custom base URL (for testing).
-func NewClientWithBaseURL(token, databaseID, baseURL string) *Client {
+func NewClientWithBaseURL(token, baseURL string) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		token:      token,
-		databaseID: databaseID,
 		baseURL:    baseURL,
 	}
 }
@@ -183,10 +180,10 @@ func buildReceiptBlocks(expense *domain.Expense) []Block {
 }
 
 // CreateExpense creates a new expense record in the database.
-func (c *Client) CreateExpense(ctx context.Context, expense *domain.Expense) error {
+func (c *Client) CreateExpense(ctx context.Context, databaseID string, expense *domain.Expense) error {
 	properties := buildProperties(expense)
 	reqBody := Page{
-		Parent:     Parent{DatabaseID: c.databaseID},
+		Parent:     Parent{DatabaseID: databaseID},
 		Properties: properties,
 		Children:   buildReceiptBlocks(expense),
 	}
@@ -211,13 +208,13 @@ func (c *Client) CreateExpense(ctx context.Context, expense *domain.Expense) err
 }
 
 // QueryExpenses queries all expenses from the database.
-func (c *Client) QueryExpenses(ctx context.Context) ([]domain.Expense, error) {
-	return c.QueryExpensesWithFilter(ctx, expense.ExpenseFilter{})
+func (c *Client) QueryExpenses(ctx context.Context, databaseID string) ([]domain.Expense, error) {
+	return c.QueryExpensesWithFilter(ctx, databaseID, expense.ExpenseFilter{})
 }
 
 // GetExpenseSummary calculates the expense summary for splitting.
-func (c *Client) GetExpenseSummary(ctx context.Context) (*domain.ExpenseSummary, error) {
-	expenses, err := c.QueryExpenses(ctx)
+func (c *Client) GetExpenseSummary(ctx context.Context, databaseID string) (*domain.ExpenseSummary, error) {
+	expenses, err := c.QueryExpenses(ctx, databaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +240,7 @@ func (c *Client) GetExpenseSummary(ctx context.Context) (*domain.ExpenseSummary,
 }
 
 // QueryExpensesWithFilter queries expenses with the given filter.
-func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter expense.ExpenseFilter) ([]domain.Expense, error) {
+func (c *Client) QueryExpensesWithFilter(ctx context.Context, databaseID string, filter expense.ExpenseFilter) ([]domain.Expense, error) {
 	var allExpenses []domain.Expense
 	var startCursor string
 
@@ -303,7 +300,7 @@ func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter expense.Exp
 			}
 		}
 
-		respBody, err := c.doRequest(ctx, http.MethodPost, "/databases/"+c.databaseID+"/query", reqBody)
+		respBody, err := c.doRequest(ctx, http.MethodPost, "/databases/"+databaseID+"/query", reqBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query expenses: %w", err)
 		}
@@ -336,7 +333,7 @@ func (c *Client) QueryExpensesWithFilter(ctx context.Context, filter expense.Exp
 }
 
 // UpdateExpense updates an existing expense record.
-func (c *Client) UpdateExpense(ctx context.Context, expense *domain.Expense) error {
+func (c *Client) UpdateExpense(ctx context.Context, databaseID string, expense *domain.Expense) error {
 	if expense.ID == "" {
 		return fmt.Errorf("expense ID is required for update")
 	}
@@ -354,7 +351,7 @@ func (c *Client) UpdateExpense(ctx context.Context, expense *domain.Expense) err
 }
 
 // DeleteExpense archives an expense record (Notion doesn't truly delete).
-func (c *Client) DeleteExpense(ctx context.Context, id string) error {
+func (c *Client) DeleteExpense(ctx context.Context, databaseID, id string) error {
 	if id == "" {
 		return fmt.Errorf("expense ID is required for deletion")
 	}

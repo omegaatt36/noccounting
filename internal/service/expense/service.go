@@ -3,6 +3,7 @@ package expense
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -30,47 +31,93 @@ type CategorySummary struct {
 // Service encapsulates expense business logic.
 type Service struct {
 	repo            AccountingRepo
+	ledger          ActiveLedgerProvider
 	rateFetcher     ExchangeRateFetcher // optional
 	receiptAnalyzer ReceiptAnalyzer     // optional
 }
 
 // NewService creates a new Service. rateFetcher and receiptAnalyzer may be nil.
-func NewService(repo AccountingRepo, rateFetcher ExchangeRateFetcher, receiptAnalyzer ReceiptAnalyzer) *Service {
+func NewService(repo AccountingRepo, ledger ActiveLedgerProvider, rateFetcher ExchangeRateFetcher, receiptAnalyzer ReceiptAnalyzer) *Service {
 	return &Service{
 		repo:            repo,
+		ledger:          ledger,
 		rateFetcher:     rateFetcher,
 		receiptAnalyzer: receiptAnalyzer,
 	}
 }
 
+// activeDBID resolves the Notion database ID of the active ledger.
+func (s *Service) activeDBID(ctx context.Context) (string, error) {
+	l, err := s.ledger.ActiveLedger(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolve active ledger database: %w", err)
+	}
+	return l.NotionDatabaseID, nil
+}
+
+// withActiveDB resolves the active ledger's database ID and passes it to fn.
+func (s *Service) withActiveDB(ctx context.Context, fn func(dbID string) error) error {
+	dbID, err := s.activeDBID(ctx)
+	if err != nil {
+		return err
+	}
+	return fn(dbID)
+}
+
+// withActiveDBResult resolves the active ledger's database ID and passes it to fn,
+// returning fn's result.
+//
+// withActiveDBResult is a function, not a method, because Go does not allow
+// type parameters on methods.
+func withActiveDBResult[T any](ctx context.Context, s *Service, fn func(dbID string) (T, error)) (T, error) {
+	dbID, err := s.activeDBID(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return fn(dbID)
+}
+
 // CreateExpense delegates to the repository.
 func (s *Service) CreateExpense(ctx context.Context, expense *domain.Expense) error {
-	return s.repo.CreateExpense(ctx, expense)
+	return s.withActiveDB(ctx, func(dbID string) error {
+		return s.repo.CreateExpense(ctx, dbID, expense)
+	})
 }
 
 // QueryExpenses delegates to the repository.
 func (s *Service) QueryExpenses(ctx context.Context) ([]domain.Expense, error) {
-	return s.repo.QueryExpenses(ctx)
+	return withActiveDBResult(ctx, s, func(dbID string) ([]domain.Expense, error) {
+		return s.repo.QueryExpenses(ctx, dbID)
+	})
 }
 
 // QueryExpensesWithFilter delegates to the repository.
 func (s *Service) QueryExpensesWithFilter(ctx context.Context, filter ExpenseFilter) ([]domain.Expense, error) {
-	return s.repo.QueryExpensesWithFilter(ctx, filter)
+	return withActiveDBResult(ctx, s, func(dbID string) ([]domain.Expense, error) {
+		return s.repo.QueryExpensesWithFilter(ctx, dbID, filter)
+	})
 }
 
 // UpdateExpense delegates to the repository.
 func (s *Service) UpdateExpense(ctx context.Context, expense *domain.Expense) error {
-	return s.repo.UpdateExpense(ctx, expense)
+	return s.withActiveDB(ctx, func(dbID string) error {
+		return s.repo.UpdateExpense(ctx, dbID, expense)
+	})
 }
 
 // DeleteExpense delegates to the repository.
 func (s *Service) DeleteExpense(ctx context.Context, id string) error {
-	return s.repo.DeleteExpense(ctx, id)
+	return s.withActiveDB(ctx, func(dbID string) error {
+		return s.repo.DeleteExpense(ctx, dbID, id)
+	})
 }
 
 // GetSummary delegates to the repository.
 func (s *Service) GetSummary(ctx context.Context) (*domain.ExpenseSummary, error) {
-	return s.repo.GetExpenseSummary(ctx)
+	return withActiveDBResult(ctx, s, func(dbID string) (*domain.ExpenseSummary, error) {
+		return s.repo.GetExpenseSummary(ctx, dbID)
+	})
 }
 
 // GetTodaySummary queries today's expenses (local time) and aggregates them by category.
@@ -84,7 +131,12 @@ func (s *Service) GetTodaySummary(ctx context.Context) (*TodaySummary, error) {
 		DateTo:   &endOfDay,
 	}
 
-	expenses, err := s.repo.QueryExpensesWithFilter(ctx, filter)
+	dbID, err := s.activeDBID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	expenses, err := s.repo.QueryExpensesWithFilter(ctx, dbID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +216,11 @@ func (s *Service) GetTodaySummary(ctx context.Context) (*TodaySummary, error) {
 // If splitItems is false, one expense is created using the receipt summary total.
 // If splitItems is true, one expense per receipt item is created; partial failures are non-fatal.
 func (s *Service) CreateFromAnalysis(ctx context.Context, analysis *domain.ReceiptAnalysis, imageData []byte, notionUserID string, splitItems bool) error {
+	dbID, err := s.activeDBID(ctx)
+	if err != nil {
+		return err
+	}
+
 	receiptURL := ""
 	if len(imageData) > 0 {
 		// Write image to a temp file so the repo can upload it.
@@ -202,7 +259,7 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, analysis *domain.Recei
 			ReceiptURL:   receiptURL,
 			ReceiptItems: analysis.Items,
 		}
-		return s.repo.CreateExpense(ctx, expense)
+		return s.repo.CreateExpense(ctx, dbID, expense)
 	}
 
 	// Split mode: one expense per item; partial failures are logged but do not abort.
@@ -217,7 +274,7 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, analysis *domain.Recei
 			ShoppedAt:  now,
 			ReceiptURL: receiptURL,
 		}
-		if err := s.repo.CreateExpense(ctx, expense); err != nil {
+		if err := s.repo.CreateExpense(ctx, dbID, expense); err != nil {
 			slog.Warn("failed to create expense for receipt item",
 				"item", item.DisplayName(),
 				"error", err,

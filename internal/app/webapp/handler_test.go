@@ -12,6 +12,7 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
+	"github.com/omegaatt36/noccounting/internal/service/expense/expensetest"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -21,27 +22,27 @@ type stubAccountingRepo struct {
 	expenses  []domain.Expense
 }
 
-func (m *stubAccountingRepo) CreateExpense(_ context.Context, _ *domain.Expense) error {
+func (m *stubAccountingRepo) CreateExpense(_ context.Context, _ string, _ *domain.Expense) error {
 	return m.createErr
 }
 
-func (m *stubAccountingRepo) QueryExpenses(_ context.Context) ([]domain.Expense, error) {
+func (m *stubAccountingRepo) QueryExpenses(_ context.Context, _ string) ([]domain.Expense, error) {
 	return m.expenses, nil
 }
 
-func (m *stubAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ expense.ExpenseFilter) ([]domain.Expense, error) {
+func (m *stubAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ string, _ expense.ExpenseFilter) ([]domain.Expense, error) {
 	return m.expenses, nil
 }
 
-func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ *domain.Expense) error {
+func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ string, _ *domain.Expense) error {
 	return nil
 }
 
-func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _ string) error {
+func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *stubAccountingRepo) GetExpenseSummary(_ context.Context) (*domain.ExpenseSummary, error) {
+func (m *stubAccountingRepo) GetExpenseSummary(_ context.Context, _ string) (*domain.ExpenseSummary, error) {
 	return &domain.ExpenseSummary{}, nil
 }
 
@@ -84,7 +85,7 @@ func TestHandleHealth(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -110,7 +111,7 @@ func TestHandleIndex(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -140,7 +141,7 @@ func TestHandleAuthMissingInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -179,7 +180,7 @@ func TestHandleAuthInvalidInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -214,7 +215,7 @@ func TestHandleAuthUnauthorizedUser(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -268,7 +269,7 @@ func TestHandleAuthSuccess(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -314,7 +315,7 @@ func TestHandleCreateExpenseMissingInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -349,7 +350,7 @@ func TestHandleCreateExpenseInvalidInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -386,7 +387,7 @@ func TestHandleCreateExpenseUnauthorizedUser(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -439,7 +440,7 @@ func TestHandleCreateExpenseMissingName(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -492,7 +493,7 @@ func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -545,7 +546,7 @@ func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -598,7 +599,7 @@ func TestHandleCreateExpenseSuccess(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -659,7 +660,7 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -713,7 +714,7 @@ func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -767,7 +768,7 @@ func TestHandleCreateExpenseRepositoryError(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -810,7 +811,7 @@ func TestRegisterRoutes(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -876,7 +877,7 @@ func TestHandleDashboardDevMode(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", true)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -925,7 +926,7 @@ func TestHandleExportCSVDevMode(t *testing.T) {
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", true)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
@@ -974,7 +975,7 @@ func TestHandleExportCSVEmpty(t *testing.T) {
 	}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
+	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
 	handler, err := NewHandler(userService, expenseService, "test-token", true)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
