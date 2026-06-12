@@ -9,12 +9,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
+	"github.com/omegaatt36/noccounting/internal/util/imageutil"
 )
 
 // Analyzer implements expense.ReceiptAnalyzer using an OpenAI-compatible Vision API.
@@ -30,12 +32,17 @@ var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
 // NewAnalyzer creates a new LLM receipt analyzer.
 func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 	return &Analyzer{
-		httpClient: &http.Client{Timeout: 60 * time.Second},
+		httpClient: &http.Client{Timeout: 180 * time.Second},
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
 		model:      model,
 	}
 }
+
+const systemPrompt = `You are a receipt OCR parser.
+Your ONLY job is to read the receipt image and output a single JSON object.
+Do NOT think step by step. Do NOT explain. Do NOT output markdown code blocks.
+Output raw, valid JSON and nothing else.`
 
 const receiptPrompt = `Analyze this receipt image. Extract all items with their prices, categories, and Traditional Chinese translations.
 
@@ -58,7 +65,16 @@ Price must be an integer (no decimals).`
 
 // Analyze sends a receipt image to the Vision API and parses the response.
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {
-	b64Image := base64.StdEncoding.EncodeToString(imageData)
+	// Resize large images before sending to the LLM to reduce upload time
+	// and token usage. 512px is sufficient for OCR while keeping payload small.
+	resized, err := imageutil.ResizeAndCompress(imageData, 512, 80)
+	if err != nil {
+		slog.Warn("Failed to resize image, using original", "error", err)
+		resized = imageData
+	}
+
+	b64Image := base64.StdEncoding.EncodeToString(resized)
+	slog.Debug("Prepared image for LLM", "original_bytes", len(imageData), "resized_bytes", len(resized), "base64_len", len(b64Image))
 
 	const maxRetries = 2
 	var lastErr error
@@ -90,11 +106,14 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 	return nil, fmt.Errorf("failed to call LLM API after %d retries: %w", maxRetries, lastErr)
 }
 
+var jsonBlockRE = regexp.MustCompile(`(?s)\{.*\}`)
+
 func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.ReceiptAnalysis, error) {
 	reqID := uuid.New().String()
 	reqBody := chatRequest{
 		Model: a.model,
 		Messages: []message{
+			{Role: "system", Content: []contentPart{{Type: "text", Text: systemPrompt}}},
 			{
 				Role: "user",
 				Content: []contentPart{
@@ -108,8 +127,10 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 				},
 			},
 		},
-		ResponseFormat: &responseFormat{Type: "json_object"},
-		MaxTokens:      8192,
+		ResponseFormat:  &responseFormat{Type: "json_object"},
+		MaxTokens:       16384,
+		Temperature:     new(0.0),
+		ReasoningEffort: "low",
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -125,7 +146,7 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 	req.Header.Set("Authorization", "Bearer "+a.apiKey)
 	req.Header.Set("X-Request-ID", reqID)
 
-	slog.Debug("Calling LLM API", "request_id", reqID, "url", a.baseURL+"/chat/completions")
+	slog.Debug("Calling LLM API", "request_id", reqID, "url", a.baseURL+"/chat/completions", "image_bytes", len(b64Image))
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -148,21 +169,34 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 	}
 
 	content := chatResp.Choices[0].Message.Content
+
+	// Try direct JSON parse first.
 	var analysis domain.ReceiptAnalysis
-	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
-		return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", err, content)
+	if err := json.Unmarshal([]byte(content), &analysis); err == nil {
+		return &analysis, nil
 	}
 
-	return &analysis, nil
+	// Some models emit reasoning text before/after the JSON.
+	// Try to extract the JSON object using a regex.
+	match := jsonBlockRE.FindString(content)
+	if match != "" {
+		if err := json.Unmarshal([]byte(match), &analysis); err == nil {
+			return &analysis, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", err, content)
 }
 
 // OpenAI-compatible request/response types (private to this package)
 
 type chatRequest struct {
-	Model          string          `json:"model"`
-	Messages       []message       `json:"messages"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
-	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []message       `json:"messages"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	ResponseFormat  *responseFormat `json:"response_format,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 
 type responseFormat struct {

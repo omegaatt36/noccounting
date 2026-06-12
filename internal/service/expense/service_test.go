@@ -54,7 +54,6 @@ func (m *spyRepo) UploadFile(ctx context.Context, filePath string) (string, erro
 	return "https://example.com/receipt.jpg", nil
 }
 
-
 type spyRateFetcher struct {
 	rate   decimal.Decimal
 	err    error
