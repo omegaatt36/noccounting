@@ -13,6 +13,7 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
+	"github.com/omegaatt36/noccounting/internal/service/expense/expensetest"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -26,7 +27,7 @@ type spyAccountingRepo struct {
 	uploadCalls     int
 }
 
-func (m *spyAccountingRepo) CreateExpense(_ context.Context, expense *domain.Expense) error {
+func (m *spyAccountingRepo) CreateExpense(_ context.Context, _ string, expense *domain.Expense) error {
 	if m.createErr != nil {
 		return m.createErr
 	}
@@ -34,23 +35,23 @@ func (m *spyAccountingRepo) CreateExpense(_ context.Context, expense *domain.Exp
 	return nil
 }
 
-func (m *spyAccountingRepo) QueryExpenses(_ context.Context) ([]domain.Expense, error) {
+func (m *spyAccountingRepo) QueryExpenses(_ context.Context, _ string) ([]domain.Expense, error) {
 	return nil, nil
 }
 
-func (m *spyAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ expense.ExpenseFilter) ([]domain.Expense, error) {
+func (m *spyAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ string, _ expense.ExpenseFilter) ([]domain.Expense, error) {
 	return nil, nil
 }
 
-func (m *spyAccountingRepo) UpdateExpense(_ context.Context, _ *domain.Expense) error {
+func (m *spyAccountingRepo) UpdateExpense(_ context.Context, _ string, _ *domain.Expense) error {
 	return nil
 }
 
-func (m *spyAccountingRepo) DeleteExpense(_ context.Context, _ string) error {
+func (m *spyAccountingRepo) DeleteExpense(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *spyAccountingRepo) GetExpenseSummary(_ context.Context) (*domain.ExpenseSummary, error) {
+func (m *spyAccountingRepo) GetExpenseSummary(_ context.Context, _ string) (*domain.ExpenseSummary, error) {
 	return nil, nil
 }
 
@@ -180,6 +181,7 @@ func (m *spyContext) Notify(_ tele.ChatAction) error             { return nil }
 func (m *spyContext) Ship(_ ...any) error                        { return nil }
 func (m *spyContext) Accept(_ ...string) error                   { return nil }
 func (m *spyContext) Answer(_ *tele.QueryResponse) error         { return nil }
+func (m *spyContext) AnswerGuest(_ tele.Result) error            { return nil }
 
 func (m *spyContext) Respond(resp ...*tele.CallbackResponse) error {
 	m.responded = append(m.responded, resp...)
@@ -223,9 +225,9 @@ func newTestHandler(repo expense.AccountingRepo, analyzer expense.ReceiptAnalyze
 		},
 	}
 	userSvc := user.NewService(userRepo)
-	expenseSvc := expense.NewService(repo, &stubRateFetcher{}, analyzer)
+	expenseSvc := expense.NewService(repo, expensetest.FakeLedgerProvider{}, &stubRateFetcher{}, analyzer)
 
-	return NewHandler(userSvc, expenseSvc, "")
+	return NewHandler(userSvc, expenseSvc, nil, "")
 }
 
 func newPhotoContext(botAPI tele.API) *spyContext {
@@ -592,7 +594,7 @@ type spyPartialFailRepo struct {
 	createdExpenses []*domain.Expense
 }
 
-func (m *spyPartialFailRepo) CreateExpense(_ context.Context, expense *domain.Expense) error {
+func (m *spyPartialFailRepo) CreateExpense(_ context.Context, _ string, expense *domain.Expense) error {
 	m.callCount++
 	if m.callCount == m.failOnCall {
 		return errors.New("simulated failure")
@@ -601,23 +603,23 @@ func (m *spyPartialFailRepo) CreateExpense(_ context.Context, expense *domain.Ex
 	return nil
 }
 
-func (m *spyPartialFailRepo) QueryExpenses(_ context.Context) ([]domain.Expense, error) {
+func (m *spyPartialFailRepo) QueryExpenses(_ context.Context, _ string) ([]domain.Expense, error) {
 	return nil, nil
 }
 
-func (m *spyPartialFailRepo) QueryExpensesWithFilter(_ context.Context, _ expense.ExpenseFilter) ([]domain.Expense, error) {
+func (m *spyPartialFailRepo) QueryExpensesWithFilter(_ context.Context, _ string, _ expense.ExpenseFilter) ([]domain.Expense, error) {
 	return nil, nil
 }
 
-func (m *spyPartialFailRepo) UpdateExpense(_ context.Context, _ *domain.Expense) error {
+func (m *spyPartialFailRepo) UpdateExpense(_ context.Context, _ string, _ *domain.Expense) error {
 	return nil
 }
 
-func (m *spyPartialFailRepo) DeleteExpense(_ context.Context, _ string) error {
+func (m *spyPartialFailRepo) DeleteExpense(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *spyPartialFailRepo) GetExpenseSummary(_ context.Context) (*domain.ExpenseSummary, error) {
+func (m *spyPartialFailRepo) GetExpenseSummary(_ context.Context, _ string) (*domain.ExpenseSummary, error) {
 	return nil, nil
 }
 
@@ -629,8 +631,8 @@ func (m *spyPartialFailRepo) UploadFile(_ context.Context, _ string) (string, er
 
 func newTestHandlerWithUserRepo(repo expense.AccountingRepo, analyzer expense.ReceiptAnalyzer, userRepo user.UserRepo) *Handler {
 	userSvc := user.NewService(userRepo)
-	expenseSvc := expense.NewService(repo, &stubRateFetcher{}, analyzer)
-	return NewHandler(userSvc, expenseSvc, "")
+	expenseSvc := expense.NewService(repo, expensetest.FakeLedgerProvider{}, &stubRateFetcher{}, analyzer)
+	return NewHandler(userSvc, expenseSvc, nil, "")
 }
 
 // ============================================================

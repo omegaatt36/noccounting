@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
+	"github.com/omegaatt36/noccounting/internal/service/ledger"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
@@ -20,6 +22,7 @@ import (
 type Handler struct {
 	userService    *user.Service
 	expenseService *expense.Service
+	ledgerService  *ledger.Service
 	webAppURL      string
 	convManager    *ConversationManager
 }
@@ -28,11 +31,13 @@ type Handler struct {
 func NewHandler(
 	userService *user.Service,
 	expenseService *expense.Service,
+	ledgerService *ledger.Service,
 	webAppURL string,
 ) *Handler {
 	return &Handler{
 		userService:    userService,
 		expenseService: expenseService,
+		ledgerService:  ledgerService,
 		webAppURL:      webAppURL,
 		convManager:    NewConversationManager(),
 	}
@@ -49,6 +54,9 @@ func (h *Handler) RegisterHandlers(bot *tele.Bot) {
 	bot.Handle("/quick", h.handleQuick)
 	bot.Handle("/edit", h.handleEdit)
 	bot.Handle("/cancel", h.handleCancel)
+	bot.Handle("/ledgers", h.handleLedgers)
+	bot.Handle("/ledger_add", h.handleLedgerAdd)
+	bot.Handle("/ledger_use", h.handleLedgerUse)
 
 	// Handle text messages for conversation flows
 	bot.Handle(tele.OnText, h.handleText)
@@ -106,6 +114,15 @@ func (h *Handler) handleHelp(c tele.Context) error {
 
 /summary
   查看消費總覽
+
+/ledgers
+  列出所有帳本，目前使用中標記 ✅
+
+/ledger_add <名稱> <notion_db_id>
+  註冊新帳本（第一筆自動設為使用中）
+
+/ledger_use <名稱>
+  切換目前使用中的帳本
 
 📌 分類選項: %s
 💳 付款方式: %s
@@ -998,4 +1015,97 @@ func makePaymentMethodKeyboard(actionPrefix string) *tele.ReplyMarkup {
 	}
 	keyboard.Inline(rows...)
 	return keyboard
+}
+
+// ledgerCtx returns a context with the standard timeout for ledger operations.
+func ledgerCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 10*time.Second)
+}
+
+func (h *Handler) handleLedgers(c tele.Context) error {
+	ctx, cancel := ledgerCtx()
+	defer cancel()
+
+	ledgers, err := h.ledgerService.List(ctx)
+	if err != nil {
+		slog.Error("Failed to list ledgers", "error", err)
+		return c.Send("❌ 查詢失敗，請稍後再試")
+	}
+	if len(ledgers) == 0 {
+		return c.Send("📭 尚未註冊任何帳本\n\n使用 /ledger_add <名稱> <notion_db_id> 新增")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📚 帳本列表\n\n")
+	for _, l := range ledgers {
+		mark := "  "
+		if l.IsActive {
+			mark = "✅"
+		}
+		fmt.Fprintf(&sb, "%s %s\n", mark, l.Name)
+	}
+	return c.Send(sb.String())
+}
+
+func (h *Handler) handleLedgerAdd(c tele.Context) error {
+	args := c.Args()
+	if len(args) < 2 {
+		return c.Send("❌ 格式錯誤\n\n用法: /ledger_add <名稱> <notion_db_id>")
+	}
+	name := args[0]
+	dbID := args[1]
+
+	ctx, cancel := ledgerCtx()
+	defer cancel()
+
+	if err := h.ledgerService.Add(ctx, name, dbID); err != nil {
+		if errors.Is(err, domain.ErrLedgerExists) {
+			return c.Send("❌ 此名稱或 Notion DB 已註冊過")
+		}
+		slog.Error("Failed to add ledger", "error", err)
+		return c.Send("❌ 新增失敗，請稍後再試")
+	}
+	return c.Send(fmt.Sprintf("✅ 已新增帳本「%s」\n\n使用 /ledger_use %s 切換", name, name))
+}
+
+func (h *Handler) handleLedgerUse(c tele.Context) error {
+	args := c.Args()
+	if len(args) < 1 {
+		return c.Send("❌ 格式錯誤\n\n用法: /ledger_use <名稱>")
+	}
+	name := args[0]
+
+	ctx, cancel := ledgerCtx()
+	defer cancel()
+
+	// Pre-fetch ledger list to show alternatives when name is not found.
+	ledgers, listErr := h.ledgerService.List(ctx)
+	if listErr != nil {
+		slog.Error("Failed to list ledgers", "error", listErr)
+		return c.Send("❌ 查詢失敗，請稍後再試")
+	}
+
+	found := false
+	for _, l := range ledgers {
+		if l.Name == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		var names []string
+		for _, l := range ledgers {
+			names = append(names, l.Name)
+		}
+		return c.Send(fmt.Sprintf("❌ 找不到帳本「%s」\n\n可用帳本: %s", name, strings.Join(names, ", ")))
+	}
+
+	if err := h.ledgerService.SetActive(ctx, name); err != nil {
+		if errors.Is(err, domain.ErrLedgerNotFound) {
+			return c.Send(fmt.Sprintf("❌ 找不到帳本「%s」", name))
+		}
+		slog.Error("Failed to set active ledger", "error", err)
+		return c.Send("❌ 切換失敗，請稍後再試")
+	}
+	return c.Send(fmt.Sprintf("✅ 已切換至帳本「%s」", name))
 }

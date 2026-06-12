@@ -16,8 +16,7 @@ on:
         required: true
 
 env:
-  BOT_IMAGE: omegaatt36/noccounting-bot
-  WEB_IMAGE: omegaatt36/noccounting-web
+  IMAGE: omegaatt36/noccounting
 
 jobs:
   determine-tag:
@@ -42,7 +41,6 @@ jobs:
     needs: determine-tag
     strategy:
       matrix:
-        type: [bot, webapp]
         arch: [amd64, arm64]
     runs-on: ubuntu-24.04
     steps:
@@ -68,14 +66,14 @@ jobs:
           go tool tsgo -p web/ts/tsconfig.json
           tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
 
-      - name: Build binary for ${{ matrix.type }} on ${{ matrix.arch }}
+      - name: Build binary on ${{ matrix.arch }}
         env:
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
-          BINARY_NAME: noccounting-${{ matrix.type }}-${{ matrix.arch }}
+          BINARY_NAME: noccounting-${{ matrix.arch }}
         run: |
-          go build -ldflags="-s -w" -o ${BINARY_NAME} ./cmd/${{ matrix.type }}
+          go build -ldflags="-s -w" -o ${BINARY_NAME} ./cmd/noccounting
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -86,15 +84,15 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push ${{ matrix.type }} image (${{ matrix.arch }})
+      - name: Build and push image (${{ matrix.arch }})
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./build/${{ matrix.type }}/Dockerfile
+          file: ./build/noccounting/Dockerfile
           platforms: linux/${{ matrix.arch }}
           build-args: TARGETARCH=${{ matrix.arch }}
           push: true
-          tags: ${{ matrix.type == 'bot' && env.BOT_IMAGE || env.WEB_IMAGE }}-linux-${{ matrix.arch }}:${{ needs.determine-tag.outputs.tag }}
+          tags: ${{ env.IMAGE }}-linux-${{ matrix.arch }}:${{ needs.determine-tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -111,18 +109,10 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Create Bot multi-platform manifest
+      - name: Create multi-platform manifest
         run: |
           docker buildx imagetools create \
-            --tag ${{ env.BOT_IMAGE }}:latest \
-            --tag ${{ env.BOT_IMAGE }}:${{ needs.determine-tag.outputs.tag }} \
-            ${{ env.BOT_IMAGE }}-linux-amd64:${{ needs.determine-tag.outputs.tag }} \
-            ${{ env.BOT_IMAGE }}-linux-arm64:${{ needs.determine-tag.outputs.tag }}
-
-      - name: Create Web multi-platform manifest
-        run: |
-          docker buildx imagetools create \
-            --tag ${{ env.WEB_IMAGE }}:latest \
-            --tag ${{ env.WEB_IMAGE }}:${{ needs.determine-tag.outputs.tag }} \
-            ${{ env.WEB_IMAGE }}-linux-amd64:${{ needs.determine-tag.outputs.tag }} \
-            ${{ env.WEB_IMAGE }}-linux-arm64:${{ needs.determine-tag.outputs.tag }}
+            --tag ${{ env.IMAGE }}:latest \
+            --tag ${{ env.IMAGE }}:${{ needs.determine-tag.outputs.tag }} \
+            ${{ env.IMAGE }}-linux-amd64:${{ needs.determine-tag.outputs.tag }} \
+            ${{ env.IMAGE }}-linux-arm64:${{ needs.determine-tag.outputs.tag }}

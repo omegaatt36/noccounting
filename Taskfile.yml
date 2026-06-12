@@ -30,20 +30,13 @@ tasks:
   build:
     deps: [generate]
     cmds:
-      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/bot ./cmd/bot
-      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/webapp ./cmd/webapp
+      - CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/noccounting ./cmd/noccounting
 
-  run:bot:
-    desc: Run bot locally (loads .env)
+  run:
+    desc: Run noccounting locally (loads .env)
     dotenv: [".env"]
     cmds:
-      - go run ./cmd/bot
-
-  run:webapp:
-    desc: Run webapp locally (loads .env)
-    dotenv: [".env"]
-    cmds:
-      - go run ./cmd/webapp
+      - go run ./cmd/noccounting
 
   lint:
     cmds:

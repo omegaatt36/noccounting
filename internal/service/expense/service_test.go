@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/service/expense/expensetest"
 	"github.com/shopspring/decimal"
 )
 
@@ -14,24 +15,35 @@ type spyRepo struct {
 	expenses        []domain.Expense
 	createdExpenses []*domain.Expense
 	uploadFileFn    func(ctx context.Context, filePath string) (string, error)
+	gotDBID         string
 }
 
-func (m *spyRepo) CreateExpense(_ context.Context, expense *domain.Expense) error {
+func (m *spyRepo) CreateExpense(_ context.Context, databaseID string, expense *domain.Expense) error {
+	m.gotDBID = databaseID
 	m.createdExpenses = append(m.createdExpenses, expense)
 	return nil
 }
 
-func (m *spyRepo) QueryExpenses(_ context.Context) ([]domain.Expense, error) {
+func (m *spyRepo) QueryExpenses(_ context.Context, databaseID string) ([]domain.Expense, error) {
+	m.gotDBID = databaseID
 	return m.expenses, nil
 }
 
-func (m *spyRepo) QueryExpensesWithFilter(_ context.Context, _ ExpenseFilter) ([]domain.Expense, error) {
+func (m *spyRepo) QueryExpensesWithFilter(_ context.Context, databaseID string, _ ExpenseFilter) ([]domain.Expense, error) {
+	m.gotDBID = databaseID
 	return m.expenses, nil
 }
 
-func (m *spyRepo) UpdateExpense(_ context.Context, _ *domain.Expense) error { return nil }
-func (m *spyRepo) DeleteExpense(_ context.Context, _ string) error          { return nil }
-func (m *spyRepo) GetExpenseSummary(_ context.Context) (*domain.ExpenseSummary, error) {
+func (m *spyRepo) UpdateExpense(_ context.Context, databaseID string, _ *domain.Expense) error {
+	m.gotDBID = databaseID
+	return nil
+}
+func (m *spyRepo) DeleteExpense(_ context.Context, databaseID, _ string) error {
+	m.gotDBID = databaseID
+	return nil
+}
+func (m *spyRepo) GetExpenseSummary(_ context.Context, databaseID string) (*domain.ExpenseSummary, error) {
+	m.gotDBID = databaseID
 	return &domain.ExpenseSummary{}, nil
 }
 
@@ -41,6 +53,7 @@ func (m *spyRepo) UploadFile(ctx context.Context, filePath string) (string, erro
 	}
 	return "https://example.com/receipt.jpg", nil
 }
+
 
 type spyRateFetcher struct {
 	rate   decimal.Decimal
@@ -64,7 +77,7 @@ func (m *stubReceiptAnalyzer) Analyze(_ context.Context, _ []byte) (*domain.Rece
 
 func TestGetTodaySummary_EmptyExpenses(t *testing.T) {
 	repo := &spyRepo{expenses: []domain.Expense{}}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -89,7 +102,7 @@ func TestGetTodaySummary_TWDOnly(t *testing.T) {
 			{Name: "taxi", Price: 150, Currency: domain.CurrencyTWD, Category: domain.Category行},
 		},
 	}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -133,7 +146,7 @@ func TestGetTodaySummary_JPYWithStoredRate(t *testing.T) {
 			{Name: "ramen", Price: 1000, Currency: domain.CurrencyJPY, ExchangeRate: rate, Category: domain.Category食},
 		},
 	}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -156,7 +169,7 @@ func TestGetTodaySummary_JPYFallbackRate(t *testing.T) {
 			{Name: "convenience store", Price: 500, Currency: domain.CurrencyJPY, ExchangeRate: decimal.Zero, Category: domain.Category食},
 		},
 	}
-	svc := NewService(repo, fetcher, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, fetcher, nil)
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -180,7 +193,7 @@ func TestGetTodaySummary_JPYNoFallbackWhenRateFetcherNil(t *testing.T) {
 			{Name: "sushi", Price: 2000, Currency: domain.CurrencyJPY, ExchangeRate: decimal.Zero, Category: domain.Category食},
 		},
 	}
-	svc := NewService(repo, nil, nil) // no rateFetcher
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil) // no rateFetcher
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -206,7 +219,7 @@ func TestGetTodaySummary_MixedCurrencies(t *testing.T) {
 			{Name: "jpy no rate", Price: 500, Currency: domain.CurrencyJPY, ExchangeRate: decimal.Zero, Category: domain.Category購},
 		},
 	}
-	svc := NewService(repo, fetcher, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, fetcher, nil)
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -232,7 +245,7 @@ func TestGetTodaySummary_FallbackRateFetchError(t *testing.T) {
 			{Name: "snack", Price: 300, Currency: domain.CurrencyJPY, ExchangeRate: decimal.Zero, Category: domain.Category食},
 		},
 	}
-	svc := NewService(repo, fetcher, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, fetcher, nil)
 
 	// Should not return error even if rate fetch fails; falls back to TotalInTWD behavior.
 	summary, err := svc.GetTodaySummary(context.Background())
@@ -251,7 +264,7 @@ func TestGetTodaySummary_CategoryOrder(t *testing.T) {
 			{Name: "lunch", Price: 200, Currency: domain.CurrencyTWD, Category: domain.Category食},
 		},
 	}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	summary, err := svc.GetTodaySummary(context.Background())
 	if err != nil {
@@ -270,7 +283,7 @@ func TestGetTodaySummary_CategoryOrder(t *testing.T) {
 }
 
 func TestCreateFromReceipt_NoAnalyzer(t *testing.T) {
-	svc := NewService(&spyRepo{}, nil, nil)
+	svc := NewService(&spyRepo{}, expensetest.FakeLedgerProvider{}, nil, nil)
 	err := svc.CreateFromReceipt(context.Background(), []byte("data"), "user1", false)
 	if err == nil || err.Error() != "receipt analyzer not available" {
 		t.Errorf("expected 'receipt analyzer not available', got %v", err)
@@ -279,7 +292,7 @@ func TestCreateFromReceipt_NoAnalyzer(t *testing.T) {
 
 func TestCreateFromReceipt_AnalyzerError(t *testing.T) {
 	analyzer := &stubReceiptAnalyzer{err: errors.New("analyze failed")}
-	svc := NewService(&spyRepo{}, nil, analyzer)
+	svc := NewService(&spyRepo{}, expensetest.FakeLedgerProvider{}, nil, analyzer)
 	err := svc.CreateFromReceipt(context.Background(), []byte("data"), "user1", false)
 	if err == nil || err.Error() != "analyze failed" {
 		t.Errorf("expected 'analyze failed', got %v", err)
@@ -298,7 +311,7 @@ func TestCreateFromReceipt_SingleMode(t *testing.T) {
 	}
 	analyzer := &stubReceiptAnalyzer{analysis: analysis}
 	repo := &spyRepo{}
-	svc := NewService(repo, nil, analyzer)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, analyzer)
 
 	err := svc.CreateFromReceipt(context.Background(), []byte("imagedata"), "userXYZ", false)
 	if err != nil {
@@ -346,7 +359,7 @@ func TestCreateFromReceipt_SplitMode(t *testing.T) {
 	}
 	analyzer := &stubReceiptAnalyzer{analysis: analysis}
 	repo := &spyRepo{}
-	svc := NewService(repo, nil, analyzer)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, analyzer)
 
 	err := svc.CreateFromReceipt(context.Background(), []byte("imagedata"), "userABC", true)
 	if err != nil {
@@ -384,12 +397,12 @@ type fakeFailOnSecondCallRepo struct {
 	callCount int
 }
 
-func (r *fakeFailOnSecondCallRepo) CreateExpense(ctx context.Context, expense *domain.Expense) error {
+func (r *fakeFailOnSecondCallRepo) CreateExpense(ctx context.Context, databaseID string, expense *domain.Expense) error {
 	r.callCount++
 	if r.callCount == 2 {
 		return errors.New("db error on second item")
 	}
-	return r.spyRepo.CreateExpense(ctx, expense)
+	return r.spyRepo.CreateExpense(ctx, databaseID, expense)
 }
 
 func TestCreateFromReceipt_SplitMode_PartialFailure(t *testing.T) {
@@ -405,7 +418,7 @@ func TestCreateFromReceipt_SplitMode_PartialFailure(t *testing.T) {
 	analyzer := &stubReceiptAnalyzer{analysis: analysis}
 	repo := &fakeFailOnSecondCallRepo{}
 
-	svc := NewService(repo, nil, analyzer)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, analyzer)
 	err := svc.CreateFromReceipt(context.Background(), []byte("data"), "u1", true)
 	if err != nil {
 		t.Fatalf("expected nil error on partial failure, got: %v", err)
@@ -428,7 +441,7 @@ func TestCreateFromReceipt_UploadError_GracefulDegradation(t *testing.T) {
 			return "", errors.New("upload failed")
 		},
 	}
-	svc := NewService(repo, nil, analyzer)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, analyzer)
 	err := svc.CreateFromReceipt(context.Background(), []byte("data"), "u1", false)
 	if err != nil {
 		t.Fatalf("expected no error on upload failure, got %v", err)
@@ -442,7 +455,7 @@ func TestCreateFromReceipt_UploadError_GracefulDegradation(t *testing.T) {
 }
 
 func TestFetchExchangeRate_NoFetcher(t *testing.T) {
-	svc := NewService(&spyRepo{}, nil, nil)
+	svc := NewService(&spyRepo{}, expensetest.FakeLedgerProvider{}, nil, nil)
 	rate, err := svc.FetchExchangeRate(context.Background(), domain.CurrencyJPY)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -455,7 +468,7 @@ func TestFetchExchangeRate_NoFetcher(t *testing.T) {
 func TestFetchExchangeRate_WithFetcher(t *testing.T) {
 	expected := decimal.NewFromFloat(0.215)
 	fetcher := &spyRateFetcher{rate: expected}
-	svc := NewService(&spyRepo{}, fetcher, nil)
+	svc := NewService(&spyRepo{}, expensetest.FakeLedgerProvider{}, fetcher, nil)
 
 	rate, err := svc.FetchExchangeRate(context.Background(), domain.CurrencyJPY)
 	if err != nil {
@@ -471,7 +484,7 @@ func TestFetchExchangeRate_WithFetcher(t *testing.T) {
 
 func TestFetchExchangeRate_FetcherError(t *testing.T) {
 	fetcher := &spyRateFetcher{err: errors.New("timeout")}
-	svc := NewService(&spyRepo{}, fetcher, nil)
+	svc := NewService(&spyRepo{}, expensetest.FakeLedgerProvider{}, fetcher, nil)
 
 	_, err := svc.FetchExchangeRate(context.Background(), domain.CurrencyJPY)
 	if err == nil || err.Error() != "timeout" {
@@ -481,7 +494,7 @@ func TestFetchExchangeRate_FetcherError(t *testing.T) {
 
 func TestDelegation_CreateExpense(t *testing.T) {
 	repo := &spyRepo{}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 	exp := &domain.Expense{Name: "test", Price: 100, Currency: domain.CurrencyTWD}
 	if err := svc.CreateExpense(context.Background(), exp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -493,7 +506,7 @@ func TestDelegation_CreateExpense(t *testing.T) {
 
 func TestDelegation_GetSummary(t *testing.T) {
 	repo := &spyRepo{}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 	summary, err := svc.GetSummary(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -505,7 +518,7 @@ func TestDelegation_GetSummary(t *testing.T) {
 
 func TestGetTodaySummary_DateFieldSet(t *testing.T) {
 	repo := &spyRepo{expenses: []domain.Expense{}}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	now := time.Now()
 	before := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -531,7 +544,7 @@ func TestCreateFromAnalysis_SingleMode(t *testing.T) {
 		},
 	}
 	repo := &spyRepo{}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	err := svc.CreateFromAnalysis(context.Background(), analysis, []byte("imagedata"), "userXYZ", false)
 	if err != nil {
@@ -578,7 +591,7 @@ func TestCreateFromAnalysis_SplitMode(t *testing.T) {
 		},
 	}
 	repo := &spyRepo{}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	err := svc.CreateFromAnalysis(context.Background(), analysis, []byte("imagedata"), "userABC", true)
 	if err != nil {
@@ -618,7 +631,7 @@ func TestCreateFromAnalysis_NilImageData_SkipsUpload(t *testing.T) {
 			return "https://example.com/receipt.jpg", nil
 		},
 	}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	err := svc.CreateFromAnalysis(context.Background(), analysis, nil, "u1", false)
 	if err != nil {
@@ -642,7 +655,7 @@ func TestCreateFromAnalysis_UploadError_GracefulDegradation(t *testing.T) {
 			return "", errors.New("upload failed")
 		},
 	}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 	err := svc.CreateFromAnalysis(context.Background(), analysis, []byte("data"), "u1", false)
 	if err != nil {
 		t.Fatalf("expected no error on upload failure, got %v", err)
@@ -666,7 +679,7 @@ func TestCreateFromAnalysis_SplitMode_PartialFailure(t *testing.T) {
 		},
 	}
 	repo := &fakeFailOnSecondCallRepo{}
-	svc := NewService(repo, nil, nil)
+	svc := NewService(repo, expensetest.FakeLedgerProvider{}, nil, nil)
 
 	err := svc.CreateFromAnalysis(context.Background(), analysis, []byte("data"), "u1", true)
 	if err != nil {
@@ -678,5 +691,63 @@ func TestCreateFromAnalysis_SplitMode_PartialFailure(t *testing.T) {
 	}
 	if repo.createdExpenses[0].Name != "item1" {
 		t.Errorf("expected first item 'item1', got '%s'", repo.createdExpenses[0].Name)
+	}
+}
+
+func TestService_CreateExpensePassesActiveDBID(t *testing.T) {
+	repo := &spyRepo{}
+	provider := expensetest.FakeLedgerProvider{Ledger: domain.Ledger{NotionDatabaseID: "db-active"}}
+	svc := NewService(repo, provider, nil, nil)
+
+	if err := svc.CreateExpense(context.Background(), &domain.Expense{Name: "x"}); err != nil {
+		t.Fatalf("CreateExpense() error = %v", err)
+	}
+	if repo.gotDBID != "db-active" {
+		t.Errorf("repo got dbID %q, want db-active", repo.gotDBID)
+	}
+}
+
+func TestService_NoActiveLedgerReturnsError(t *testing.T) {
+	repo := &spyRepo{}
+	provider := expensetest.FakeLedgerProvider{Err: domain.ErrNoActiveLedger}
+	svc := NewService(repo, provider, nil, nil)
+
+	err := svc.CreateExpense(context.Background(), &domain.Expense{Name: "x"})
+	if !errors.Is(err, domain.ErrNoActiveLedger) {
+		t.Fatalf("expected ErrNoActiveLedger, got %v", err)
+	}
+}
+
+func TestService_QueryExpensesPassesActiveDBID(t *testing.T) {
+	repo := &spyRepo{}
+	provider := expensetest.FakeLedgerProvider{Ledger: domain.Ledger{NotionDatabaseID: "db-2"}}
+	svc := NewService(repo, provider, nil, nil)
+
+	if _, err := svc.QueryExpenses(context.Background()); err != nil {
+		t.Fatalf("QueryExpenses() error = %v", err)
+	}
+	if repo.gotDBID != "db-2" {
+		t.Errorf("repo got dbID %q, want db-2", repo.gotDBID)
+	}
+}
+
+func TestService_GetTodaySummary_NoActiveLedgerReturnsError(t *testing.T) {
+	repo := &spyRepo{}
+	provider := expensetest.FakeLedgerProvider{Err: domain.ErrNoActiveLedger}
+	svc := NewService(repo, provider, nil, nil)
+
+	if _, err := svc.GetTodaySummary(context.Background()); !errors.Is(err, domain.ErrNoActiveLedger) {
+		t.Fatalf("expected ErrNoActiveLedger, got %v", err)
+	}
+}
+
+func TestService_CreateFromAnalysis_NoActiveLedgerReturnsError(t *testing.T) {
+	repo := &spyRepo{}
+	provider := expensetest.FakeLedgerProvider{Err: domain.ErrNoActiveLedger}
+	svc := NewService(repo, provider, nil, nil)
+
+	analysis := &domain.ReceiptAnalysis{Summary: "test", Total: 100, Currency: domain.CurrencyTWD}
+	if err := svc.CreateFromAnalysis(context.Background(), analysis, nil, "u1", false); !errors.Is(err, domain.ErrNoActiveLedger) {
+		t.Fatalf("expected ErrNoActiveLedger, got %v", err)
 	}
 }

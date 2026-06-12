@@ -18,13 +18,18 @@ type ExpenseFilter struct {
 
 // AccountingRepo defines expense persistence operations consumed by this service.
 type AccountingRepo interface {
-	CreateExpense(ctx context.Context, expense *domain.Expense) error
-	QueryExpenses(ctx context.Context) ([]domain.Expense, error)
-	QueryExpensesWithFilter(ctx context.Context, filter ExpenseFilter) ([]domain.Expense, error)
-	UpdateExpense(ctx context.Context, expense *domain.Expense) error
-	DeleteExpense(ctx context.Context, id string) error
-	GetExpenseSummary(ctx context.Context) (*domain.ExpenseSummary, error)
+	CreateExpense(ctx context.Context, databaseID string, expense *domain.Expense) error
+	QueryExpenses(ctx context.Context, databaseID string) ([]domain.Expense, error)
+	QueryExpensesWithFilter(ctx context.Context, databaseID string, filter ExpenseFilter) ([]domain.Expense, error)
+	UpdateExpense(ctx context.Context, databaseID string, expense *domain.Expense) error
+	DeleteExpense(ctx context.Context, databaseID, id string) error
+	GetExpenseSummary(ctx context.Context, databaseID string) (*domain.ExpenseSummary, error)
 	UploadFile(ctx context.Context, filePath string) (string, error)
+}
+
+// ActiveLedgerProvider resolves the currently active ledger.
+type ActiveLedgerProvider interface {
+	ActiveLedger(ctx context.Context) (domain.Ledger, error)
 }
 
 // ExchangeRateFetcher defines exchange rate retrieval consumed by this service.

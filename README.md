@@ -24,7 +24,7 @@ A travel expense tracker with Telegram Bot and Web Mini App interfaces, using No
 | Database | Notion API |
 | Receipt Analysis | OpenAI-compatible vision API (via LiteLLM or similar) |
 | Exchange Rates | [FinMind API](https://finmindtrade.com/) |
-| Deployment | Docker (multi-arch amd64/arm64), Kubernetes (Helm) |
+| Deployment | Docker (multi-arch amd64/arm64) |
 | Task Runner | [Taskfile](https://taskfile.dev) |
 
 ## Getting Started
@@ -43,13 +43,16 @@ A travel expense tracker with Telegram Bot and Web Mini App interfaces, using No
 # Required
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 NOTION_TOKEN=your_notion_integration_token
-NOTION_DATABASE_ID=your_notion_database_id
 USER_MAPPING=telegram_id1:notion_id1:nickname1,telegram_id2:notion_id2:nickname2
 
 # Optional
 WEBAPP_URL=https://your-webapp-url.com   # Mini App URL for bot menu button
 PORT=8080                                 # Web server port (webapp only)
 LOG_LEVEL=INFO                            # DEBUG, INFO, WARN, ERROR
+SQLITE_PATH=./noccounting.db              # Local SQLite ledger database path
+
+# Legacy seed (optional)
+NOTION_DATABASE_ID=your_notion_database_id  # Used only for initial seeding on first boot
 
 # Receipt scanning (optional)
 LLM_API_KEY=your_api_key
@@ -59,7 +62,7 @@ LLM_MODEL=your_model_name                # e.g. gpt-4o
 
 ### Build & Run
 
-Both binaries read configuration exclusively from environment variables.
+The binary reads configuration exclusively from environment variables.
 Copy `.env.example` to `.env` and fill in values — `godotenv` loads it automatically at startup.
 
 ```bash
@@ -69,17 +72,14 @@ task generate
 # Run tests
 task test
 
-# Build binaries
+# Build binary
 task build
 
-# Run bot (.env loaded automatically)
-./bin/bot
+# Run (.env loaded automatically)
+./bin/noccounting
 
-# Run webapp (.env loaded automatically)
-./bin/webapp
-
-# Run webapp in dev mode (skips Telegram auth)
-DEV_MODE=true ./bin/webapp
+# Run in dev mode (skips Telegram auth)
+DEV_MODE=true ./bin/noccounting
 ```
 
 ### Taskfile Commands
@@ -91,7 +91,7 @@ DEV_MODE=true ./bin/webapp
 | `task css` | Build CSS only |
 | `task css:watch` | Watch CSS for changes |
 | `task test` | Run all tests with race detector |
-| `task build` | Generate + build both binaries |
+| `task build` | Generate + build the binary |
 | `task lint` | Run `go vet` |
 
 ## Notion Database Setup
@@ -120,6 +120,9 @@ DEV_MODE=true ./bin/webapp
 | `/today` | Today's expenses grouped by category |
 | `/edit` | Modify recent expenses |
 | `/cancel` | Cancel current conversation |
+| `/ledgers` | List all registered ledgers |
+| `/ledger_add` | Register a new ledger: `/ledger_add <name> <notion_db_id>` |
+| `/ledger_use` | Switch active ledger: `/ledger_use <name>` |
 | *Photo* | Send a receipt photo for automatic LLM analysis |
 
 ## Web API
@@ -137,34 +140,20 @@ DEV_MODE=true ./bin/webapp
 
 ```bash
 # Build
-docker build -f build/bot/Dockerfile -t noccounting-bot .
-docker build -f build/webapp/Dockerfile -t noccounting-web .
+docker build -f build/noccounting/Dockerfile -t noccounting .
 
 # Run
-docker run -d \
-  -e TELEGRAM_BOT_TOKEN -e NOTION_TOKEN -e NOTION_DATABASE_ID -e USER_MAPPING \
-  noccounting-bot
-
 docker run -d -p 8080:8080 \
-  -e TELEGRAM_BOT_TOKEN -e NOTION_TOKEN -e NOTION_DATABASE_ID -e USER_MAPPING \
-  noccounting-web
+  -v noccounting-data:/data \
+  -e SQLITE_PATH=/data/noccounting.db \
+  -e TELEGRAM_BOT_TOKEN -e NOTION_TOKEN -e USER_MAPPING \
+  noccounting
 ```
 
 Images are published to Docker Hub on git tag push (`v*`):
-- `omegaatt36/noccounting-bot`
-- `omegaatt36/noccounting-web`
+- `omegaatt36/noccounting`
 
-Both images support `linux/amd64` and `linux/arm64`.
-
-## Helm
-
-```bash
-helm install noccounting ./helm \
-  --set bot.telegramToken=$TELEGRAM_BOT_TOKEN \
-  --set notion.token=$NOTION_TOKEN \
-  --set notion.databaseId=$NOTION_DATABASE_ID \
-  --set userMapping=$USER_MAPPING
-```
+The image supports `linux/amd64` and `linux/arm64`.
 
 ## License
 
