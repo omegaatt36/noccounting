@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -846,5 +847,45 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 	// No expense should be created
 	if len(repo.createdExpenses) != 0 {
 		t.Error("expected 0 expenses after GetUser failure")
+	}
+}
+
+func TestHandlePhoto_AlreadyPending_ReturnsWarning(t *testing.T) {
+	analysis := newTestAnalysis()
+	repo := &spyAccountingRepo{uploadResult: "file-id"}
+	analyzer := &stubReceiptAnalyzer{result: analysis}
+	h := newTestHandler(repo, analyzer)
+
+	imageData := []byte("fake-jpeg-image-data")
+	botAPI := &spyBotAPI{
+		fileReader: io.NopCloser(bytes.NewReader(imageData)),
+	}
+
+	// First photo
+	photoCtx1 := newPhotoContext(botAPI)
+	if err := h.handlePhoto(photoCtx1); err != nil {
+		t.Fatalf("first handlePhoto returned error: %v", err)
+	}
+
+	// Second photo while the first is still pending
+	photoCtx2 := newPhotoContext(botAPI)
+	if err := h.handlePhoto(photoCtx2); err != nil {
+		t.Fatalf("second handlePhoto returned error: %v", err)
+	}
+
+	// Should warn the user
+	found := false
+	for _, msg := range photoCtx2.sentMsgs {
+		if s, ok := msg.(string); ok && strings.Contains(s, "還有一筆收據待確認") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected pending receipt warning, got %v", photoCtx2.sentMsgs)
+	}
+
+	// Only one expense should have been analyzed
+	if len(repo.createdExpenses) != 0 {
+		t.Error("expected 0 expenses since second photo was blocked")
 	}
 }

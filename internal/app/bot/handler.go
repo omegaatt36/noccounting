@@ -284,6 +284,11 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("❌ 無法取得照片")
 	}
 
+	// If the user already has a pending receipt analysis, don't overwrite it.
+	if state := h.convManager.GetState(c.Sender().ID); state != nil && state.Step == ReceiptConfirm {
+		return c.Send("⚠️ 您還有一筆收據待確認，請先完成或取消後再傳新照片\n/cancel")
+	}
+
 	if err := c.Send("🔍 正在分析收據..."); err != nil {
 		slog.Warn("Failed to send analysis message", "error", err)
 	}
@@ -303,9 +308,9 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 	if len(imageData) == 0 {
 		return c.Send("❌ 無法讀取照片")
 	}
+	slog.Debug("Downloaded photo from Telegram", "bytes", len(imageData))
 
-	// Analyze receipt
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 
 	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imageData)
