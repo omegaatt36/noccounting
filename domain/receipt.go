@@ -4,7 +4,7 @@ package domain
 type ReceiptItem struct {
 	Name     string
 	NameZH   string `json:"name_zh"` // Traditional Chinese translation (empty if already Chinese)
-	Price    uint64
+	Price    int64
 	Category Category
 }
 

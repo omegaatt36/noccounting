@@ -49,12 +49,15 @@ Respond ONLY with valid JSON in this exact format:
   "total": 1200
 }
 
-"summary" should be a short, readable name for the receipt (e.g. "松屋 午餐", "全家便利商店", "唐吉訶德 伴手禮"). Use the store name if visible, otherwise describe the main purchase.
-"name" is the item name as it appears on the receipt (original language).
-"name_zh" is the Traditional Chinese (正體中文) translation of the item name. If the item name is already in Chinese, set "name_zh" to "".
-Available categories: 食 (food/drinks), 住 (accommodation), 行 (transport), 購 (shopping/souvenirs), 樂 (entertainment/experiences), 雜 (misc/fees).
-Currency must be either "TWD" or "JPY".
-Price must be an integer (no decimals).`
+Rules:
+- "summary" should be a short, readable name for the receipt (e.g. "松屋 午餐", "全家便利商店", "唐吉訶德 伴手禮"). Use the store name if visible, otherwise describe the main purchase.
+- "name" is the item name as it appears on the receipt (original language).
+- "name_zh" is the Traditional Chinese (正體中文) translation of the item name. If the item name is already in Chinese, set "name_zh" to "".
+- Available categories: 食 (food/drinks), 住 (accommodation), 行 (transport), 購 (shopping/souvenirs), 樂 (entertainment/experiences), 雜 (misc/fees).
+- Currency must be either "TWD" or "JPY".
+- Price must be a positive integer (>= 0, no decimals).
+- Do NOT include discount items, tax adjustments, service fees, or set-deal breakdowns (e.g. セット値引き, discount, tax, etc.). Only list the actual goods or services purchased.
+- When a receipt shows a set meal with sub-items and discounts, list the set as a single item with its final set price, or list only the main items with their final prices after discount. Do NOT include negative prices.`
 
 // Analyze sends a receipt image to the Vision API and parses the response.
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {

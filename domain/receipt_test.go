@@ -16,12 +16,12 @@ func TestReceiptAnalysis_TotalMatchesItems(t *testing.T) {
 		Total:    2000,
 	}
 
-	var sum uint64
+	var sum int64
 	for _, item := range analysis.Items {
 		sum += item.Price
 	}
 
-	if sum != analysis.Total {
+	if uint64(sum) != analysis.Total {
 		t.Errorf("items sum %d != total %d", sum, analysis.Total)
 	}
 
