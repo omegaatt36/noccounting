@@ -127,6 +127,9 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 				<!-- Donut legend -->
 				<div class="flex flex-wrap gap-x-3 gap-y-1 pt-3 mt-2 border-t border-border">
 					for _, cat := range categories {
+						if cat.Percentage == 0 {
+							continue
+						}
 						<div class="flex items-center gap-1.5 text-xs text-muted-foreground">
 							<span
 								class="w-2 h-2 rounded-sm inline-block"
@@ -149,13 +152,21 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 			<div class="space-y-3">
 				<h3 class="text-lg font-semibold text-foreground">分類明細</h3>
 				for _, cat := range categories {
+					if cat.Percentage == 0 {
+						continue
+					}
 					<div>
-						<div
-							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
-							hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Name, dateRange) }
-							hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Name) }
-							hx-swap="innerHTML"
-						>
+						{{
+							beforeRequest := fmt.Sprintf("const detail = document.getElementById('cat-detail-%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", cat.Name)
+							afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
+						}}
+							<div
+								class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+								hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Name, dateRange) }
+								hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Name) }
+								hx-swap="innerHTML"
+								{ templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest}... }
+							>
 							<div class="w-8 text-center">{ cat.Emoji }</div>
 							<div class="w-16 text-sm text-muted-foreground">{ cat.Name }</div>
 							<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
@@ -164,8 +175,9 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 									style={ fmt.Sprintf("width: %d%%; background: %s;", cat.Percentage, CategoryColors[cat.Name]) }
 								></div>
 							</div>
-							<div class="w-16 text-right text-sm font-medium">{ cat.AmountTWD }</div>
-							<div class="w-10 text-right text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", cat.Percentage) }</div>
+							<div class="w-16 text-right text-sm font-medium tabular-nums">{ cat.AmountTWD }</div>
+							<div class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", cat.Percentage) }</div>
+							<span class="chevron text-xs text-muted-foreground w-4 text-center">▶</span>
 						</div>
 						<!-- Detail target -->
 						<div id={ fmt.Sprintf("cat-detail-%s", cat.Name) } class="pl-8 mt-1 empty:hidden"></div>
@@ -185,7 +197,7 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 								style={ fmt.Sprintf("width: %d%%", d.Percentage) }
 							></div>
 						</div>
-						<div class="w-16 text-right text-sm font-medium">{ d.AmountTWD }</div>
+						<div class="w-16 text-right text-sm font-medium tabular-nums">{ d.AmountTWD }</div>
 					</div>
 				}
 			</div>
@@ -197,8 +209,8 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 					<div class="flex items-center justify-between">
 						<div class="text-sm font-medium">{ payer.Name }</div>
 						<div class="text-right">
-							<div class="text-sm font-medium">{ payer.AmountTWD }</div>
-							<div class="text-xs text-muted-foreground">{ fmt.Sprintf("%d%%", payer.Percentage) }</div>
+							<div class="text-sm font-medium tabular-nums">{ payer.AmountTWD }</div>
+							<div class="text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", payer.Percentage) }</div>
 						</div>
 					</div>
 				}

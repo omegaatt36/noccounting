@@ -92,6 +92,9 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User) Dashboar
 
 	// Build ByCategory, sorted by amount descending
 	for category, amount := range categoryMap {
+		if amount.IsZero() {
+			continue
+		}
 		percentage := 0.0
 		if !result.GrandTotalTWD.IsZero() {
 			pct := amount.Div(result.GrandTotalTWD).Mul(decimal.NewFromInt(100))

@@ -99,27 +99,29 @@ templ ExpenseForm() {
 					}
 				}
 			}
-			<div id="exchange-rate-section" class="flex items-center gap-2 mt-3">
-				<label class="text-sm whitespace-nowrap text-muted-foreground">匯率</label>
-				@input.Input(input.Props{
-					ID:    "exchange-rate-input",
-					Name:  "exchange_rate",
-					Type:  input.TypeText,
-					Value: "0.22",
-					Attributes: templ.Attributes{
-						"inputmode": "decimal",
-					},
-					Class: "flex-1",
-				})
-				@button.Button(button.Props{
-					ID:   "fetch-rate-btn",
-					Type: button.TypeButton,
-					Size: button.SizeIcon,
-				}) {
-					<span class="fetch-text">🔄</span>
-					<span class="fetch-loading hidden">⏳</span>
-				}
-				<span id="rate-status" class="text-xs text-muted-foreground"></span>
+			<div id="exchange-rate-section" class="overflow-hidden transition-all duration-300 ease-in-out">
+				<div class="flex items-center gap-2 mt-3">
+					<label class="text-sm whitespace-nowrap text-muted-foreground">匯率</label>
+					@input.Input(input.Props{
+						ID:    "exchange-rate-input",
+						Name:  "exchange_rate",
+						Type:  input.TypeText,
+						Value: "0.22",
+						Attributes: templ.Attributes{
+							"inputmode": "decimal",
+						},
+						Class: "flex-1",
+					})
+					@button.Button(button.Props{
+						ID:   "fetch-rate-btn",
+						Type: button.TypeButton,
+						Size: button.SizeIcon,
+					}) {
+						<span class="fetch-text">🔄</span>
+						<span class="fetch-loading hidden">⏳</span>
+					}
+					<span id="rate-status" class="text-xs text-muted-foreground"></span>
+				</div>
 			</div>
 		</div>
 		<!-- 4. Payment Method -->

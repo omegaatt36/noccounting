@@ -199,6 +199,7 @@ export function setupEventListeners(ctx: TelegramContext): void {
           const numpadConvert = document.getElementById("numpad-convert");
           if (numpadConvert) numpadConvert.textContent = "";
         }
+        // Keep category, method, and paid-by for rapid consecutive entries
         if (nameInput) nameInput.focus();
         // Clear validation errors
         nameInput?.classList.remove("border-destructive");

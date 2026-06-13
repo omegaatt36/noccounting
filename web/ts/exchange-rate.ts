@@ -8,9 +8,11 @@ export function updateExchangeRateVisibility(): void {
   if (!section || !currencyInput) return;
 
   if (currencyInput.value === "JPY") {
-    section.classList.remove("hidden");
+    section.style.maxHeight = "100px";
+    section.style.opacity = "1";
   } else {
-    section.classList.add("hidden");
+    section.style.maxHeight = "0";
+    section.style.opacity = "0";
   }
 }
 
@@ -47,7 +49,7 @@ export async function fetchExchangeRate(): Promise<void> {
     const startDate = yesterday.toISOString().split("T")[0];
 
     const res = await fetch(
-      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanExchangeRate&data_id=JPY&start_date=${startDate}`
+      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanExchangeRate&data_id=JPY&start_date=${startDate}`,
     );
     const data = await res.json();
 
@@ -55,7 +57,10 @@ export async function fetchExchangeRate(): Promise<void> {
       const rate = data.data[data.data.length - 1].cash_sell;
       input.value = rate;
       localStorage.setItem(STORAGE_KEYS.exchangeRate, rate);
-      localStorage.setItem(STORAGE_KEYS.exchangeRateDate, new Date().toISOString().slice(0, 10));
+      localStorage.setItem(
+        STORAGE_KEYS.exchangeRateDate,
+        new Date().toISOString().slice(0, 10),
+      );
       status.textContent = "(即時)";
     } else {
       loadCachedRate();
