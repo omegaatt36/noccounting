@@ -3,8 +3,10 @@ package webapp
 import (
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -153,6 +155,23 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return false
 }
 
+// getClientIP extracts the client IP from the request.
+// It uses the first valid IP from X-Forwarded-For if present,
+// otherwise falls back to r.RemoteAddr.
+func getClientIP(r *http.Request) string {
+	ip := r.RemoteAddr
+
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		// Take the first IP (closest to the client) before any comma
+		firstIP := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+		if net.ParseIP(firstIP) != nil {
+			ip = firstIP
+		}
+	}
+
+	return ip
+}
+
 // rateLimit creates a rate limiting middleware.
 // rate: number of requests allowed per window
 // window: time window for rate limiting
@@ -167,11 +186,7 @@ func rateLimit(rate int, window time.Duration) middleware {
 				return
 			}
 
-			// Get client IP
-			ip := r.RemoteAddr
-			if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-				ip = forwarded
-			}
+			ip := getClientIP(r)
 
 			if !limiter.allow(ip) {
 				slog.Warn("Rate limit exceeded", "ip", ip, "path", r.URL.Path)

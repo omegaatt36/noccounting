@@ -217,24 +217,60 @@ func TestValidateTelegramInitDataNoMaxAge(t *testing.T) {
 	}
 }
 
-func TestExtractJSONString(t *testing.T) {
+func TestParseUserJSON(t *testing.T) {
 	tests := []struct {
+		name     string
 		json     string
-		key      string
-		expected string
+		expected TelegramInitData
 	}{
-		{`{"username":"john"}`, "username", "john"},
-		{`{"id":123,"username":"john","first_name":"John"}`, "username", "john"},
-		{`{"first_name":"John Doe"}`, "first_name", "John Doe"},
-		{`{"username":""}`, "username", ""},
-		{`{"id":123}`, "username", ""},
+		{
+			name: "full user",
+			json: `{"id":123456789,"first_name":"John","last_name":"Doe","username":"johndoe","language_code":"en"}`,
+			expected: TelegramInitData{
+				UserID:       123456789,
+				FirstName:    "John",
+				LastName:     "Doe",
+				Username:     "johndoe",
+				LanguageCode: "en",
+			},
+		},
+		{
+			name: "minimal user",
+			json: `{"id":123}`,
+			expected: TelegramInitData{
+				UserID: 123,
+			},
+		},
+		{
+			name: "empty strings",
+			json: `{"id":123,"username":""}`,
+			expected: TelegramInitData{
+				UserID:   123,
+				Username: "",
+			},
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.key, func(t *testing.T) {
-			result := extractJSONString(tt.json, tt.key)
-			if result != tt.expected {
-				t.Errorf("extractJSONString(%q, %q) = %q, want %q", tt.json, tt.key, result, tt.expected)
+		t.Run(tt.name, func(t *testing.T) {
+			var data TelegramInitData
+			if err := parseUserJSON(tt.json, &data); err != nil {
+				t.Fatalf("parseUserJSON(%q) error: %v", tt.json, err)
+			}
+			if data.UserID != tt.expected.UserID {
+				t.Errorf("UserID = %d, want %d", data.UserID, tt.expected.UserID)
+			}
+			if data.Username != tt.expected.Username {
+				t.Errorf("Username = %q, want %q", data.Username, tt.expected.Username)
+			}
+			if data.FirstName != tt.expected.FirstName {
+				t.Errorf("FirstName = %q, want %q", data.FirstName, tt.expected.FirstName)
+			}
+			if data.LastName != tt.expected.LastName {
+				t.Errorf("LastName = %q, want %q", data.LastName, tt.expected.LastName)
+			}
+			if data.LanguageCode != tt.expected.LanguageCode {
+				t.Errorf("LanguageCode = %q, want %q", data.LanguageCode, tt.expected.LanguageCode)
 			}
 		})
 	}

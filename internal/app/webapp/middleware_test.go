@@ -259,3 +259,61 @@ func TestRateLimitMiddlewareUsesXForwardedFor(t *testing.T) {
 		t.Errorf("second request with same X-Forwarded-For should return 429, got %d", w.Code)
 	}
 }
+
+// TestRateLimitMiddlewareUsesFirstXForwardedFor tests that only the first IP in X-Forwarded-For is used.
+func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
+	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// First request with multiple IPs in X-Forwarded-For (should use first)
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	req.RemoteAddr = "127.0.0.1:9000"
+	req.Header.Set("X-Forwarded-For", "203.0.113.1, 198.51.100.2, 192.168.1.1")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("first request should return 200, got %d", w.Code)
+	}
+
+	// Second request with same first IP should be rate limited
+	req = httptest.NewRequest("GET", "/api/test", nil)
+	req.RemoteAddr = "127.0.0.1:9001"
+	req.Header.Set("X-Forwarded-For", "203.0.113.1, 198.51.100.99")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("second request with same first X-Forwarded-For IP should return 429, got %d", w.Code)
+	}
+}
+
+// TestRateLimitMiddlewareIgnoresInvalidXForwardedFor tests that invalid X-Forwarded-For falls back to RemoteAddr.
+func TestRateLimitMiddlewareIgnoresInvalidXForwardedFor(t *testing.T) {
+	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// First request with invalid X-Forwarded-For (should fall back to RemoteAddr)
+	req := httptest.NewRequest("GET", "/api/test", nil)
+	req.RemoteAddr = "192.168.1.1:9000"
+	req.Header.Set("X-Forwarded-For", "not-an-ip")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("first request should return 200, got %d", w.Code)
+	}
+
+	// Second request with same RemoteAddr (including port) should be rate limited
+	req = httptest.NewRequest("GET", "/api/test", nil)
+	req.RemoteAddr = "192.168.1.1:9000"
+	req.Header.Set("X-Forwarded-For", "also-not-an-ip")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("second request with same RemoteAddr should return 429, got %d", w.Code)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -119,59 +120,27 @@ func ValidateTelegramInitData(initData, botToken string, maxAge time.Duration) (
 	return result, nil
 }
 
-// parseUserJSON parses the user JSON string from initData.
-func parseUserJSON(userJSON string, data *TelegramInitData) error {
-	// The user field is a URL-encoded JSON object
-	// We need to parse it manually to extract user info
-
-	// Simple JSON parsing without importing encoding/json to keep it lightweight
-	// Format: {"id":123,"first_name":"John",...}
-
-	// Find id
-	if idx := strings.Index(userJSON, `"id":`); idx != -1 {
-		start := idx + 5
-		end := start
-		for end < len(userJSON) && userJSON[end] >= '0' && userJSON[end] <= '9' {
-			end++
-		}
-		if end > start {
-			id, err := strconv.ParseInt(userJSON[start:end], 10, 64)
-			if err == nil {
-				data.UserID = id
-			}
-		}
-	}
-
-	// Find username
-	data.Username = extractJSONString(userJSON, "username")
-	data.FirstName = extractJSONString(userJSON, "first_name")
-	data.LastName = extractJSONString(userJSON, "last_name")
-	data.LanguageCode = extractJSONString(userJSON, "language_code")
-
-	return nil
+// telegramUser represents the user object embedded in Telegram initData.
+type telegramUser struct {
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
+	LanguageCode string `json:"language_code"`
 }
 
-// extractJSONString extracts a string value from a simple JSON object.
-func extractJSONString(json, key string) string {
-	search := fmt.Sprintf(`"%s":"`, key)
-	idx := strings.Index(json, search)
-	if idx == -1 {
-		return ""
+// parseUserJSON parses the user JSON string from initData using encoding/json.
+func parseUserJSON(userJSON string, data *TelegramInitData) error {
+	var user telegramUser
+	if err := json.Unmarshal([]byte(userJSON), &user); err != nil {
+		return err
 	}
 
-	start := idx + len(search)
-	end := start
+	data.UserID = user.ID
+	data.Username = user.Username
+	data.FirstName = user.FirstName
+	data.LastName = user.LastName
+	data.LanguageCode = user.LanguageCode
 
-	// Find the closing quote, handling escaped quotes
-	for end < len(json) {
-		if json[end] == '"' && (end == start || json[end-1] != '\\') {
-			break
-		}
-		end++
-	}
-
-	if end > start && end < len(json) {
-		return json[start:end]
-	}
-	return ""
+	return nil
 }

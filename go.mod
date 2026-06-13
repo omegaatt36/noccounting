@@ -7,7 +7,6 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/google/uuid v1.6.0
 	github.com/shopspring/decimal v1.4.0
-	golang.org/x/image v0.42.0
 	gopkg.in/telebot.v4 v4.0.0-beta.9
 	modernc.org/sqlite v1.52.0
 )

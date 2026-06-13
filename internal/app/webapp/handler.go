@@ -43,6 +43,38 @@ func NewHandler(userService *user.Service, expenseService *expense.Service, botT
 	}, nil
 }
 
+// requireAuth validates the init_data from query parameters for non-dev mode.
+// It returns true if the request is authorized (or dev mode is active).
+// On failure, it writes an HTTP error response and returns false.
+func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) bool {
+	if h.devMode {
+		slog.Warn("Dev mode: skipping auth check", "path", r.URL.Path)
+		return true
+	}
+
+	initData := r.URL.Query().Get("init_data")
+	if initData == "" {
+		slog.Warn("Missing init_data", "path", r.URL.Path)
+		http.Error(w, "missing init_data", http.StatusForbidden)
+		return false
+	}
+
+	telegramData, err := ValidateTelegramInitData(initData, h.botToken, initDataMaxAge)
+	if err != nil {
+		slog.Warn("Invalid Telegram initData", "error", err, "path", r.URL.Path)
+		http.Error(w, "invalid authentication", http.StatusForbidden)
+		return false
+	}
+
+	if !h.userService.IsAuthorized(telegramData.UserID) {
+		slog.Warn("Unauthorized user", "user_id", telegramData.UserID, "path", r.URL.Path)
+		http.Error(w, "unauthorized", http.StatusForbidden)
+		return false
+	}
+
+	return true
+}
+
 // RegisterRoutes registers HTTP routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /", h.handleIndex)
@@ -407,8 +439,23 @@ func (h *Handler) handlePartialForm(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// isWithinRange checks if a time falls within an optional from/to range.
+func isWithinRange(t time.Time, from, to *time.Time) bool {
+	if from != nil && t.Before(*from) {
+		return false
+	}
+	if to != nil && t.After(*to) {
+		return false
+	}
+	return true
+}
+
 // handleDashboardContent queries expenses and renders dashboard content
 func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuth(w, r) {
+		return
+	}
+
 	// Parse date range query param
 	rangeStr := r.URL.Query().Get("range")
 	if rangeStr == "" {
@@ -451,8 +498,33 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	var trendPct int
 	if rangeStr != "all" && rangeStr != "" {
 		prevFrom, prevTo := getPreviousDateRange(rangeStr, now)
-		prevFilter := expense.ExpenseFilter{DateFrom: prevFrom, DateTo: prevTo}
-		prevExpenses, _ := h.expenseService.QueryExpensesWithFilter(ctx, prevFilter)
+
+		// Merge query range to cover both current and previous periods in one call
+		var mergedFilter expense.ExpenseFilter
+		if prevFrom != nil {
+			mergedFilter.DateFrom = prevFrom
+		} else {
+			mergedFilter.DateFrom = fromTime
+		}
+		if toTime != nil {
+			mergedFilter.DateTo = toTime
+		} else {
+			mergedFilter.DateTo = prevTo
+		}
+
+		mergedExpenses, _ := h.expenseService.QueryExpensesWithFilter(ctx, mergedFilter)
+
+		var currExpenses, prevExpenses []domain.Expense
+		for _, e := range mergedExpenses {
+			if isWithinRange(e.ShoppedAt, fromTime, toTime) {
+				currExpenses = append(currExpenses, e)
+			}
+			if isWithinRange(e.ShoppedAt, prevFrom, prevTo) {
+				prevExpenses = append(prevExpenses, e)
+			}
+		}
+
+		dashboardData = aggregateDashboard(currExpenses, allUsers)
 		prevData := aggregateDashboard(prevExpenses, allUsers)
 
 		currTotal, _ := dashboardData.GrandTotalTWD.Float64()
@@ -505,6 +577,10 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 
 // handleExportCSV exports expenses as CSV with BOM and Chinese headers
 func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuth(w, r) {
+		return
+	}
+
 	// Parse date range query param
 	rangeStr := r.URL.Query().Get("range")
 	if rangeStr == "" {
@@ -609,6 +685,10 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 // handleCategoryDetail renders the partial items for a specific category
 func (h *Handler) handleCategoryDetail(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuth(w, r) {
+		return
+	}
+
 	name := r.URL.Query().Get("name")
 	rangeStr := r.URL.Query().Get("range")
 	if rangeStr == "" {
