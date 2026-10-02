@@ -17,7 +17,6 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/expense"
 )
 
-// Analyzer implements expense.ReceiptAnalyzer using an OpenAI-compatible Vision API.
 type Analyzer struct {
 	httpClient *http.Client
 	baseURL    string
@@ -27,7 +26,6 @@ type Analyzer struct {
 
 var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
 
-// NewAnalyzer creates a new LLM receipt analyzer.
 func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 	return &Analyzer{
 		httpClient: &http.Client{Timeout: 60 * time.Second},
@@ -37,13 +35,13 @@ func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 	}
 }
 
-const receiptPrompt = `Analyze this receipt image. Extract all items with their prices, categories, and Traditional Chinese translations.
+const receiptPromptTemplate = `Analyze this receipt image. Extract all items with their prices, categories, and Traditional Chinese translations.
 
 Respond ONLY with valid JSON in this exact format:
 {
   "summary": "店名或簡短描述",
   "items": [
-    {"name": "ラーメン", "name_zh": "拉麵", "price": 1200, "category": "食"}
+    {"name": "ラーメン", "name_zh": "拉麵", "price": 1200, "category": "food"}
   ],
   "currency": "JPY",
   "total": 1200
@@ -53,13 +51,14 @@ Rules:
 - "summary" should be a short, readable name for the receipt (e.g. "松屋 午餐", "全家便利商店", "唐吉訶德 伴手禮"). Use the store name if visible, otherwise describe the main purchase.
 - "name" is the item name as it appears on the receipt (original language).
 - "name_zh" is the Traditional Chinese (正體中文) translation of the item name. If the item name is already in Chinese, set "name_zh" to "".
-- Available categories: 食 (food/drinks), 住 (accommodation), 行 (transport), 購 (shopping/souvenirs), 樂 (entertainment/experiences), 雜 (misc/fees).
+- "category" must be exactly one of: %s. Use "groceries" for food bought to take away from a supermarket or convenience store, "food" for meals and drinks consumed out, "shopping" for goods and souvenirs, and "other" when nothing fits.
 - Currency must be either "TWD" or "JPY".
 - Price must be a positive integer (>= 0, no decimals).
 - Do NOT include discount items, tax adjustments, service fees, or set-deal breakdowns (e.g. セット値引き, discount, tax, etc.). Only list the actual goods or services purchased.
 - When a receipt shows a set meal with sub-items and discounts, list the set as a single item with its final set price, or list only the main items with their final prices after discount. Do NOT include negative prices.`
 
-// Analyze sends a receipt image to the Vision API and parses the response.
+var receiptPrompt = fmt.Sprintf(receiptPromptTemplate, strings.Join(domain.CategoryNames(), ", "))
+
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {
 	b64Image := base64.StdEncoding.EncodeToString(imageData)
 
@@ -68,7 +67,6 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			// Exponential backoff: 2s, 4s
 			sleepDuration := time.Duration(1<<attempt) * time.Second
 			slog.Info("Retrying LLM request", "attempt", attempt, "sleep", sleepDuration)
 			select {
@@ -151,15 +149,35 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 	}
 
 	content := chatResp.Choices[0].Message.Content
-	var analysis domain.ReceiptAnalysis
+	var analysis receiptResponse
 	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
 		return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", err, content)
 	}
 
-	return &analysis, nil
+	items := make([]domain.ReceiptItem, 0, len(analysis.Items))
+	for _, item := range analysis.Items {
+		items = append(items, domain.ReceiptItem{
+			Name: item.Name, NameZH: item.NameZH, Price: item.Price, Category: item.Category,
+		})
+	}
+	return &domain.ReceiptAnalysis{
+		Summary: analysis.Summary, Items: items, Currency: analysis.Currency, Total: analysis.Total,
+	}, nil
 }
 
-// OpenAI-compatible request/response types (private to this package)
+type receiptResponse struct {
+	Summary  string                `json:"summary"`
+	Items    []receiptItemResponse `json:"items"`
+	Currency domain.Currency       `json:"currency"`
+	Total    uint64                `json:"total"`
+}
+
+type receiptItemResponse struct {
+	Name     string          `json:"name"`
+	NameZH   string          `json:"name_zh"`
+	Price    int64           `json:"price"`
+	Category domain.Category `json:"category"`
+}
 
 type chatRequest struct {
 	Model          string          `json:"model"`

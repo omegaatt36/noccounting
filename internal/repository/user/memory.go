@@ -22,7 +22,11 @@ func NewRepo(mappedUserString string) *Repo {
 	}
 }
 
-// telegram_id1:notion_id1:nickname1,telegram_id2:notion_id2:nickname2
+// parseUsers parses USER_MAPPING as
+// telegram_id:backend_user_id[:nickname],… — comma-separated. The backend id
+// is validated here, at the one point the mapping is read: a mapping that
+// cannot name a backend user is a startup mistake, not an error to repeat per
+// expense.
 func parseUsers(s string) ([]domain.User, error) {
 	var users []domain.User
 
@@ -40,7 +44,7 @@ func parseUsers(s string) ([]domain.User, error) {
 
 		parts := strings.SplitN(pair, ":", 3)
 		if len(parts) < 2 {
-			return nil, fmt.Errorf("invalid mapping format: %q, expected telegram_id:notion_id[:nickname]", pair)
+			return nil, fmt.Errorf("invalid mapping format: %q, expected telegram_id:backend_user_id[:nickname]", pair)
 		}
 
 		telegramID, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
@@ -48,9 +52,12 @@ func parseUsers(s string) ([]domain.User, error) {
 			return nil, fmt.Errorf("invalid telegram ID %q: %w", parts[0], err)
 		}
 
-		notionID := strings.TrimSpace(parts[1])
-		if notionID == "" {
-			return nil, fmt.Errorf("empty notion ID for telegram ID %d", telegramID)
+		backendUserID := strings.TrimSpace(parts[1])
+		if backendUserID == "" {
+			return nil, fmt.Errorf("empty backend user ID for telegram ID %d", telegramID)
+		}
+		if err := validateBackendUserID(backendUserID); err != nil {
+			return nil, fmt.Errorf("invalid backend user ID for telegram ID %d: %w", telegramID, err)
 		}
 
 		nickname := ""
@@ -62,16 +69,29 @@ func parseUsers(s string) ([]domain.User, error) {
 		}
 
 		users = append(users, domain.User{
-			ID:         sequence,
-			TelegramID: telegramID,
-			NotionID:   notionID,
-			Nickname:   nickname,
+			ID:            sequence,
+			TelegramID:    telegramID,
+			BackendUserID: backendUserID,
+			Nickname:      nickname,
 		})
 
 		sequence++
 	}
 
 	return users, nil
+}
+
+// validateBackendUserID refuses a mapped id that is not a positive decimal
+// number — the only shape a TREK user id has.
+func validateBackendUserID(id string) error {
+	parsed, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%q is not a number", id)
+	}
+	if parsed <= 0 {
+		return fmt.Errorf("%q is not a positive number", id)
+	}
+	return nil
 }
 
 func (r *Repo) GetUser(req domain.GetUserRequest) (*domain.User, error) {
@@ -85,7 +105,7 @@ func (r *Repo) GetUser(req domain.GetUserRequest) (*domain.User, error) {
 			user = &_user
 			break
 		}
-		if req.NotionID != nil && _user.NotionID == *req.NotionID {
+		if req.BackendUserID != nil && _user.BackendUserID == *req.BackendUserID {
 			user = &_user
 			break
 		}

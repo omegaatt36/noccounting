@@ -16,7 +16,7 @@ func TestAnalyzer_Analyze(t *testing.T) {
 		"choices": []map[string]any{
 			{
 				"message": map[string]any{
-					"content": `{"summary":"松屋 午餐","items":[{"name":"ラーメン","name_zh":"拉麵","price":1200,"category":"食"},{"name":"クッキーギフト","name_zh":"餅乾禮盒","price":800,"category":"購"}],"currency":"JPY","total":2000}`,
+					"content": `{"summary":"松屋 午餐","items":[{"name":"ラーメン","name_zh":"拉麵","price":1200,"category":"food"},{"name":"クッキーギフト","name_zh":"餅乾禮盒","price":800,"category":"shopping"}],"currency":"JPY","total":2000}`,
 				},
 			},
 		},
@@ -52,8 +52,8 @@ func TestAnalyzer_Analyze(t *testing.T) {
 	if result.Items[0].Price != 1200 {
 		t.Errorf("item[0].Price = %d, want %d", result.Items[0].Price, 1200)
 	}
-	if result.Items[0].Category != domain.Category食 {
-		t.Errorf("item[0].Category = %q, want %q", result.Items[0].Category, domain.Category食)
+	if result.Items[0].Category != domain.CategoryFood {
+		t.Errorf("item[0].Category = %q, want %q", result.Items[0].Category, domain.CategoryFood)
 	}
 	if result.Items[1].Name != "クッキーギフト" {
 		t.Errorf("item[1].Name = %q, want %q", result.Items[1].Name, "クッキーギフト")
@@ -61,8 +61,8 @@ func TestAnalyzer_Analyze(t *testing.T) {
 	if result.Items[1].NameZH != "餅乾禮盒" {
 		t.Errorf("item[1].NameZH = %q, want %q", result.Items[1].NameZH, "餅乾禮盒")
 	}
-	if result.Items[1].Category != domain.Category購 {
-		t.Errorf("item[1].Category = %q, want %q", result.Items[1].Category, domain.Category購)
+	if result.Items[1].Category != domain.CategoryShopping {
+		t.Errorf("item[1].Category = %q, want %q", result.Items[1].Category, domain.CategoryShopping)
 	}
 	if result.Total != 2000 {
 		t.Errorf("Total = %d, want %d", result.Total, 2000)

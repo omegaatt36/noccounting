@@ -17,14 +17,16 @@ func TestExpense_PriceDecimal(t *testing.T) {
 	}
 }
 
-func TestExpense_TotalInTWD(t *testing.T) {
+func TestExpense_TotalInBase(t *testing.T) {
 	tests := []struct {
 		name     string
+		base     domain.Currency
 		expense  domain.Expense
 		expected decimal.Decimal
 	}{
 		{
 			name: "TWD stays as is",
+			base: domain.CurrencyTWD,
 			expense: domain.Expense{
 				Price:    500,
 				Currency: domain.CurrencyTWD,
@@ -32,7 +34,18 @@ func TestExpense_TotalInTWD(t *testing.T) {
 			expected: decimal.NewFromInt(500),
 		},
 		{
+			name: "the base currency ignores a stray rate",
+			base: domain.CurrencyTWD,
+			expense: domain.Expense{
+				Price:        500,
+				Currency:     domain.CurrencyTWD,
+				ExchangeRate: decimal.NewFromFloat(0.22),
+			},
+			expected: decimal.NewFromInt(500),
+		},
+		{
 			name: "JPY converted with exchange rate",
+			base: domain.CurrencyTWD,
 			expense: domain.Expense{
 				Price:        1000,
 				Currency:     domain.CurrencyJPY,
@@ -41,7 +54,18 @@ func TestExpense_TotalInTWD(t *testing.T) {
 			expected: decimal.NewFromFloat(220),
 		},
 		{
+			name: "TWD converted into a JPY trip",
+			base: domain.CurrencyJPY,
+			expense: domain.Expense{
+				Price:        100,
+				Currency:     domain.CurrencyTWD,
+				ExchangeRate: decimal.NewFromFloat(4.65),
+			},
+			expected: decimal.NewFromInt(465),
+		},
+		{
 			name: "JPY with zero exchange rate returns price as is",
+			base: domain.CurrencyTWD,
 			expense: domain.Expense{
 				Price:        1000,
 				Currency:     domain.CurrencyJPY,
@@ -53,9 +77,9 @@ func TestExpense_TotalInTWD(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.expense.TotalInTWD()
+			got := tt.expense.TotalInBase(tt.base)
 			if !got.Equal(tt.expected) {
-				t.Errorf("TotalInTWD() = %s, want %s", got, tt.expected)
+				t.Errorf("TotalInBase(%s) = %s, want %s", tt.base, got, tt.expected)
 			}
 		})
 	}

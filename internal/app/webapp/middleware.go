@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +16,8 @@ type middleware func(http.Handler) http.Handler
 
 func chainMiddleware(middlewares ...middleware) middleware {
 	return func(next http.Handler) http.Handler {
-		for index := len(middlewares) - 1; index >= 0; index-- {
-			next = middlewares[index](next)
+		for _, middleware := range slices.Backward(middlewares) {
+			next = middleware(next)
 		}
 		return next
 	}
@@ -62,7 +63,6 @@ func logging() middleware {
 	}
 }
 
-// loggedResponseWriter is a custom ResponseWriter that captures the status code.
 type loggedResponseWriter struct {
 	http.ResponseWriter
 	statusCode    int
@@ -85,7 +85,6 @@ func (lrw *loggedResponseWriter) Write(data []byte) (int, error) {
 	return lrw.ResponseWriter.Write(data)
 }
 
-// rateLimiter implements a simple token bucket rate limiter per IP.
 type rateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
@@ -105,7 +104,6 @@ func newRateLimiter(rate int, window time.Duration) *rateLimiter {
 		window:   window,
 	}
 
-	// Cleanup old entries periodically
 	go rl.cleanup()
 
 	return rl
@@ -139,14 +137,12 @@ func (rl *rateLimiter) allow(ip string) bool {
 		return true
 	}
 
-	// Reset tokens if window has passed
 	if time.Since(v.lastReset) > rl.window {
 		v.tokens = rl.rate - 1
 		v.lastReset = time.Now()
 		return true
 	}
 
-	// Check if tokens available
 	if v.tokens > 0 {
 		v.tokens--
 		return true
@@ -155,9 +151,8 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return false
 }
 
-// getClientIP extracts the client IP from the request.
-// It uses the first valid IP from X-Forwarded-For if present,
-// otherwise falls back to r.RemoteAddr.
+// getClientIP uses the first valid IP from X-Forwarded-For if present,
+// otherwise r.RemoteAddr.
 func getClientIP(r *http.Request) string {
 	ip := r.RemoteAddr
 

@@ -11,29 +11,53 @@ import (
 )
 
 const (
-	// Category食 is a Category of type 食.
-	Category食 Category = "食"
-	// Category住 is a Category of type 住.
-	Category住 Category = "住"
-	// Category行 is a Category of type 行.
-	Category行 Category = "行"
-	// Category購 is a Category of type 購.
-	Category購 Category = "購"
-	// Category樂 is a Category of type 樂.
-	Category樂 Category = "樂"
-	// Category雜 is a Category of type 雜.
-	Category雜 Category = "雜"
+	// CategoryFood is a Category of type food.
+	CategoryFood Category = "food"
+	// CategoryTransport is a Category of type transport.
+	CategoryTransport Category = "transport"
+	// CategoryShopping is a Category of type shopping.
+	CategoryShopping Category = "shopping"
+	// CategoryActivities is a Category of type activities.
+	CategoryActivities Category = "activities"
+	// CategoryAccommodation is a Category of type accommodation.
+	CategoryAccommodation Category = "accommodation"
+	// CategorySightseeing is a Category of type sightseeing.
+	CategorySightseeing Category = "sightseeing"
+	// CategoryGroceries is a Category of type groceries.
+	CategoryGroceries Category = "groceries"
+	// CategoryFlights is a Category of type flights.
+	CategoryFlights Category = "flights"
+	// CategoryFuel is a Category of type fuel.
+	CategoryFuel Category = "fuel"
+	// CategoryParking is a Category of type parking.
+	CategoryParking Category = "parking"
+	// CategoryFees is a Category of type fees.
+	CategoryFees Category = "fees"
+	// CategoryHealth is a Category of type health.
+	CategoryHealth Category = "health"
+	// CategoryTips is a Category of type tips.
+	CategoryTips Category = "tips"
+	// CategoryOther is a Category of type other.
+	CategoryOther Category = "other"
 )
 
 var ErrInvalidCategory = fmt.Errorf("not a valid Category, try [%s]", strings.Join(_CategoryNames, ", "))
 
 var _CategoryNames = []string{
-	string(Category食),
-	string(Category住),
-	string(Category行),
-	string(Category購),
-	string(Category樂),
-	string(Category雜),
+	string(CategoryFood),
+	string(CategoryTransport),
+	string(CategoryShopping),
+	string(CategoryActivities),
+	string(CategoryAccommodation),
+	string(CategorySightseeing),
+	string(CategoryGroceries),
+	string(CategoryFlights),
+	string(CategoryFuel),
+	string(CategoryParking),
+	string(CategoryFees),
+	string(CategoryHealth),
+	string(CategoryTips),
+	string(CategoryOther),
 }
 
 // CategoryNames returns a list of possible string values of Category.
@@ -46,12 +70,20 @@ func CategoryNames() []string {
 // CategoryValues returns a list of the values for Category
 func CategoryValues() []Category {
 	return []Category{
-		Category食,
-		Category住,
-		Category行,
-		Category購,
-		Category樂,
-		Category雜,
+		CategoryFood,
+		CategoryTransport,
+		CategoryShopping,
+		CategoryActivities,
+		CategoryAccommodation,
+		CategorySightseeing,
+		CategoryGroceries,
+		CategoryFlights,
+		CategoryFuel,
+		CategoryParking,
+		CategoryFees,
+		CategoryHealth,
+		CategoryTips,
+		CategoryOther,
 	}
 }
 
@@ -68,12 +100,20 @@ func (x Category) IsValid() bool {
 }
 
 var _CategoryValue = map[string]Category{
-	"食": Category食,
-	"住": Category住,
-	"行": Category行,
-	"購": Category購,
-	"樂": Category樂,
-	"雜": Category雜,
+	"food":          CategoryFood,
+	"transport":     CategoryTransport,
+	"shopping":      CategoryShopping,
+	"activities":    CategoryActivities,
+	"accommodation": CategoryAccommodation,
+	"sightseeing":   CategorySightseeing,
+	"groceries":     CategoryGroceries,
+	"flights":       CategoryFlights,
+	"fuel":          CategoryFuel,
+	"parking":       CategoryParking,
+	"fees":          CategoryFees,
+	"health":        CategoryHealth,
+	"tips":          CategoryTips,
+	"other":         CategoryOther,
 }
 
 // ParseCategory attempts to convert a string to a Category.

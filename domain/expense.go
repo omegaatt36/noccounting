@@ -8,91 +8,72 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Category represents expense categories.
-// ENUM(食, 住, 行, 購, 樂, 雜)
+// ENUM(food, transport, shopping, activities, accommodation, sightseeing, groceries, flights, fuel, parking, fees, health, tips, other)
 type Category string
 
-// Emoji returns the emoji associated with the category.
-func (c Category) Emoji() string {
-	switch c {
-	case Category食:
-		return "🍜"
-	case Category住:
-		return "🏠"
-	case Category行:
-		return "🚃"
-	case Category購:
-		return "🛍️"
-	case Category樂:
-		return "🎯"
-	case Category雜:
-		return "📎"
-	default:
-		return "❓"
-	}
-}
-
-// PaymentMethod represents payment methods.
 // ENUM(cash, credit_card, ic_card, e_pay)
 type PaymentMethod string
 
-// DisplayName returns a human-readable name for the payment method.
-func (p PaymentMethod) DisplayName() string {
-	switch p {
-	case PaymentMethodCash:
-		return "現金"
-	case PaymentMethodCreditCard:
-		return "信用卡"
-	case PaymentMethodIcCard:
-		return "IC卡"
-	case PaymentMethodEPay:
-		return "電子支付"
-	default:
-		return string(p)
-	}
-}
-
-// Currency represents supported currencies.
 // ENUM(TWD, JPY)
 type Currency string
 
-// Expense represents a single expense record.
 type Expense struct {
 	ID           string
 	Name         string
 	Price        uint64 // Price in smallest currency unit (no decimals)
 	Currency     Currency
-	ExchangeRate decimal.Decimal // Exchange rate to TWD
-	TotalTWD     decimal.Decimal // Pre-calculated TWD total from storage (formula field)
+	ExchangeRate decimal.Decimal // Base-currency units per one unit of Currency
 	Category     Category
 	Method       PaymentMethod
-	PaidByID     string // User ID in the storage system
-	ShoppedAt    time.Time
-	ReceiptURL   string        // Notion-hosted receipt photo URL
-	ReceiptItems []ReceiptItem // Transient: receipt line items for page body content
+	PaidByID     string // Backend user id of the payer; empty means no payer
+	// Empty participants default to everyone on the trip, shared equally.
+	ParticipantIDs []string
+	ShoppedAt      time.Time
+	// ReceiptURL is a storage file ID on write and an authenticated download path on read.
+	ReceiptURL   string
+	ReceiptItems []ReceiptItem
 }
 
-// PriceDecimal returns the price as a decimal.
 func (e *Expense) PriceDecimal() decimal.Decimal {
 	return decimal.NewFromUint64(e.Price)
 }
 
-// TotalInTWD returns the TWD-equivalent total.
-// Uses the pre-calculated TotalTWD from storage when available (matches Notion formula).
-func (e *Expense) TotalInTWD() decimal.Decimal {
-	if !e.TotalTWD.IsZero() {
-		return e.TotalTWD
-	}
+// A missing exchange rate leaves the amount at face value.
+func (e *Expense) TotalInBase(base Currency) decimal.Decimal {
 	price := e.PriceDecimal()
-	if e.Currency != CurrencyTWD && !e.ExchangeRate.IsZero() {
+	if e.Currency != base && !e.ExchangeRate.IsZero() {
 		return price.Mul(e.ExchangeRate)
 	}
 	return price
 }
 
-// ExpenseSummary represents a summary of expenses for splitting.
-type ExpenseSummary struct {
-	TotalByPayer map[string]decimal.Decimal // User ID -> total amount (in TWD)
-	GrandTotal   decimal.Decimal
-	ItemCount    int
+// Settlement amounts use Currency.
+type Settlement struct {
+	Currency  Currency
+	Balances  []Balance
+	Transfers []Transfer
+	// Expenses and payments omitted because their exchange rates were unavailable.
+	Unconverted int
+}
+
+// A positive balance is owed to the person; a negative balance is their debt.
+type Balance struct {
+	UserID string
+	Name   string
+	Amount decimal.Decimal
+}
+
+type Transfer struct {
+	FromID   string
+	FromName string
+	ToID     string
+	ToName   string
+	Amount   decimal.Decimal
+}
+
+// Rate is units of To per unit of From.
+type RateQuote struct {
+	From Currency
+	To   Currency
+	Rate decimal.Decimal
 }

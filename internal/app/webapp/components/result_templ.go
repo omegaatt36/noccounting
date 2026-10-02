@@ -9,11 +9,12 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"fmt"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
 )
 
-func Result(success bool, name string, price uint64, currency string, categoryEmoji string, twdAmount string, errorMsg string) templ.Component {
+// Result is the toast the form shows after filing an expense: title and
+// description when it was filed, errorMsg when it was not.
+func Result(success bool, title string, description string, errorMsg string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -36,8 +37,8 @@ func Result(success bool, name string, price uint64, currency string, categoryEm
 		ctx = templ.ClearChildren(ctx)
 		if success {
 			templ_7745c5c3_Err = toast.Toast(toast.Props{
-				Title:       fmt.Sprintf("%s %s", categoryEmoji, name),
-				Description: formatPriceDescription(price, currency, twdAmount),
+				Title:       title,
+				Description: description,
 				Variant:     toast.VariantSuccess,
 				Position:    toast.PositionTopCenter,
 				Duration:    3000,
@@ -59,7 +60,7 @@ func Result(success bool, name string, price uint64, currency string, categoryEm
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!-- Keep for JS haptic feedback detection --><div id=\"toast-trigger\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"toast-trigger\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -80,13 +81,6 @@ func Result(success bool, name string, price uint64, currency string, categoryEm
 		}
 		return nil
 	})
-}
-
-func formatPriceDescription(price uint64, currency string, twdAmount string) string {
-	if currency == "JPY" && twdAmount != "" {
-		return fmt.Sprintf("¥%d (≈ NT$%s)", price, twdAmount)
-	}
-	return fmt.Sprintf("%s %d", currency, price)
 }
 
 func errorOrDefault(msg string) string {

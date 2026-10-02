@@ -1,24 +1,36 @@
+import { apiUrl, symbol, tripCurrency } from "./api.js";
+import type { TelegramContext } from "./telegram.js";
 import { STORAGE_KEYS } from "./storage.js";
 
 const $ = (id: string) => document.getElementById(id);
 
+interface Quote {
+  from: string;
+  to: string;
+  rate: string;
+}
+
+function currentCurrency(): string {
+  return ($("currency-input") as HTMLInputElement | null)?.value ?? "";
+}
+
 export function updateExchangeRateVisibility(): void {
   const section = $("exchange-rate-section");
-  const currencyInput = $("currency-input") as HTMLInputElement | null;
-  if (!section || !currencyInput) return;
+  if (!section) return;
 
-  if (currencyInput.value === "JPY") {
-    section.style.maxHeight = "100px";
-    section.style.opacity = "1";
-  } else {
-    section.style.maxHeight = "0";
-    section.style.opacity = "0";
-  }
+  const base = tripCurrency();
+  const foreign = base !== "" && currentCurrency() !== base;
+  section.style.maxHeight = foreign ? "120px" : "0";
+  section.style.opacity = foreign ? "1" : "0";
+
+  const label = section.querySelector("label");
+  if (label && foreign) label.textContent = `1 ${currentCurrency()} =`;
 }
 
 export function loadCachedRate(): void {
-  const cached = localStorage.getItem(STORAGE_KEYS.exchangeRate);
-  const cachedDate = localStorage.getItem(STORAGE_KEYS.exchangeRateDate);
+  const key = cacheKey();
+  const cached = localStorage.getItem(key);
+  const cachedDate = localStorage.getItem(`${key}_date`);
   const input = $("exchange-rate-input") as HTMLInputElement | null;
   const status = $("rate-status");
 
@@ -28,11 +40,34 @@ export function loadCachedRate(): void {
     input.value = cached;
     status.textContent = `(快取 ${cachedDate || "?"})`;
   } else {
-    status.textContent = "(預設)";
+    status.textContent = "(自動)";
   }
 }
 
-export async function fetchExchangeRate(): Promise<void> {
+// A rate is cached per direction: 0.215 TWD per JPY is not 0.215 JPY per TWD.
+function cacheKey(): string {
+  return `${STORAGE_KEYS.exchangeRate}_${currentCurrency()}_${tripCurrency()}`;
+}
+
+function showBothDirections(quotes: Quote[]): void {
+  const hint = $("rate-hint");
+  if (!hint) return;
+  hint.textContent = quotes
+    .map((q) => `1 ${q.from} = ${symbol(q.to)}${Number(q.rate).toFixed(4)}`)
+    .join("　·　");
+}
+
+let inflight: Promise<void> | null = null;
+
+export function fetchExchangeRate(ctx: TelegramContext): Promise<void> {
+  // Restoring the saved currency and the first load both ask; one answer serves.
+  inflight ??= requestExchangeRate(ctx).finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
+async function requestExchangeRate(ctx: TelegramContext): Promise<void> {
   const btn = $("fetch-rate-btn") as HTMLButtonElement | null;
   const input = $("exchange-rate-input") as HTMLInputElement | null;
   const status = $("rate-status");
@@ -44,23 +79,17 @@ export async function fetchExchangeRate(): Promise<void> {
   btn.querySelector(".fetch-loading")?.classList.remove("hidden");
 
   try {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const startDate = yesterday.toISOString().split("T")[0];
+    const res = await fetch(apiUrl("/api/rates", ctx));
+    const data: { quotes: Quote[] } = await res.json();
+    showBothDirections(data.quotes);
 
-    const res = await fetch(
-      `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanExchangeRate&data_id=JPY&start_date=${startDate}`,
+    const quote = data.quotes.find(
+      (q) => q.from === currentCurrency() && q.to === tripCurrency(),
     );
-    const data = await res.json();
-
-    if (data.status === 200 && data.data && data.data.length > 0) {
-      const rate = data.data[data.data.length - 1].cash_sell;
-      input.value = rate;
-      localStorage.setItem(STORAGE_KEYS.exchangeRate, rate);
-      localStorage.setItem(
-        STORAGE_KEYS.exchangeRateDate,
-        new Date().toISOString().slice(0, 10),
-      );
+    if (quote) {
+      input.value = quote.rate;
+      localStorage.setItem(cacheKey(), quote.rate);
+      localStorage.setItem(`${cacheKey()}_date`, new Date().toISOString().slice(0, 10));
       status.textContent = "(即時)";
     } else {
       loadCachedRate();

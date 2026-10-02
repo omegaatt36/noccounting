@@ -1,15 +1,16 @@
 package components
 
 import (
-	"fmt"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
 )
 
-templ Result(success bool, name string, price uint64, currency string, categoryEmoji string, twdAmount string, errorMsg string) {
+// Result is the toast the form shows after filing an expense: title and
+// description when it was filed, errorMsg when it was not.
+templ Result(success bool, title string, description string, errorMsg string) {
 	if success {
 		@toast.Toast(toast.Props{
-			Title:       fmt.Sprintf("%s %s", categoryEmoji, name),
-			Description: formatPriceDescription(price, currency, twdAmount),
+			Title:       title,
+			Description: description,
 			Variant:     toast.VariantSuccess,
 			Position:    toast.PositionTopCenter,
 			Duration:    3000,
@@ -25,7 +26,6 @@ templ Result(success bool, name string, price uint64, currency string, categoryE
 			Dismissible: true,
 		})
 	}
-	<!-- Keep for JS haptic feedback detection -->
 	<div
 		id="toast-trigger"
 		if success {
@@ -35,13 +35,6 @@ templ Result(success bool, name string, price uint64, currency string, categoryE
 		}
 		style="display:none;"
 	></div>
-}
-
-func formatPriceDescription(price uint64, currency string, twdAmount string) string {
-	if currency == "JPY" && twdAmount != "" {
-		return fmt.Sprintf("¥%d (≈ NT$%s)", price, twdAmount)
-	}
-	return fmt.Sprintf("%s %d", currency, price)
 }
 
 func errorOrDefault(msg string) string {

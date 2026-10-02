@@ -18,16 +18,13 @@ const (
 	finMindBaseURL = "https://api.finmindtrade.com/api/v4/data"
 )
 
-// FinMindClient fetches exchange rates from FinMind API.
 type FinMindClient struct {
 	httpClient *http.Client
 	baseURL    string
 }
 
-// Ensure FinMindClient implements expense.ExchangeRateFetcher at compile time.
 var _ expense.ExchangeRateFetcher = (*FinMindClient)(nil)
 
-// NewFinMindClient creates a new FinMind client.
 func NewFinMindClient() *FinMindClient {
 	return &FinMindClient{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -35,7 +32,6 @@ func NewFinMindClient() *FinMindClient {
 	}
 }
 
-// NewFinMindClientWithBaseURL creates a new FinMind client with custom base URL.
 func NewFinMindClientWithBaseURL(baseURL string) *FinMindClient {
 	return &FinMindClient{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -43,13 +39,10 @@ func NewFinMindClientWithBaseURL(baseURL string) *FinMindClient {
 	}
 }
 
-// finMindResponse represents the FinMind API response structure.
 type finMindResponse struct {
 	Status int              `json:"status"`
 	Data   []finMindRateRow `json:"data"`
 }
-
-// finMindRateRow represents a single exchange rate record.
 type finMindRateRow struct {
 	Date     string  `json:"date"`
 	Currency string  `json:"currency"`
@@ -59,16 +52,29 @@ type finMindRateRow struct {
 	SpotSell float64 `json:"spot_sell"`
 }
 
-// GetRate fetches the exchange rate for converting from source currency to TWD.
-func (c *FinMindClient) GetRate(ctx context.Context, sourceCurrency domain.Currency) (decimal.Decimal, error) {
-	if sourceCurrency == domain.CurrencyTWD {
+// FinMind quotes TWD per JPY; the reverse pair uses its reciprocal.
+func (c *FinMindClient) GetRate(ctx context.Context, source, target domain.Currency) (decimal.Decimal, error) {
+	if source == target {
 		return decimal.NewFromInt(1), nil
 	}
 
-	if sourceCurrency != domain.CurrencyJPY {
-		return decimal.Zero, fmt.Errorf("unsupported currency: %s", sourceCurrency)
+	switch {
+	case source == domain.CurrencyJPY && target == domain.CurrencyTWD:
+		return c.fetchTWDPerJPY(ctx)
+	case source == domain.CurrencyTWD && target == domain.CurrencyJPY:
+		twdPerJPY, err := c.fetchTWDPerJPY(ctx)
+		if err != nil {
+			return decimal.Zero, err
+		}
+		return decimal.NewFromInt(1).DivRound(twdPerJPY, 6), nil
+	default:
+		return decimal.Zero, fmt.Errorf("unsupported currency pair: %s to %s", source, target)
 	}
+}
 
+// fetchTWDPerJPY is the board's latest cash selling rate: what a traveller
+// pays in TWD for one JPY of cash.
+func (c *FinMindClient) fetchTWDPerJPY(ctx context.Context) (decimal.Decimal, error) {
 	// Query yesterday's data to ensure availability
 	yesterday := time.Now().AddDate(0, 0, -1)
 	startDate := yesterday.Format("2006-01-02")
@@ -100,7 +106,9 @@ func (c *FinMindClient) GetRate(ctx context.Context, sourceCurrency domain.Curre
 		return decimal.Zero, fmt.Errorf("no exchange rate data available")
 	}
 
-	// Use the latest available rate (cash_sell rate for buying JPY with TWD)
 	latestRate := result.Data[len(result.Data)-1]
+	if latestRate.CashSell <= 0 {
+		return decimal.Zero, fmt.Errorf("no exchange rate data available")
+	}
 	return decimal.NewFromFloat(latestRate.CashSell), nil
 }

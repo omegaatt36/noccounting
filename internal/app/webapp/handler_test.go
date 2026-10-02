@@ -12,45 +12,67 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
-	"github.com/omegaatt36/noccounting/internal/service/expense/expensetest"
+	"github.com/omegaatt36/noccounting/internal/service/trip"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-// stubAccountingRepo implements domain.AccountingRepo for testing.
 type stubAccountingRepo struct {
-	createErr error
-	expenses  []domain.Expense
+	createErr  error
+	trips      []domain.Trip
+	expenses   []domain.Expense
+	members    []domain.Member
+	created    []*domain.Expense
+	settlement *domain.Settlement
 }
 
-func (m *stubAccountingRepo) CreateExpense(_ context.Context, _ string, _ *domain.Expense) error {
+func (m *stubAccountingRepo) CreateExpense(_ context.Context, selected domain.Trip, expense *domain.Expense) error {
+	if m.createErr == nil {
+		m.trips = append(m.trips, selected)
+		m.created = append(m.created, expense)
+	}
 	return m.createErr
 }
 
-func (m *stubAccountingRepo) QueryExpenses(_ context.Context, _ string) ([]domain.Expense, error) {
+func (m *stubAccountingRepo) QueryExpenses(_ context.Context, _ domain.Trip) ([]domain.Expense, error) {
 	return m.expenses, nil
 }
 
-func (m *stubAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ string, _ expense.ExpenseFilter) ([]domain.Expense, error) {
-	return m.expenses, nil
+func (m *stubAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ domain.Trip, filter expense.ExpenseFilter) ([]domain.Expense, error) {
+	var kept []domain.Expense
+	for _, exp := range m.expenses {
+		if filter.Method == nil || exp.Method == *filter.Method {
+			kept = append(kept, exp)
+		}
+	}
+	return kept, nil
 }
 
-func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ string, _ *domain.Expense) error {
+func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, _ *domain.Expense) error {
 	return nil
 }
 
-func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _, _ string) error {
+func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, _ string) error {
 	return nil
 }
 
-func (m *stubAccountingRepo) GetExpenseSummary(_ context.Context, _ string) (*domain.ExpenseSummary, error) {
-	return &domain.ExpenseSummary{}, nil
+func (m *stubAccountingRepo) Settlement(_ context.Context, _ domain.Trip) (*domain.Settlement, error) {
+	if m.settlement != nil {
+		return m.settlement, nil
+	}
+	return &domain.Settlement{Currency: domain.CurrencyTWD}, nil
 }
 
-func (m *stubAccountingRepo) UploadFile(_ context.Context, _ string) (string, error) {
+func (m *stubAccountingRepo) Members(_ context.Context, _ domain.Trip) ([]domain.Member, error) {
+	if m.members == nil {
+		return []domain.Member{{ID: "8"}}, nil
+	}
+	return m.members, nil
+}
+
+func (m *stubAccountingRepo) UploadFile(_ context.Context, _ domain.Trip, _ string) (string, error) {
 	return "file-id", nil
 }
 
-// fakeUserRepo implements domain.UserRepo for testing.
 type fakeUserRepo struct {
 	users map[int64]*domain.User
 	err   error
@@ -80,13 +102,23 @@ func (m *fakeUserRepo) GetUsers() ([]domain.User, error) {
 	return users, nil
 }
 
-// TestHandleHealth tests that GET /health returns 200 "ok".
+// testTrip is the one trip the Mini App tests file under.
+var testTrip = domain.Trip{ID: 3, Title: "2026 Tokyo", Currency: domain.CurrencyTWD}
+
+type singleTrip struct{}
+
+func (singleTrip) ListTrips(context.Context) ([]domain.Trip, error) {
+	return []domain.Trip{testTrip}, nil
+}
+
+func newTestTrips() *trip.Service { return trip.NewService(singleTrip{}) }
+
 func TestHandleHealth(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -106,13 +138,12 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
-// TestHandleIndex tests that GET / returns 200 with HTML content.
 func TestHandleIndex(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -136,13 +167,12 @@ func TestHandleIndex(t *testing.T) {
 	}
 }
 
-// TestHandleAuthMissingInitData tests that GET /api/auth without init_data returns 400.
 func TestHandleAuthMissingInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -175,13 +205,12 @@ func TestHandleAuthMissingInitData(t *testing.T) {
 	}
 }
 
-// TestHandleAuthInvalidInitData tests that invalid init_data returns 403.
 func TestHandleAuthInvalidInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -210,13 +239,12 @@ func TestHandleAuthInvalidInitData(t *testing.T) {
 	}
 }
 
-// TestHandleAuthUnauthorizedUser tests that unauthorized user returns 403.
 func TestHandleAuthUnauthorizedUser(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -253,7 +281,6 @@ func TestHandleAuthUnauthorizedUser(t *testing.T) {
 	}
 }
 
-// TestHandleAuthSuccess tests that valid auth_data returns user info.
 func TestHandleAuthSuccess(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -261,16 +288,16 @@ func TestHandleAuthSuccess(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -310,19 +337,18 @@ func TestHandleAuthSuccess(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseMissingInitData tests that missing init_data returns error in HTML.
 func TestHandleCreateExpenseMissingInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
 	// POST without init_data
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
 	data.Set("currency", "TWD")
@@ -345,19 +371,18 @@ func TestHandleCreateExpenseMissingInitData(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseInvalidInitData tests that invalid init_data returns error in HTML.
 func TestHandleCreateExpenseInvalidInitData(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
 	// POST with invalid init_data
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", "invalid_data")
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
@@ -381,14 +406,13 @@ func TestHandleCreateExpenseInvalidInitData(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseUnauthorizedUser tests that unauthorized user gets error in HTML.
 func TestHandleCreateExpenseUnauthorizedUser(t *testing.T) {
 	botToken := "test-token"
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -400,7 +424,7 @@ func TestHandleCreateExpenseUnauthorizedUser(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
@@ -424,7 +448,6 @@ func TestHandleCreateExpenseUnauthorizedUser(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseMissingName tests validation of expense name.
 func TestHandleCreateExpenseMissingName(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -432,16 +455,16 @@ func TestHandleCreateExpenseMissingName(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -453,7 +476,7 @@ func TestHandleCreateExpenseMissingName(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	// Missing name
 	data.Set("price", "100")
@@ -477,7 +500,6 @@ func TestHandleCreateExpenseMissingName(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseMissingPrice tests validation of expense price.
 func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -485,16 +507,16 @@ func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -506,7 +528,7 @@ func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	// Missing price
@@ -530,7 +552,6 @@ func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseInvalidPrice tests validation of expense price.
 func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -538,16 +559,16 @@ func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -559,7 +580,7 @@ func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	data.Set("price", "invalid")
@@ -583,7 +604,6 @@ func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseSuccess tests successful expense creation.
 func TestHandleCreateExpenseSuccess(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -591,16 +611,16 @@ func TestHandleCreateExpenseSuccess(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -612,7 +632,7 @@ func TestHandleCreateExpenseSuccess(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
@@ -636,7 +656,6 @@ func TestHandleCreateExpenseSuccess(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseWithPaidBy tests expense creation with paid_by field.
 func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	botToken := "test-token"
 	telegramID1 := int64(123456789)
@@ -646,22 +665,22 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID1: {
-				ID:         1,
-				TelegramID: telegramID1,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID1,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 			telegramID2: {
-				ID:         2,
-				TelegramID: telegramID2,
-				NotionID:   "notion-456",
-				Nickname:   "Jane Smith",
+				ID:            2,
+				TelegramID:    telegramID2,
+				BackendUserID: "456",
+				Nickname:      "Jane Smith",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -673,7 +692,7 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
@@ -698,7 +717,6 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseWithJPYExchangeRate tests expense creation with exchange rate.
 func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -706,16 +724,16 @@ func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -727,7 +745,7 @@ func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	data.Set("price", "1000")
@@ -752,7 +770,6 @@ func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
 	}
 }
 
-// TestHandleCreateExpenseRepositoryError tests error handling from repository.
 func TestHandleCreateExpenseRepositoryError(t *testing.T) {
 	botToken := "test-token"
 	telegramID := int64(123456789)
@@ -760,16 +777,16 @@ func TestHandleCreateExpenseRepositoryError(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, botToken, false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -781,7 +798,7 @@ func TestHandleCreateExpenseRepositoryError(t *testing.T) {
 	}
 	initData := buildValidTelegramInitData(botToken, params)
 
-	data := url.Values{}
+	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
@@ -811,8 +828,8 @@ func TestRegisterRoutes(t *testing.T) {
 	mockRepo := &stubAccountingRepo{}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", false)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
@@ -849,7 +866,6 @@ func TestRegisterRoutes(t *testing.T) {
 	}
 }
 
-// TestHandleDashboardDevMode tests dashboard rendering in dev mode.
 func TestHandleDashboardDevMode(t *testing.T) {
 	telegramID := int64(123456789)
 	mockRepo := &stubAccountingRepo{
@@ -859,9 +875,9 @@ func TestHandleDashboardDevMode(t *testing.T) {
 				Name:      "Lunch",
 				Price:     100,
 				Currency:  domain.CurrencyTWD,
-				Category:  domain.Category食,
+				Category:  domain.CategoryFood,
 				Method:    domain.PaymentMethodCash,
-				PaidByID:  "notion-123",
+				PaidByID:  "123",
 				ShoppedAt: time.Now(),
 			},
 		},
@@ -869,21 +885,21 @@ func TestHandleDashboardDevMode(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", true)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", true)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/partial/dashboard?range=all", nil)
+	req := httptest.NewRequest("GET", "/partial/dashboard?range=all&trip_id=3", nil)
 	w := httptest.NewRecorder()
 
 	handler.handleDashboardContent(w, req)
@@ -898,7 +914,6 @@ func TestHandleDashboardDevMode(t *testing.T) {
 	}
 }
 
-// TestHandleExportCSVDevMode tests CSV export in dev mode.
 func TestHandleExportCSVDevMode(t *testing.T) {
 	telegramID := int64(123456789)
 	mockRepo := &stubAccountingRepo{
@@ -908,9 +923,9 @@ func TestHandleExportCSVDevMode(t *testing.T) {
 				Name:      "Lunch",
 				Price:     100,
 				Currency:  domain.CurrencyTWD,
-				Category:  domain.Category食,
+				Category:  domain.CategoryFood,
 				Method:    domain.PaymentMethodCash,
-				PaidByID:  "notion-123",
+				PaidByID:  "123",
 				ShoppedAt: time.Date(2026, 2, 22, 12, 0, 0, 0, time.UTC),
 			},
 		},
@@ -918,21 +933,21 @@ func TestHandleExportCSVDevMode(t *testing.T) {
 	fakeUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			telegramID: {
-				ID:         1,
-				TelegramID: telegramID,
-				NotionID:   "notion-123",
-				Nickname:   "John Doe",
+				ID:            1,
+				TelegramID:    telegramID,
+				BackendUserID: "123",
+				Nickname:      "John Doe",
 			},
 		},
 	}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", true)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", true)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/export/csv?range=all", nil)
+	req := httptest.NewRequest("GET", "/api/export/csv?range=all&trip_id=3", nil)
 	w := httptest.NewRecorder()
 
 	handler.handleExportCSV(w, req)
@@ -968,20 +983,19 @@ func TestHandleExportCSVDevMode(t *testing.T) {
 	}
 }
 
-// TestHandleExportCSVEmpty tests CSV export with no data.
 func TestHandleExportCSVEmpty(t *testing.T) {
 	mockRepo := &stubAccountingRepo{
 		expenses: []domain.Expense{},
 	}
 	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
 	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, expensetest.FakeLedgerProvider{}, nil, nil)
-	handler, err := NewHandler(userService, expenseService, "test-token", true)
+	expenseService := expense.NewService(mockRepo, nil, nil)
+	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", true)
 	if err != nil {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	req := httptest.NewRequest("GET", "/api/export/csv?range=all", nil)
+	req := httptest.NewRequest("GET", "/api/export/csv?range=all&trip_id=3", nil)
 	w := httptest.NewRecorder()
 
 	handler.handleExportCSV(w, req)

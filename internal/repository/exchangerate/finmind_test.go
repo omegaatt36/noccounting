@@ -13,14 +13,14 @@ import (
 	"github.com/omegaatt36/noccounting/internal/repository/exchangerate"
 )
 
-func TestFinMindClient_GetRate_TWD(t *testing.T) {
+func TestFinMindClient_GetRate_SameCurrencyIsOne(t *testing.T) {
 	client := exchangerate.NewFinMindClient()
-	rate, err := client.GetRate(context.Background(), domain.CurrencyTWD)
+	rate, err := client.GetRate(context.Background(), domain.CurrencyTWD, domain.CurrencyTWD)
 	if err != nil {
-		t.Fatalf("GetRate(TWD) error = %v", err)
+		t.Fatalf("GetRate(TWD, TWD) error = %v", err)
 	}
 	if !rate.Equal(decimal.NewFromInt(1)) {
-		t.Errorf("GetRate(TWD) = %s, want 1", rate)
+		t.Errorf("GetRate(TWD, TWD) = %s, want 1", rate)
 	}
 }
 
@@ -47,20 +47,46 @@ func TestFinMindClient_GetRate_JPY(t *testing.T) {
 	defer server.Close()
 
 	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
-	rate, err := client.GetRate(context.Background(), domain.CurrencyJPY)
+	rate, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
 	if err != nil {
-		t.Fatalf("GetRate(JPY) error = %v", err)
+		t.Fatalf("GetRate(JPY, TWD) error = %v", err)
 	}
 
 	expected := decimal.NewFromFloat(0.22)
 	if !rate.Equal(expected) {
-		t.Errorf("GetRate(JPY) = %s, want %s", rate, expected)
+		t.Errorf("GetRate(JPY, TWD) = %s, want %s", rate, expected)
+	}
+}
+
+// The board quotes TWD per JPY; a JPY trip needs the other reading of the same
+// pair, which is its inverse.
+func TestFinMindClient_GetRate_TWDInJPY(t *testing.T) {
+	response := map[string]any{
+		"status": 200,
+		"data":   []map[string]any{{"date": "2026-02-20", "currency": "JPY", "cash_sell": 0.2200}},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Fatalf("Encode error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
+	rate, err := client.GetRate(context.Background(), domain.CurrencyTWD, domain.CurrencyJPY)
+	if err != nil {
+		t.Fatalf("GetRate(TWD, JPY) error = %v", err)
+	}
+
+	if expected := decimal.RequireFromString("4.545455"); !rate.Equal(expected) {
+		t.Errorf("GetRate(TWD, JPY) = %s, want %s", rate, expected)
 	}
 }
 
 func TestFinMindClient_GetRate_UnsupportedCurrency(t *testing.T) {
 	client := exchangerate.NewFinMindClient()
-	_, err := client.GetRate(context.Background(), domain.Currency("USD"))
+	_, err := client.GetRate(context.Background(), domain.Currency("USD"), domain.CurrencyTWD)
 	if err == nil {
 		t.Fatal("expected error for unsupported currency")
 	}
@@ -80,7 +106,7 @@ func TestFinMindClient_GetRate_EmptyData(t *testing.T) {
 	defer server.Close()
 
 	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
-	_, err := client.GetRate(context.Background(), domain.CurrencyJPY)
+	_, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
 	if err == nil {
 		t.Fatal("expected error for empty data")
 	}
@@ -93,7 +119,7 @@ func TestFinMindClient_GetRate_ServerError(t *testing.T) {
 	defer server.Close()
 
 	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
-	_, err := client.GetRate(context.Background(), domain.CurrencyJPY)
+	_, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
 	if err == nil {
 		t.Fatal("expected error for server error")
 	}

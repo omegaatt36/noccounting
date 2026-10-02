@@ -5,6 +5,7 @@ import {
   updateExchangeRateVisibility,
   fetchExchangeRate,
 } from "./exchange-rate.js";
+import { tripCurrency, appReady } from "./api.js";
 
 const $ = (id: string) => document.getElementById(id);
 
@@ -39,10 +40,20 @@ function validatePrice(): boolean {
   });
 }
 
+// An expense is shared between the people ticked, so with nobody ticked there is
+// nobody to owe anything.
+function validateParticipants(): boolean {
+  const boxes = document.querySelectorAll<HTMLInputElement>('#participants input[name="participants"]');
+  const ok = boxes.length === 0 || Array.from(boxes).some((box) => box.checked);
+  document.getElementById("participants-error")?.classList.toggle("hidden", ok);
+  return ok;
+}
+
 function validateForm(): boolean {
   const nameOk = validateName();
   const priceOk = validatePrice();
-  return nameOk && priceOk;
+  const participantsOk = validateParticipants();
+  return nameOk && priceOk && participantsOk;
 }
 
 function formatDate(d: Date): string {
@@ -53,7 +64,7 @@ function formatDate(d: Date): string {
 }
 
 export function setupEventListeners(ctx: TelegramContext): void {
-  // Date chips logic
+
   const todayBtn = document.getElementById("date-today-btn");
   const yesterdayBtn = document.getElementById("date-yesterday-btn");
   const dateInput = document.getElementById(
@@ -91,12 +102,10 @@ export function setupEventListeners(ctx: TelegramContext): void {
     haptic(ctx, "impact", "light");
   });
 
-  // Initialize: default to today if empty
   if (dateInput && !dateInput.value) {
     setDateChip("today");
   }
 
-  // Category tabs listener
   document
     .querySelectorAll("#category-tabs [data-tui-tabs-trigger]")
     .forEach((trigger) => {
@@ -108,7 +117,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
       });
     });
 
-  // Payment method tabs listener
   document
     .querySelectorAll("#method-tabs [data-tui-tabs-trigger]")
     .forEach((trigger) => {
@@ -120,7 +128,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
       });
     });
 
-  // Currency tabs listener
   document
     .querySelectorAll("#currency-tabs [data-tui-tabs-trigger]")
     .forEach((trigger) => {
@@ -130,10 +137,12 @@ export function setupEventListeners(ctx: TelegramContext): void {
         if (input) input.value = value;
         haptic(ctx, "impact", "light");
         updateExchangeRateVisibility();
+        // The rate shown belongs to one direction of the pair; the new currency
+        // needs its own.
+        if (value !== tripCurrency()) fetchExchangeRate(ctx);
       });
     });
 
-  // Name field blur validation
   const nameInput = document.getElementById("name");
   if (nameInput) {
     nameInput.addEventListener("blur", validateName);
@@ -143,7 +152,7 @@ export function setupEventListeners(ctx: TelegramContext): void {
   if (fetchRateBtn) {
     fetchRateBtn.addEventListener("click", () => {
       haptic(ctx, "impact", "medium");
-      fetchExchangeRate();
+      fetchExchangeRate(ctx);
     });
   }
 
@@ -151,7 +160,7 @@ export function setupEventListeners(ctx: TelegramContext): void {
   const submitBtn = $("submit-btn");
 
   setupMainButton(ctx, () => {
-    if (!validateForm()) return;
+    if (!appReady() || !validateForm()) return;
     setMainButtonLoading(ctx, true);
     (
       document.getElementById("expense-form") as HTMLFormElement
@@ -160,10 +169,10 @@ export function setupEventListeners(ctx: TelegramContext): void {
 
   if (form && submitBtn) {
     form.addEventListener("htmx:beforeRequest", (e: Event) => {
-      if (!validateForm()) {
+      if (!appReady() || !validateForm()) {
         (e as CustomEvent).detail.shouldSwap = false;
         e.preventDefault();
-        (submitBtn as HTMLButtonElement).disabled = false;
+        (submitBtn as HTMLButtonElement).disabled = !appReady();
         submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
         submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
         return;
@@ -176,12 +185,11 @@ export function setupEventListeners(ctx: TelegramContext): void {
 
     form.addEventListener("htmx:afterRequest", ((e: Event) => {
       const detail = (e as CustomEvent).detail;
-      (submitBtn as HTMLButtonElement).disabled = false;
+      (submitBtn as HTMLButtonElement).disabled = !appReady();
       submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
       setMainButtonLoading(ctx, false);
 
-      // Read success state for haptic
       const toastTrigger = $("toast-trigger");
       const success = toastTrigger?.dataset.success === "true";
 
@@ -193,15 +201,15 @@ export function setupEventListeners(ctx: TelegramContext): void {
         if (nameInput) nameInput.value = "";
         if (priceInput) {
           priceInput.value = "";
-          // update display if numpad is active
+
           const numpadDisplay = document.getElementById("numpad-display");
           if (numpadDisplay) numpadDisplay.textContent = "0";
           const numpadConvert = document.getElementById("numpad-convert");
           if (numpadConvert) numpadConvert.textContent = "";
         }
-        // Keep category, method, and paid-by for rapid consecutive entries
+
         if (nameInput) nameInput.focus();
-        // Clear validation errors
+
         nameInput?.classList.remove("border-destructive");
         priceInput?.classList.remove("border-destructive");
         $("name-error")?.classList.add("hidden");
@@ -210,7 +218,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
         haptic(ctx, "notification", "error");
       }
 
-      // Auto-dismiss templui toast after duration
       document.querySelectorAll("#result [data-tui-toast]").forEach((el) => {
         const duration = parseInt(
           el.getAttribute("data-tui-toast-duration") || "3000",

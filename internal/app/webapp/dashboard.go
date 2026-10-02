@@ -7,113 +7,141 @@ import (
 	"time"
 
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/app/format"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components"
 	"github.com/shopspring/decimal"
 )
 
-// DashboardData contains aggregated expense data for dashboard display
 type DashboardData struct {
-	GrandTotalTWD decimal.Decimal
-	ItemCount     int
-	ByCategory    []CategoryStat
-	ByDate        []DailyStat
-	ByPayer       []PayerStat
-	DateRange     string
+	// Currency is the trip's currency, which every amount below is in.
+	Currency   domain.Currency
+	GrandTotal decimal.Decimal
+	ItemCount  int
+	ByCategory []CategoryStat
+	ByMethod   []MethodStat
+	ByDate     []DailyStat
+	ByPayer    []PayerStat
+	DateRange  string
 }
 
-// CategoryStat represents aggregated data for a single category
 type CategoryStat struct {
 	Category   domain.Category
 	Emoji      string
-	AmountTWD  decimal.Decimal
+	Amount     decimal.Decimal
 	Percentage float64
 }
 
-// DailyStat represents aggregated data for a single date
+// MethodStat is the spending paid one way. Method is empty for an expense that
+// says nothing about how it was paid, such as one entered in TREK's own UI.
+type MethodStat struct {
+	Method     domain.PaymentMethod
+	Emoji      string
+	Label      string
+	Amount     decimal.Decimal
+	Percentage float64
+}
+
 type DailyStat struct {
 	Date       string // format: "M/D" e.g. "2/21"
-	AmountTWD  decimal.Decimal
+	Amount     decimal.Decimal
 	Percentage float64
 }
 
-// PayerStat represents aggregated data for a single payer
 type PayerStat struct {
 	Name       string
-	AmountTWD  decimal.Decimal
+	Amount     decimal.Decimal
 	Percentage float64
 }
 
-// aggregateDashboard aggregates expenses into dashboard-ready data structures
-func aggregateDashboard(expenses []domain.Expense, users []domain.User) DashboardData {
+func percentage(amount, total decimal.Decimal) float64 {
+	if total.IsZero() {
+		return 0
+	}
+	share, _ := amount.Div(total).Mul(decimal.NewFromInt(100)).Float64()
+	return share
+}
+
+func aggregateDashboard(expenses []domain.Expense, users []domain.User, base domain.Currency) DashboardData {
 	result := DashboardData{
-		GrandTotalTWD: decimal.NewFromInt(0),
-		ItemCount:     len(expenses),
-		ByCategory:    []CategoryStat{},
-		ByDate:        []DailyStat{},
-		ByPayer:       []PayerStat{},
+		Currency:   base,
+		GrandTotal: decimal.NewFromInt(0),
+		ItemCount:  len(expenses),
+		ByCategory: []CategoryStat{},
+		ByMethod:   []MethodStat{},
+		ByDate:     []DailyStat{},
+		ByPayer:    []PayerStat{},
 	}
 
 	if len(expenses) == 0 {
 		return result
 	}
 
-	// Build notionID to nickname map
+	// Build backendUserID to nickname map
 	nicknameMap := make(map[string]string)
 	for i := range users {
-		nicknameMap[users[i].NotionID] = users[i].Nickname
+		nicknameMap[users[i].BackendUserID] = users[i].Nickname
 	}
 
-	// Aggregate by category
 	categoryMap := make(map[domain.Category]decimal.Decimal)
-	// Aggregate by date
+	methodMap := make(map[domain.PaymentMethod]decimal.Decimal)
 	dateMap := make(map[string]decimal.Decimal)
-	// Aggregate by payer
 	payerMap := make(map[string]decimal.Decimal)
 
-	// Iterate through expenses and aggregate
 	for _, expense := range expenses {
-		amountTWD := expense.TotalInTWD()
-		result.GrandTotalTWD = result.GrandTotalTWD.Add(amountTWD)
+		amount := expense.TotalInBase(base)
+		result.GrandTotal = result.GrandTotal.Add(amount)
 
-		// Category aggregation
-		categoryMap[expense.Category] = categoryMap[expense.Category].Add(amountTWD)
+		categoryMap[expense.Category] = categoryMap[expense.Category].Add(amount)
+		methodMap[expense.Method] = methodMap[expense.Method].Add(amount)
 
 		// Date aggregation (format: "M/D")
 		dateStr := formatDate(expense.ShoppedAt)
-		dateMap[dateStr] = dateMap[dateStr].Add(amountTWD)
+		dateMap[dateStr] = dateMap[dateStr].Add(amount)
 
-		// Payer aggregation (use nickname if available, otherwise NotionID)
+		// Payer aggregation (use nickname if available, otherwise the backend user id)
 		nickname, ok := nicknameMap[expense.PaidByID]
 		if !ok {
 			nickname = expense.PaidByID
 		}
-		payerMap[nickname] = payerMap[nickname].Add(amountTWD)
+		payerMap[nickname] = payerMap[nickname].Add(amount)
 	}
 
-	// Build ByCategory, sorted by amount descending
-	for category, amount := range categoryMap {
+	// ByCategory follows the domain's own category order, the same order /today
+	// renders, so the donut and the legend cannot disagree with it.
+	for _, category := range domain.CategoryValues() {
+		amount := categoryMap[category]
 		if amount.IsZero() {
 			continue
 		}
-		percentage := 0.0
-		if !result.GrandTotalTWD.IsZero() {
-			pct := amount.Div(result.GrandTotalTWD).Mul(decimal.NewFromInt(100))
-			pctFloat, _ := pct.Float64()
-			percentage = pctFloat
-		}
-
 		result.ByCategory = append(result.ByCategory, CategoryStat{
 			Category:   category,
-			Emoji:      category.Emoji(),
-			AmountTWD:  amount,
-			Percentage: percentage,
+			Emoji:      format.CategoryEmoji(category),
+			Amount:     amount,
+			Percentage: percentage(amount, result.GrandTotal),
 		})
 	}
 
-	// Sort categories by amount descending
-	sort.Slice(result.ByCategory, func(i, j int) bool {
-		return result.ByCategory[i].AmountTWD.GreaterThan(result.ByCategory[j].AmountTWD)
-	})
+	// ByMethod follows the domain's order too, with what no method was recorded
+	// for last.
+	for _, method := range domain.PaymentMethodValues() {
+		if amount := methodMap[method]; !amount.IsZero() {
+			result.ByMethod = append(result.ByMethod, MethodStat{
+				Method:     method,
+				Emoji:      format.PaymentEmoji(method),
+				Label:      format.PaymentLabel(method),
+				Amount:     amount,
+				Percentage: percentage(amount, result.GrandTotal),
+			})
+		}
+	}
+	if amount := methodMap[""]; !amount.IsZero() {
+		result.ByMethod = append(result.ByMethod, MethodStat{
+			Emoji:      "❔",
+			Label:      "未標示",
+			Amount:     amount,
+			Percentage: percentage(amount, result.GrandTotal),
+		})
+	}
 
 	// Build ByDate, sorted chronologically
 	type dateEntry struct {
@@ -132,45 +160,29 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User) Dashboar
 		})
 	}
 
-	// Sort by time chronologically
 	sort.Slice(dateEntries, func(i, j int) bool {
 		return dateEntries[i].time.Before(dateEntries[j].time)
 	})
 
 	for _, entry := range dateEntries {
-		percentage := 0.0
-		if !result.GrandTotalTWD.IsZero() {
-			pct := entry.amount.Div(result.GrandTotalTWD).Mul(decimal.NewFromInt(100))
-			pctFloat, _ := pct.Float64()
-			percentage = pctFloat
-		}
-
 		result.ByDate = append(result.ByDate, DailyStat{
 			Date:       entry.date,
-			AmountTWD:  entry.amount,
-			Percentage: percentage,
+			Amount:     entry.amount,
+			Percentage: percentage(entry.amount, result.GrandTotal),
 		})
 	}
 
 	// Build ByPayer, sorted by amount descending
 	for payer, amount := range payerMap {
-		percentage := 0.0
-		if !result.GrandTotalTWD.IsZero() {
-			pct := amount.Div(result.GrandTotalTWD).Mul(decimal.NewFromInt(100))
-			pctFloat, _ := pct.Float64()
-			percentage = pctFloat
-		}
-
 		result.ByPayer = append(result.ByPayer, PayerStat{
 			Name:       payer,
-			AmountTWD:  amount,
-			Percentage: percentage,
+			Amount:     amount,
+			Percentage: percentage(amount, result.GrandTotal),
 		})
 	}
 
-	// Sort payers by amount descending
 	sort.Slice(result.ByPayer, func(i, j int) bool {
-		return result.ByPayer[i].AmountTWD.GreaterThan(result.ByPayer[j].AmountTWD)
+		return result.ByPayer[i].Amount.GreaterThan(result.ByPayer[j].Amount)
 	})
 
 	return result
@@ -181,12 +193,10 @@ func formatDate(t time.Time) string {
 	return t.Format("1/2")
 }
 
-// parseDateString parses "M/D" string back to time.Time (assuming current year)
 func parseDateString(dateStr string) (time.Time, error) {
 	return time.Parse("1/2", dateStr)
 }
 
-// getPreviousDateRange parses a date range string and returns from/to time pointers for the previous period of the same length
 func getPreviousDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
 	switch rangeStr {
 	case "today":
@@ -212,15 +222,11 @@ func getPreviousDateRange(rangeStr string, now time.Time) (*time.Time, *time.Tim
 	}
 }
 
-// BuildDonutGradient returns a CSS conic-gradient string
 func BuildDonutGradient(categories []CategoryStat) string {
 	var segments []string
 	cum := 0.0
 	for _, cat := range categories {
-		color := components.CategoryColors[string(cat.Category)]
-		if color == "" {
-			color = "#575653"
-		}
+		color := components.CategoryColor(string(cat.Category))
 		end := cum + cat.Percentage
 		segments = append(segments,
 			fmt.Sprintf("%s %.1f%% %.1f%%", color, cum, end))
@@ -234,11 +240,6 @@ func BuildDonutGradient(categories []CategoryStat) string {
 	return "conic-gradient(" + strings.Join(segments, ", ") + ")"
 }
 
-// parseDateRange parses a date range string and returns from/to time pointers
-// "today" -> today start to end of day
-// "3d" -> today-2 to end of today
-// "7d" -> today-6 to end of today
-// "all" or "" -> nil, nil (no filter)
 func parseDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
 	switch rangeStr {
 	case "today":

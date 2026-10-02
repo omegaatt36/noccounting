@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,57 +14,65 @@ import (
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
-	"github.com/omegaatt36/noccounting/internal/service/expense/expensetest"
+	"github.com/omegaatt36/noccounting/internal/service/trip"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-// --- Spy: AccountingRepo ---
-
 type spyAccountingRepo struct {
 	createErr       error
+	trips           []domain.Trip
 	uploadErr       error
 	uploadResult    string
 	createdExpenses []*domain.Expense // records every CreateExpense call
 	uploadCalls     int
+
+	expenses   []domain.Expense      // what a query answers
+	lastFilter expense.ExpenseFilter // what the last query asked
+	settlement *domain.Settlement
 }
 
-func (m *spyAccountingRepo) CreateExpense(_ context.Context, _ string, expense *domain.Expense) error {
+func (m *spyAccountingRepo) CreateExpense(_ context.Context, selected domain.Trip, expense *domain.Expense) error {
 	if m.createErr != nil {
 		return m.createErr
 	}
+	m.trips = append(m.trips, selected)
 	m.createdExpenses = append(m.createdExpenses, expense)
 	return nil
 }
 
-func (m *spyAccountingRepo) QueryExpenses(_ context.Context, _ string) ([]domain.Expense, error) {
-	return nil, nil
+func (m *spyAccountingRepo) QueryExpenses(_ context.Context, _ domain.Trip) ([]domain.Expense, error) {
+	return m.expenses, nil
 }
 
-func (m *spyAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ string, _ expense.ExpenseFilter) ([]domain.Expense, error) {
-	return nil, nil
+func (m *spyAccountingRepo) QueryExpensesWithFilter(_ context.Context, selected domain.Trip, filter expense.ExpenseFilter) ([]domain.Expense, error) {
+	m.trips = append(m.trips, selected)
+	m.lastFilter = filter
+	return m.expenses, nil
 }
 
-func (m *spyAccountingRepo) UpdateExpense(_ context.Context, _ string, _ *domain.Expense) error {
+func (m *spyAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, _ *domain.Expense) error {
 	return nil
 }
 
-func (m *spyAccountingRepo) DeleteExpense(_ context.Context, _, _ string) error {
+func (m *spyAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, _ string) error {
 	return nil
 }
 
-func (m *spyAccountingRepo) GetExpenseSummary(_ context.Context, _ string) (*domain.ExpenseSummary, error) {
-	return nil, nil
+func (m *spyAccountingRepo) Settlement(_ context.Context, _ domain.Trip) (*domain.Settlement, error) {
+	return m.settlement, nil
 }
 
-func (m *spyAccountingRepo) UploadFile(_ context.Context, _ string) (string, error) {
+func (m *spyAccountingRepo) Members(_ context.Context, _ domain.Trip) ([]domain.Member, error) {
+	return []domain.Member{{ID: testBackendUserID}}, nil
+}
+
+func (m *spyAccountingRepo) UploadFile(_ context.Context, _ domain.Trip, _ string) (string, error) {
 	m.uploadCalls++
 	if m.uploadErr != nil {
 		return "", m.uploadErr
 	}
 	return m.uploadResult, nil
 }
-
-// --- Stub: ReceiptAnalyzer ---
 
 type stubReceiptAnalyzer struct {
 	result *domain.ReceiptAnalysis
@@ -73,8 +82,6 @@ type stubReceiptAnalyzer struct {
 func (m *stubReceiptAnalyzer) Analyze(_ context.Context, _ []byte) (*domain.ReceiptAnalysis, error) {
 	return m.result, m.err
 }
-
-// --- Fake: UserRepo (for user.Service) ---
 
 type fakeUserRepo struct {
 	users map[int64]*domain.User
@@ -94,18 +101,18 @@ func (m *fakeUserRepo) GetUser(req domain.GetUserRequest) (*domain.User, error) 
 }
 
 func (m *fakeUserRepo) GetUsers() ([]domain.User, error) {
-	return nil, nil
+	users := make([]domain.User, 0, len(m.users))
+	for _, u := range m.users {
+		users = append(users, *u)
+	}
+	return users, nil
 }
-
-// --- Stub: ExchangeRateFetcher ---
 
 type stubRateFetcher struct{}
 
-func (m *stubRateFetcher) GetRate(_ context.Context, _ domain.Currency) (decimal.Decimal, error) {
+func (m *stubRateFetcher) GetRate(_ context.Context, _, _ domain.Currency) (decimal.Decimal, error) {
 	return decimal.NewFromFloat(0.27), nil
 }
-
-// --- Spy: telebot API (only methods used by receipt handlers) ---
 
 type spyBotAPI struct {
 	tele.API // embed to satisfy the interface; unused methods panic
@@ -124,15 +131,15 @@ func (m *spyBotAPI) Edit(_ tele.Editable, _ any, _ ...any) (*tele.Message, error
 	return &tele.Message{}, nil
 }
 
-// --- Spy: telebot Context ---
-
 type spyContext struct {
 	sender    *tele.User
 	message   *tele.Message
 	callback  *tele.Callback
 	bot       tele.API
 	sentMsgs  []any // records Send() payloads
+	sentOpts  [][]any
 	responded []*tele.CallbackResponse
+	args      []string
 }
 
 func (m *spyContext) Bot() tele.API                                { return m.bot }
@@ -160,10 +167,11 @@ func (m *spyContext) Text() string                                 { return "" }
 func (m *spyContext) ThreadID() int                                { return 0 }
 func (m *spyContext) Entities() tele.Entities                      { return nil }
 func (m *spyContext) Data() string                                 { return "" }
-func (m *spyContext) Args() []string                               { return nil }
+func (m *spyContext) Args() []string                               { return m.args }
 
-func (m *spyContext) Send(what any, _ ...any) error {
+func (m *spyContext) Send(what any, opts ...any) error {
 	m.sentMsgs = append(m.sentMsgs, what)
+	m.sentOpts = append(m.sentOpts, opts)
 	return nil
 }
 
@@ -193,11 +201,17 @@ func (m *spyContext) RespondAlert(_ string) error { return nil }
 func (m *spyContext) Get(_ string) any            { return nil }
 func (m *spyContext) Set(_ string, _ any)         {}
 
-// --- Test Fixtures ---
+var testTrip = domain.Trip{ID: 3, Title: "2026 Tokyo", Currency: domain.CurrencyTWD}
+
+type singleTrip struct{}
+
+func (singleTrip) ListTrips(context.Context) ([]domain.Trip, error) {
+	return []domain.Trip{testTrip}, nil
+}
 
 const (
 	testTelegramUserID int64 = 12345
-	testNotionUserID         = "notion-user-abc"
+	testBackendUserID        = "8"
 )
 
 func newTestAnalysis() *domain.ReceiptAnalysis {
@@ -206,9 +220,9 @@ func newTestAnalysis() *domain.ReceiptAnalysis {
 		Currency: domain.CurrencyJPY,
 		Total:    1280,
 		Items: []domain.ReceiptItem{
-			{Name: "牛丼", NameZH: "", Price: 480, Category: domain.Category食},
-			{Name: "サラダ", NameZH: "沙拉", Price: 300, Category: domain.Category食},
-			{Name: "ドリンク", NameZH: "飲料", Price: 500, Category: domain.Category食},
+			{Name: "牛丼", NameZH: "", Price: 480, Category: domain.CategoryFood},
+			{Name: "サラダ", NameZH: "沙拉", Price: 300, Category: domain.CategoryFood},
+			{Name: "ドリンク", NameZH: "飲料", Price: 500, Category: domain.CategoryFood},
 		},
 	}
 }
@@ -217,17 +231,18 @@ func newTestHandler(repo expense.AccountingRepo, analyzer expense.ReceiptAnalyze
 	userRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			testTelegramUserID: {
-				ID:         1,
-				TelegramID: testTelegramUserID,
-				NotionID:   testNotionUserID,
-				Nickname:   "test-user",
+				ID:            1,
+				TelegramID:    testTelegramUserID,
+				BackendUserID: testBackendUserID,
+				Nickname:      "test-user",
 			},
 		},
 	}
 	userSvc := user.NewService(userRepo)
-	expenseSvc := expense.NewService(repo, expensetest.FakeLedgerProvider{}, &stubRateFetcher{}, analyzer)
+	expenseSvc := expense.NewService(repo, &stubRateFetcher{}, analyzer)
+	tripSvc := trip.NewService(singleTrip{})
 
-	return NewHandler(userSvc, expenseSvc, nil, "")
+	return NewHandler(userSvc, expenseSvc, tripSvc, "")
 }
 
 func newPhotoContext(botAPI tele.API) *spyContext {
@@ -235,7 +250,7 @@ func newPhotoContext(botAPI tele.API) *spyContext {
 		sender: &tele.User{ID: testTelegramUserID},
 		message: &tele.Message{
 			Photo: &tele.Photo{
-				File: tele.File{FileID: "photo-123"},
+				FileID: "photo-123",
 			},
 		},
 		bot: botAPI,
@@ -266,7 +281,6 @@ func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 	analyzer := &stubReceiptAnalyzer{result: analysis}
 	h := newTestHandler(repo, analyzer)
 
-	// --- Step 1: handlePhoto ---
 	imageData := []byte("fake-jpeg-image-data")
 	botAPI := &spyBotAPI{
 		fileReader: io.NopCloser(bytes.NewReader(imageData)),
@@ -289,13 +303,10 @@ func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 		t.Error("expected analysis to be stored in state")
 	}
 
-	// --- Step 2: handleReceiptCallback with "single" ---
 	callbackCtx := newCallbackContext(botAPI, "receipt|single")
 	if err := h.handleReceiptCallback(callbackCtx, state, "receipt|single"); err != nil {
 		t.Fatalf("handleReceiptCallback(single) returned error: %v", err)
 	}
-
-	// --- Assertions ---
 
 	// UploadFile should have been called once
 	if repo.uploadCalls != 1 {
@@ -318,20 +329,26 @@ func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 	if exp.Currency != domain.CurrencyJPY {
 		t.Errorf("expected Currency JPY, got %s", exp.Currency)
 	}
-	if exp.Category != domain.Category食 {
+	if exp.Category != domain.CategoryFood {
 		t.Errorf("expected Category 食, got %s", exp.Category)
 	}
 	if exp.Method != domain.PaymentMethodCash {
 		t.Errorf("expected Method cash, got %s", exp.Method)
 	}
-	if exp.PaidByID != testNotionUserID {
-		t.Errorf("expected PaidByID %q, got %q", testNotionUserID, exp.PaidByID)
+	if exp.PaidByID != testBackendUserID {
+		t.Errorf("expected PaidByID %q, got %q", testBackendUserID, exp.PaidByID)
 	}
 	if exp.ReceiptURL != "uploaded-file-id" {
 		t.Errorf("expected ReceiptURL 'uploaded-file-id', got %q", exp.ReceiptURL)
 	}
 	if len(exp.ReceiptItems) != 3 {
 		t.Errorf("expected 3 ReceiptItems, got %d", len(exp.ReceiptItems))
+	}
+	if exp.ReceiptItems[1].Name != "サラダ（沙拉）" || exp.ReceiptItems[1].NameZH != "" {
+		t.Errorf("persisted item = %+v, want translated name without duplicate suffix", exp.ReceiptItems[1])
+	}
+	if analysis.Items[1].Name != "サラダ" || analysis.Items[1].NameZH != "沙拉" {
+		t.Fatal("recording mutated the original receipt analysis")
 	}
 
 	// Conversation state should be cleared
@@ -346,9 +363,9 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 		Currency: domain.CurrencyJPY,
 		Total:    1280,
 		Items: []domain.ReceiptItem{
-			{Name: "牛丼", NameZH: "", Price: 480, Category: domain.Category食},
-			{Name: "お土産", NameZH: "伴手禮", Price: 300, Category: domain.Category購},
-			{Name: "タクシー", NameZH: "計程車", Price: 500, Category: domain.Category行},
+			{Name: "牛丼", NameZH: "", Price: 480, Category: domain.CategoryFood},
+			{Name: "お土産", NameZH: "伴手禮", Price: 300, Category: domain.CategoryShopping},
+			{Name: "タクシー", NameZH: "計程車", Price: 500, Category: domain.CategoryTransport},
 		},
 	}
 
@@ -356,7 +373,6 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 	analyzer := &stubReceiptAnalyzer{result: analysis}
 	h := newTestHandler(repo, analyzer)
 
-	// --- Step 1: handlePhoto ---
 	imageData := []byte("fake-jpeg-image-data")
 	botAPI := &spyBotAPI{
 		fileReader: io.NopCloser(bytes.NewReader(imageData)),
@@ -372,13 +388,10 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 		t.Fatal("expected conversation state to be set")
 	}
 
-	// --- Step 2: handleReceiptCallback with "split" ---
 	callbackCtx := newCallbackContext(botAPI, "receipt|split")
 	if err := h.handleReceiptCallback(callbackCtx, state, "receipt|split"); err != nil {
 		t.Fatalf("handleReceiptCallback(split) returned error: %v", err)
 	}
-
-	// --- Assertions ---
 
 	// UploadFile should have been called once (shared across all items)
 	if repo.uploadCalls != 1 {
@@ -396,9 +409,9 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 		price    uint64
 		category domain.Category
 	}{
-		{"牛丼", 480, domain.Category食},
-		{"お土産（伴手禮）", 300, domain.Category購},
-		{"タクシー（計程車）", 500, domain.Category行},
+		{"牛丼", 480, domain.CategoryFood},
+		{"お土産（伴手禮）", 300, domain.CategoryShopping},
+		{"タクシー（計程車）", 500, domain.CategoryTransport},
 	}
 
 	for i, want := range expectations {
@@ -418,8 +431,8 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 		if got.Method != domain.PaymentMethodCash {
 			t.Errorf("item %d: expected Method cash, got %s", i, got.Method)
 		}
-		if got.PaidByID != testNotionUserID {
-			t.Errorf("item %d: expected PaidByID %q, got %q", i, testNotionUserID, got.PaidByID)
+		if got.PaidByID != testBackendUserID {
+			t.Errorf("item %d: expected PaidByID %q, got %q", i, testBackendUserID, got.PaidByID)
 		}
 		if got.ReceiptURL != "uploaded-file-id" {
 			t.Errorf("item %d: expected ReceiptURL 'uploaded-file-id', got %q", i, got.ReceiptURL)
@@ -439,7 +452,6 @@ func TestHandlePhoto_ThenCancel_NoExpenseCreated(t *testing.T) {
 	analyzer := &stubReceiptAnalyzer{result: analysis}
 	h := newTestHandler(repo, analyzer)
 
-	// --- Step 1: handlePhoto ---
 	imageData := []byte("fake-jpeg-image-data")
 	botAPI := &spyBotAPI{
 		fileReader: io.NopCloser(bytes.NewReader(imageData)),
@@ -455,13 +467,10 @@ func TestHandlePhoto_ThenCancel_NoExpenseCreated(t *testing.T) {
 		t.Fatal("expected conversation state to be set")
 	}
 
-	// --- Step 2: handleReceiptCallback with "cancel" ---
 	callbackCtx := newCallbackContext(botAPI, "receipt|cancel")
 	if err := h.handleReceiptCallback(callbackCtx, state, "receipt|cancel"); err != nil {
 		t.Fatalf("handleReceiptCallback(cancel) returned error: %v", err)
 	}
-
-	// --- Assertions ---
 
 	// No UploadFile or CreateExpense should have been called
 	if repo.uploadCalls != 0 {
@@ -536,9 +545,9 @@ func TestHandlePhoto_ThenSplit_PartialFailure(t *testing.T) {
 		Currency: domain.CurrencyTWD,
 		Total:    200,
 		Items: []domain.ReceiptItem{
-			{Name: "飯糰", Price: 35, Category: domain.Category食},
-			{Name: "牛奶", Price: 65, Category: domain.Category食},
-			{Name: "雜誌", Price: 100, Category: domain.Category雜},
+			{Name: "飯糰", Price: 35, Category: domain.CategoryFood},
+			{Name: "牛奶", Price: 65, Category: domain.CategoryFood},
+			{Name: "雜誌", Price: 100, Category: domain.CategoryOther},
 		},
 	}
 
@@ -594,7 +603,7 @@ type spyPartialFailRepo struct {
 	createdExpenses []*domain.Expense
 }
 
-func (m *spyPartialFailRepo) CreateExpense(_ context.Context, _ string, expense *domain.Expense) error {
+func (m *spyPartialFailRepo) CreateExpense(_ context.Context, selected domain.Trip, expense *domain.Expense) error {
 	m.callCount++
 	if m.callCount == m.failOnCall {
 		return errors.New("simulated failure")
@@ -603,71 +612,108 @@ func (m *spyPartialFailRepo) CreateExpense(_ context.Context, _ string, expense 
 	return nil
 }
 
-func (m *spyPartialFailRepo) QueryExpenses(_ context.Context, _ string) ([]domain.Expense, error) {
+func (m *spyPartialFailRepo) QueryExpenses(_ context.Context, _ domain.Trip) ([]domain.Expense, error) {
 	return nil, nil
 }
 
-func (m *spyPartialFailRepo) QueryExpensesWithFilter(_ context.Context, _ string, _ expense.ExpenseFilter) ([]domain.Expense, error) {
+func (m *spyPartialFailRepo) QueryExpensesWithFilter(_ context.Context, _ domain.Trip, _ expense.ExpenseFilter) ([]domain.Expense, error) {
 	return nil, nil
 }
 
-func (m *spyPartialFailRepo) UpdateExpense(_ context.Context, _ string, _ *domain.Expense) error {
+func (m *spyPartialFailRepo) UpdateExpense(_ context.Context, _ domain.Trip, _ *domain.Expense) error {
 	return nil
 }
 
-func (m *spyPartialFailRepo) DeleteExpense(_ context.Context, _, _ string) error {
+func (m *spyPartialFailRepo) DeleteExpense(_ context.Context, _ domain.Trip, _ string) error {
 	return nil
 }
 
-func (m *spyPartialFailRepo) GetExpenseSummary(_ context.Context, _ string) (*domain.ExpenseSummary, error) {
+func (m *spyPartialFailRepo) Settlement(_ context.Context, _ domain.Trip) (*domain.Settlement, error) {
 	return nil, nil
 }
 
-func (m *spyPartialFailRepo) UploadFile(_ context.Context, _ string) (string, error) {
+func (m *spyPartialFailRepo) Members(_ context.Context, _ domain.Trip) ([]domain.Member, error) {
+	return []domain.Member{{ID: testBackendUserID}}, nil
+}
+
+func (m *spyPartialFailRepo) UploadFile(_ context.Context, _ domain.Trip, _ string) (string, error) {
 	return m.uploadResult, nil
 }
 
-// --- Helper: Handler with custom UserRepo ---
-
 func newTestHandlerWithUserRepo(repo expense.AccountingRepo, analyzer expense.ReceiptAnalyzer, userRepo user.UserRepo) *Handler {
 	userSvc := user.NewService(userRepo)
-	expenseSvc := expense.NewService(repo, expensetest.FakeLedgerProvider{}, &stubRateFetcher{}, analyzer)
-	return NewHandler(userSvc, expenseSvc, nil, "")
+	expenseSvc := expense.NewService(repo, &stubRateFetcher{}, analyzer)
+	return NewHandler(userSvc, expenseSvc, trip.NewService(singleTrip{}), "")
 }
 
 // ============================================================
 // Error Path Tests
 // ============================================================
 
-func TestHandlePhoto_UnauthorizedUser_ReturnsError(t *testing.T) {
-	analysis := newTestAnalysis()
+// Every command reads or changes the trip's real expenses, so the middleware in
+// front of all of them is what keeps someone who merely found the bot out.
+func TestRequireAuthorized_StopsSomeoneNotInTheUserMapping(t *testing.T) {
 	repo := &spyAccountingRepo{}
-	analyzer := &stubReceiptAnalyzer{result: analysis}
-
-	// UserRepo with no users → IsAuthorized returns false
-	h := newTestHandlerWithUserRepo(repo, analyzer, &fakeUserRepo{
+	h := newTestHandlerWithUserRepo(repo, &stubReceiptAnalyzer{result: newTestAnalysis()}, &fakeUserRepo{
 		users: map[int64]*domain.User{}, // empty
 	})
 
-	botAPI := &spyBotAPI{}
-	photoCtx := newPhotoContext(botAPI)
+	reached := false
+	guarded := h.requireAuthorized(func(tele.Context) error {
+		reached = true
+		return nil
+	})
 
-	if err := h.handlePhoto(photoCtx); err != nil {
-		t.Fatalf("handlePhoto returned error: %v", err)
+	photoCtx := newPhotoContext(&spyBotAPI{})
+	if err := guarded(photoCtx); err != nil {
+		t.Fatalf("guarded handler returned error: %v", err)
 	}
 
-	if len(photoCtx.sentMsgs) == 0 {
-		t.Fatal("expected a message to be sent")
+	if reached {
+		t.Error("the handler ran for someone who is not in the user mapping")
 	}
-
-	msg, ok := photoCtx.sentMsgs[0].(string)
-	if !ok || msg != "❌ 未授權的使用者" {
+	if len(photoCtx.sentMsgs) != 1 {
+		t.Fatalf("expected one message, got %v", photoCtx.sentMsgs)
+	}
+	if msg, ok := photoCtx.sentMsgs[0].(string); !ok || msg != "❌ 未授權的使用者" {
 		t.Errorf("expected unauthorized message, got %v", photoCtx.sentMsgs[0])
 	}
-
-	// No expense created
 	if len(repo.createdExpenses) != 0 {
 		t.Error("expected 0 expenses for unauthorized user")
+	}
+}
+
+func TestRequireAuthorized_LetsAKnownUserThrough(t *testing.T) {
+	h := newTestHandler(&spyAccountingRepo{}, nil)
+
+	reached := false
+	guarded := h.requireAuthorized(func(tele.Context) error {
+		reached = true
+		return nil
+	})
+
+	if err := guarded(newPhotoContext(&spyBotAPI{})); err != nil {
+		t.Fatalf("guarded handler returned error: %v", err)
+	}
+	if !reached {
+		t.Error("the handler did not run for someone in the user mapping")
+	}
+}
+
+func TestRequireAuthorized_AnswersAnUnauthorizedCallback(t *testing.T) {
+	h := newTestHandlerWithUserRepo(&spyAccountingRepo{}, nil, &fakeUserRepo{users: map[int64]*domain.User{}})
+
+	guarded := h.requireAuthorized(func(tele.Context) error {
+		t.Error("the handler ran for someone who is not in the user mapping")
+		return nil
+	})
+
+	callbackCtx := newCallbackContext(&spyBotAPI{}, "edit_field|delete")
+	if err := guarded(callbackCtx); err != nil {
+		t.Fatalf("guarded handler returned error: %v", err)
+	}
+	if len(callbackCtx.responded) != 1 || callbackCtx.responded[0].Text != "未授權的使用者" {
+		t.Errorf("expected the callback to be answered as unauthorized, got %v", callbackCtx.responded)
 	}
 }
 
@@ -705,7 +751,7 @@ func TestHandlePhoto_ThenSingle_UploadFails_StillCreatesExpenseWithoutReceiptURL
 	analysis := newTestAnalysis()
 
 	repo := &spyAccountingRepo{
-		uploadErr: errors.New("Notion upload failed"),
+		uploadErr: errors.New("TREK upload failed"),
 	}
 	analyzer := &stubReceiptAnalyzer{result: analysis}
 	h := newTestHandler(repo, analyzer)
@@ -752,7 +798,7 @@ func TestHandlePhoto_ThenSingle_CreateExpenseFails_ReturnsError(t *testing.T) {
 
 	repo := &spyAccountingRepo{
 		uploadResult: "file-id",
-		createErr:    errors.New("Notion API error"),
+		createErr:    errors.New("TREK API error"),
 	}
 	analyzer := &stubReceiptAnalyzer{result: analysis}
 	h := newTestHandler(repo, analyzer)
@@ -799,14 +845,14 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 	// User exists for IsAuthorized (handlePhoto) but GetUser fails during callback
 	// We simulate this by using a user repo that succeeds for the photo step
 	// then swapping to one that fails. Instead, we use a repo where the user
-	// is authorized but GetUser returns an error for the Notion ID lookup.
+	// is authorized but GetUser returns an error for the backend user ID lookup.
 	failUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			testTelegramUserID: {
-				ID:         1,
-				TelegramID: testTelegramUserID,
-				NotionID:   testNotionUserID,
-				Nickname:   "test-user",
+				ID:            1,
+				TelegramID:    testTelegramUserID,
+				BackendUserID: testBackendUserID,
+				Nickname:      "test-user",
 			},
 		},
 	}
@@ -846,5 +892,79 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 	// No expense should be created
 	if len(repo.createdExpenses) != 0 {
 		t.Error("expected 0 expenses after GetUser failure")
+	}
+}
+
+// ============================================================
+// R12: No residue
+// ============================================================
+
+// retiredLedgerCommands are the ledger routes the Notion and SQLite backends
+// owned. The active-ledger concept went away with them, so R12 says the bot
+// offers none of these — and the two tests below are the only thing that keeps
+// that true, since "it was deleted" is not a property a build can check.
+var retiredLedgerCommands = []string{"/ledgers", "/ledger_add", "/ledger_use"}
+
+// newOfflineBot builds a telebot that never touches the network, so the routes
+// can be inspected without a token.
+func newOfflineBot(t *testing.T) *tele.Bot {
+	t.Helper()
+
+	bot, err := tele.NewBot(tele.Settings{Token: "test", Offline: true})
+	if err != nil {
+		t.Fatalf("building an offline bot: %v", err)
+	}
+	return bot
+}
+
+// TestRegisterHandlers_RegistersNoLedgerCommand asks the real router whether
+// each retired command still reaches a handler. telebot answers an unregistered
+// endpoint with an error, so this is a question about the routes themselves
+// rather than about a list kept next to them.
+func TestRegisterHandlers_RegistersNoLedgerCommand(t *testing.T) {
+	handler := newTestHandler(&spyAccountingRepo{}, &stubReceiptAnalyzer{})
+	bot := newOfflineBot(t)
+	handler.RegisterHandlers(bot)
+
+	for _, command := range retiredLedgerCommands {
+		if err := bot.Trigger(command, &spyContext{}); err == nil {
+			t.Errorf("the bot answers %s; R12 says it registers no ledger command", command)
+		}
+	}
+
+	// A live command as the control: without it, the loop above would also pass
+	// on a handler that registered nothing at all.
+	if err := bot.Trigger("/help", &spyContext{}); err != nil {
+		t.Errorf("/help is not registered, so the assertions above prove nothing: %v", err)
+	}
+}
+
+// TestHandleHelp_AdvertisesNoLedgerCommand covers the other half of R12 — "when
+// the bot lists its commands". A route that is gone but still documented sends
+// the user looking for a command that answers nothing.
+func TestHandleHelp_AdvertisesNoLedgerCommand(t *testing.T) {
+	handler := newTestHandler(&spyAccountingRepo{}, &stubReceiptAnalyzer{})
+
+	ctx := &spyContext{}
+	if err := handler.handleHelp(ctx); err != nil {
+		t.Fatalf("handleHelp: %v", err)
+	}
+
+	if len(ctx.sentMsgs) != 1 {
+		t.Fatalf("handleHelp sent %d messages, want 1", len(ctx.sentMsgs))
+	}
+	help, ok := ctx.sentMsgs[0].(string)
+	if !ok {
+		t.Fatalf("handleHelp sent %T, want the help text as a string", ctx.sentMsgs[0])
+	}
+
+	for _, command := range retiredLedgerCommands {
+		if strings.Contains(help, command) {
+			t.Errorf("the help text advertises %s; R12 says the bot lists no ledger command", command)
+		}
+	}
+	// The control again: help that listed nothing would satisfy the loop above.
+	if !strings.Contains(help, "/add") {
+		t.Errorf("the help text no longer documents /add, so it lists nothing at all: %q", help)
 	}
 }

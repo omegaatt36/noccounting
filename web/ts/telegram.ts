@@ -1,5 +1,7 @@
 /// <reference path="./telegram.d.ts" />
 
+import { appReady } from "./api.js";
+
 export interface TelegramContext {
   tg: TelegramWebApp | null;
   currentUserId: number | null;
@@ -48,7 +50,12 @@ export function setupMainButton(
   btn.setText("✅ 新增消費");
   btn.color = "#4385BE"; // Flexoki blue
   btn.textColor = "#FFFFFF";
-  btn.show();
+  if (appReady()) {
+    btn.show();
+  } else {
+    btn.hide();
+    btn.disable();
+  }
   btn.onClick(onSubmit);
 }
 
@@ -62,6 +69,11 @@ export function setMainButtonLoading(
     ctx.tg.MainButton.disable();
   } else {
     ctx.tg.MainButton.hideProgress();
-    ctx.tg.MainButton.enable();
+    if (appReady()) {
+      ctx.tg.MainButton.enable();
+    } else {
+      ctx.tg.MainButton.hide();
+      ctx.tg.MainButton.disable();
+    }
   }
 }

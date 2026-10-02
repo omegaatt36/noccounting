@@ -8,7 +8,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// ConversationStep represents the current step in a conversation flow.
 type ConversationStep int
 
 const (
@@ -25,10 +24,13 @@ const (
 	ReceiptConfirm
 )
 
-// ConversationState holds the state for an ongoing conversation.
 type ConversationState struct {
 	Step      ConversationStep
 	StartedAt time.Time
+
+	// Trip is the trip the conversation was started under. A flow files its
+	// expense there even if the person switches trip halfway through it.
+	Trip domain.Trip
 
 	// For /quick flow
 	ExpenseDraft *domain.Expense
@@ -42,17 +44,15 @@ type ConversationState struct {
 	ReceiptImage    []byte
 }
 
-// ConversationManager manages conversation states for users.
+// ConversationManager is conversation state per user id.
 type ConversationManager struct {
 	states sync.Map // map[int64]*ConversationState (user ID -> state)
 }
 
-// NewConversationManager creates a new conversation manager.
 func NewConversationManager() *ConversationManager {
 	return &ConversationManager{}
 }
 
-// GetState retrieves the conversation state for a user.
 func (m *ConversationManager) GetState(userID int64) *ConversationState {
 	if state, ok := m.states.Load(userID); ok {
 		return state.(*ConversationState)
@@ -60,23 +60,21 @@ func (m *ConversationManager) GetState(userID int64) *ConversationState {
 	return nil
 }
 
-// SetState sets the conversation state for a user.
 func (m *ConversationManager) SetState(userID int64, state *ConversationState) {
 	m.states.Store(userID, state)
 }
 
-// ClearState removes the conversation state for a user.
 func (m *ConversationManager) ClearState(userID int64) {
 	m.states.Delete(userID)
 }
 
-// StartQuickFlow starts the quick expense creation flow.
-func (m *ConversationManager) StartQuickFlow(userID int64, notionUserID string) *ConversationState {
+func (m *ConversationManager) StartQuickFlow(userID int64, backendUserID string, trip domain.Trip) *ConversationState {
 	state := &ConversationState{
 		Step:      StepQuickName,
 		StartedAt: time.Now(),
+		Trip:      trip,
 		ExpenseDraft: &domain.Expense{
-			PaidByID:     notionUserID,
+			PaidByID:     backendUserID,
 			ShoppedAt:    time.Now(),
 			ExchangeRate: decimal.Zero,
 		},
@@ -85,11 +83,11 @@ func (m *ConversationManager) StartQuickFlow(userID int64, notionUserID string) 
 	return state
 }
 
-// StartEditFlow starts the edit expense flow.
-func (m *ConversationManager) StartEditFlow(userID int64, expense *domain.Expense) *ConversationState {
+func (m *ConversationManager) StartEditFlow(userID int64, trip domain.Trip, expense *domain.Expense) *ConversationState {
 	state := &ConversationState{
 		Step:           StepEditField,
 		StartedAt:      time.Now(),
+		Trip:           trip,
 		EditingExpense: expense,
 	}
 	m.SetState(userID, state)

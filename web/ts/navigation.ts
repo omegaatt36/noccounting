@@ -23,5 +23,4 @@ export function switchView(view: View): void {
   }
 }
 
-// Expose to global scope for onclick handlers in nav.templ
 (window as any).switchView = switchView;

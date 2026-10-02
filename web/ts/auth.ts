@@ -3,12 +3,25 @@ import { STORAGE_KEYS } from "./storage.js";
 
 const $ = (id: string) => document.getElementById(id);
 
-type ViewName = "loading" | "forbidden" | "app";
+type ViewName = "loading" | "forbidden" | "trip-error" | "app";
 
 function showView(view: ViewName): void {
+  const ready = view === "app";
+  document.body.dataset.appReady = String(ready);
+  const mainButton = window.Telegram?.WebApp?.MainButton;
+  if (ready) {
+    mainButton?.show();
+    mainButton?.enable();
+  } else {
+    mainButton?.hide();
+    mainButton?.disable();
+  }
+
   const loading = $("loading");
   const forbidden = $("forbidden");
   const app = $("app");
+  const tripError = $("trip-error");
+  if (tripError) tripError.classList.toggle("hidden", view !== "trip-error");
 
   if (loading) {
     loading.className =
@@ -67,18 +80,17 @@ export { showView };
 export async function authenticate(
   ctx: TelegramContext,
   devMode: boolean,
-): Promise<void> {
+): Promise<boolean> {
   showView("loading");
 
   if (devMode) {
     await loadUsers(ctx, devMode);
-    showView("app");
-    return;
+    return true;
   }
 
   if (!ctx.initData) {
     showView("forbidden");
-    return;
+    return false;
   }
 
   try {
@@ -88,12 +100,13 @@ export async function authenticate(
     const data = await res.json();
     if (!data.authorized) {
       showView("forbidden");
-      return;
+      return false;
     }
     await loadUsers(ctx, devMode);
-    showView("app");
+    return true;
   } catch (e) {
     console.error("Auth error:", e);
     showView("forbidden");
+    return false;
   }
 }

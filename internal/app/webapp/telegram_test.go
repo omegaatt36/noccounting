@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// TestValidateTelegramInitDataValid tests that valid, properly signed initData is accepted.
 func TestValidateTelegramInitDataValid(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 5 * time.Minute
@@ -60,7 +59,6 @@ func TestValidateTelegramInitDataValid(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataInvalidHash tests that invalid hash is rejected.
 func TestValidateTelegramInitDataInvalidHash(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 5 * time.Minute
@@ -87,7 +85,6 @@ func TestValidateTelegramInitDataInvalidHash(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataExpired tests that expired auth_date is rejected.
 func TestValidateTelegramInitDataExpired(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 1 * time.Second
@@ -112,7 +109,6 @@ func TestValidateTelegramInitDataExpired(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataMissingHash tests that missing hash is rejected.
 func TestValidateTelegramInitDataMissingHash(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 5 * time.Minute
@@ -132,7 +128,6 @@ func TestValidateTelegramInitDataMissingHash(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataEmptyString tests that empty initData is rejected.
 func TestValidateTelegramInitDataEmptyString(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 5 * time.Minute
@@ -147,7 +142,6 @@ func TestValidateTelegramInitDataEmptyString(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataInvalidAuthDate tests that invalid auth_date format is rejected.
 func TestValidateTelegramInitDataInvalidAuthDate(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 5 * time.Minute
@@ -169,7 +163,6 @@ func TestValidateTelegramInitDataInvalidAuthDate(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataWrongToken tests that wrong bot token is rejected.
 func TestValidateTelegramInitDataWrongToken(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	wrongToken := "different_token_654321"
@@ -193,7 +186,6 @@ func TestValidateTelegramInitDataWrongToken(t *testing.T) {
 	}
 }
 
-// TestValidateTelegramInitDataNoMaxAge tests that maxAge=0 disables expiration check.
 func TestValidateTelegramInitDataNoMaxAge(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 

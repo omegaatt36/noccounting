@@ -1,5 +1,6 @@
 import type { TelegramContext } from "./telegram.js";
 import { haptic } from "./telegram.js";
+import { symbol, tripCurrency } from "./api.js";
 
 export function setupNumpad(ctx: TelegramContext): void {
   const priceField = document.getElementById("price") as HTMLInputElement | null;
@@ -38,11 +39,13 @@ export function setupNumpad(ctx: TelegramContext): void {
     const currencyLabel = document.getElementById("numpad-currency-label");
     if (currencyLabel) currencyLabel.textContent = currency;
 
-    // Live TWD conversion
+    // Live conversion into the trip's currency, for an expense in another one
     const rateInput = document.getElementById("exchange-rate-input") as HTMLInputElement | null;
-    if (numpadConvert && currency === "JPY" && rateInput) {
-      const twd = Math.round(parseFloat(val) * parseFloat(rateInput.value || "0.22"));
-      numpadConvert.textContent = isNaN(twd) ? "" : `≈ NT$ ${twd.toLocaleString()}`;
+    const base = tripCurrency();
+    const rate = parseFloat(rateInput?.value ?? "");
+    if (numpadConvert && base !== "" && currency !== base && !isNaN(rate)) {
+      const converted = Math.round(parseFloat(val) * rate);
+      numpadConvert.textContent = isNaN(converted) ? "" : `≈ ${symbol(base)}${converted.toLocaleString()}`;
     } else if (numpadConvert) {
       numpadConvert.textContent = "";
     }

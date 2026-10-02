@@ -1,14 +1,13 @@
 module github.com/omegaatt36/noccounting
 
-go 1.26
+go 1.27
 
 require (
-	github.com/Oudwins/tailwind-merge-go v0.2.1
+	github.com/Oudwins/tailwind-merge-go v0.2.3
 	github.com/a-h/templ v0.3.1020
 	github.com/google/uuid v1.6.0
 	github.com/shopspring/decimal v1.4.0
-	gopkg.in/telebot.v4 v4.0.0-beta.9
-	modernc.org/sqlite v1.52.0
+	gopkg.in/telebot.v4 v4.0.0-beta.10
 )
 
 require (
@@ -104,12 +103,10 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/natefinch/atomic v1.0.1 // indirect
-	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.4.0 // indirect
-	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sajari/fuzzy v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
@@ -148,9 +145,6 @@ require (
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.73.1 // indirect
-	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
 	mvdan.cc/sh/moreinterp v0.0.0-20260120230322-19def062a997 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )

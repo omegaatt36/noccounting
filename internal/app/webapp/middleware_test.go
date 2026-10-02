@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// TestRecoverWrapNoPanic tests that recoverWrap passes through normal handlers without modification.
 func TestRecoverWrapNoPanic(t *testing.T) {
 	handler := recoverWrap()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -29,7 +28,6 @@ func TestRecoverWrapNoPanic(t *testing.T) {
 	}
 }
 
-// TestRecoverWrapWithPanic tests that recoverWrap catches panics and returns 500.
 func TestRecoverWrapWithPanic(t *testing.T) {
 	handler := recoverWrap()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("test panic")
@@ -58,7 +56,6 @@ func TestRecoverWrapWithPanic(t *testing.T) {
 	}
 }
 
-// TestRateLimiterAllowWithinLimit tests that requests within the rate limit are allowed.
 func TestRateLimiterAllowWithinLimit(t *testing.T) {
 	limiter := newRateLimiter(3, 100*time.Millisecond)
 
@@ -80,7 +77,6 @@ func TestRateLimiterAllowWithinLimit(t *testing.T) {
 	}
 }
 
-// TestRateLimiterAllowOverLimit tests that requests exceeding the rate limit are blocked.
 func TestRateLimiterAllowOverLimit(t *testing.T) {
 	limiter := newRateLimiter(2, 100*time.Millisecond)
 
@@ -100,7 +96,6 @@ func TestRateLimiterAllowOverLimit(t *testing.T) {
 	}
 }
 
-// TestRateLimiterResetsAfterWindow tests that the rate limit resets after the time window passes.
 func TestRateLimiterResetsAfterWindow(t *testing.T) {
 	window := 50 * time.Millisecond
 	limiter := newRateLimiter(1, window)
@@ -126,7 +121,6 @@ func TestRateLimiterResetsAfterWindow(t *testing.T) {
 	}
 }
 
-// TestRateLimiterPerIP tests that different IPs have separate rate limits.
 func TestRateLimiterPerIP(t *testing.T) {
 	limiter := newRateLimiter(1, 100*time.Millisecond)
 
@@ -154,7 +148,6 @@ func TestRateLimiterPerIP(t *testing.T) {
 	}
 }
 
-// TestRateLimitMiddlewareSkipsHealthCheck tests that the /health endpoint bypasses rate limiting.
 func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -185,7 +178,6 @@ func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 	}
 }
 
-// TestRateLimitMiddlewareBlocksOverLimit tests that non-health requests are rate limited.
 func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -231,7 +223,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 	}
 }
 
-// TestRateLimitMiddlewareUsesXForwardedFor tests that X-Forwarded-For header is used for IP extraction.
 func TestRateLimitMiddlewareUsesXForwardedFor(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -260,7 +251,6 @@ func TestRateLimitMiddlewareUsesXForwardedFor(t *testing.T) {
 	}
 }
 
-// TestRateLimitMiddlewareUsesFirstXForwardedFor tests that only the first IP in X-Forwarded-For is used.
 func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -289,7 +279,6 @@ func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
 	}
 }
 
-// TestRateLimitMiddlewareIgnoresInvalidXForwardedFor tests that invalid X-Forwarded-For falls back to RemoteAddr.
 func TestRateLimitMiddlewareIgnoresInvalidXForwardedFor(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

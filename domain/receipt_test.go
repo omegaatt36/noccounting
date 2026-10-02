@@ -9,8 +9,8 @@ import (
 func TestReceiptAnalysis_TotalMatchesItems(t *testing.T) {
 	analysis := domain.ReceiptAnalysis{
 		Items: []domain.ReceiptItem{
-			{Name: "拉麵", Price: 1200, Category: domain.Category食},
-			{Name: "餅乾禮盒", Price: 800, Category: domain.Category購},
+			{Name: "拉麵", Price: 1200, Category: domain.CategoryFood},
+			{Name: "餅乾禮盒", Price: 800, Category: domain.CategoryShopping},
 		},
 		Currency: domain.CurrencyJPY,
 		Total:    2000,
@@ -38,7 +38,7 @@ func TestReceiptItem_Fields(t *testing.T) {
 	item := domain.ReceiptItem{
 		Name:     "抹茶",
 		Price:    350,
-		Category: domain.Category食,
+		Category: domain.CategoryFood,
 	}
 
 	if item.Name != "抹茶" {
@@ -47,7 +47,7 @@ func TestReceiptItem_Fields(t *testing.T) {
 	if item.Price != 350 {
 		t.Errorf("Price = %d, want %d", item.Price, 350)
 	}
-	if item.Category != domain.Category食 {
-		t.Errorf("Category = %q, want %q", item.Category, domain.Category食)
+	if item.Category != domain.CategoryFood {
+		t.Errorf("Category = %q, want %q", item.Category, domain.CategoryFood)
 	}
 }

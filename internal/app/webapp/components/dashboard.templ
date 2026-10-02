@@ -3,32 +3,38 @@ package components
 import (
 	"fmt"
 	"math"
+	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
 )
 
-// CategoryBar represents a category for dashboard display
 type CategoryBar struct {
+	Slug       string
 	Emoji      string
-	Name       string
-	AmountTWD  string
+	Label      string
+	Amount     string
 	Percentage int
 }
 
-// DateBar represents a date for dashboard display
+type MethodBar struct {
+	Slug       string
+	Emoji      string
+	Label      string
+	Amount     string
+	Percentage int
+}
+
 type DateBar struct {
 	Date       string
-	AmountTWD  string
+	Amount     string
 	Percentage int
 }
 
-// PayerBar represents a payer for dashboard display
 type PayerBar struct {
 	Name       string
-	AmountTWD  string
+	Amount     string
 	Percentage int
 }
 
-// ExpenseItem represents a single expense item for drill-down
 type ExpenseItem struct {
 	ID            string
 	Name          string
@@ -36,22 +42,79 @@ type ExpenseItem struct {
 	AmountDisplay string
 }
 
-// CategoryColors maps category name to hex colors
-var CategoryColors = map[string]string{
-	"食": "#D0A215",
-	"住": "#3AA99F",
-	"行": "#4385BE",
-	"購": "#CE5D97",
-	"樂": "#879A39",
-	"雜": "#6F6E69",
+// BalanceRow is one person's position in the trip: Owed when they are due money.
+type BalanceRow struct {
+	Name   string
+	Amount string
+	Owed   bool
 }
 
-templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGradient string, categories []CategoryBar, dates []DateBar, payers []PayerBar, dateRange string) {
+// TransferRow is one payment that helps settle the trip.
+type TransferRow struct {
+	From   string
+	To     string
+	Amount string
+}
+
+// SettlementView is where the trip's money stands. Unconverted counts what was
+// left out because no rate could convert it.
+type SettlementView struct {
+	Balances    []BalanceRow
+	Transfers   []TransferRow
+	Unconverted int
+}
+
+// DashboardView is everything the dashboard shows, with the amounts already
+// written in the trip's currency.
+type DashboardView struct {
+	TripTitle     string
+	GrandTotal    string
+	ItemCount     int
+	TrendPct      int
+	DonutGradient string
+	Categories    []CategoryBar
+	Methods       []MethodBar
+	Dates         []DateBar
+	Payers        []PayerBar
+	// Settlement is nil when TREK could not be asked, which leaves its card out.
+	Settlement *SettlementView
+	DateRange  string
+}
+
+// categoryColors maps a category to its hex color, in the Flexoki palette: each
+// of TREK's fourteen has a color of its own so no two read as the same on the donut.
+var categoryColors = map[domain.Category]string{
+	domain.CategoryFood:          "#D0A215",
+	domain.CategoryTransport:     "#4385BE",
+	domain.CategoryShopping:      "#CE5D97",
+	domain.CategoryActivities:    "#879A39",
+	domain.CategoryAccommodation: "#3AA99F",
+	domain.CategorySightseeing:   "#8B7EC8",
+	domain.CategoryGroceries:     "#DA702C",
+	domain.CategoryFlights:       "#205EA6",
+	domain.CategoryFuel:          "#D14D41",
+	domain.CategoryParking:       "#5E409D",
+	domain.CategoryFees:          "#AF3029",
+	domain.CategoryHealth:        "#66800B",
+	domain.CategoryTips:          "#AD8301",
+	domain.CategoryOther:         "#6F6E69",
+}
+
+// CategoryColor is the color of a category slug, or the neutral gray for
+// anything that is not one.
+func CategoryColor(slug string) string {
+	if color, ok := categoryColors[domain.Category(slug)]; ok {
+		return color
+	}
+	return "#575653"
+}
+
+templ DashboardContent(v DashboardView) {
 	<div id="dashboard-content" class="space-y-6 pb-6">
-		<!-- Date Range Tabs -->
+		<p class="text-center text-xs text-muted-foreground">🧳 { v.TripTitle }</p>
 		<div class="flex gap-2 justify-center flex-wrap">
 			<button
-				class={ templ.KV("bg-primary text-primary-foreground", dateRange == "today"), templ.KV("bg-muted text-muted-foreground", dateRange != "today"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
+				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "today"), templ.KV("bg-muted text-muted-foreground", v.DateRange != "today"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
 				hx-get="/partial/dashboard?range=today"
 				hx-target="#dashboard-content"
 				hx-swap="innerHTML"
@@ -59,7 +122,7 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 				今天
 			</button>
 			<button
-				class={ templ.KV("bg-primary text-primary-foreground", dateRange == "3d"), templ.KV("bg-muted text-muted-foreground", dateRange != "3d"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
+				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "3d"), templ.KV("bg-muted text-muted-foreground", v.DateRange != "3d"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
 				hx-get="/partial/dashboard?range=3d"
 				hx-target="#dashboard-content"
 				hx-swap="innerHTML"
@@ -67,7 +130,7 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 				近3天
 			</button>
 			<button
-				class={ templ.KV("bg-primary text-primary-foreground", dateRange == "7d"), templ.KV("bg-muted text-muted-foreground", dateRange != "7d"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
+				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "7d"), templ.KV("bg-muted text-muted-foreground", v.DateRange != "7d"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
 				hx-get="/partial/dashboard?range=7d"
 				hx-target="#dashboard-content"
 				hx-swap="innerHTML"
@@ -75,7 +138,7 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 				近7天
 			</button>
 			<button
-				class={ templ.KV("bg-primary text-primary-foreground", dateRange == "all" || dateRange == ""), templ.KV("bg-muted text-muted-foreground", dateRange != "all" && dateRange != ""), "px-3 py-1 rounded text-sm font-medium transition-colors" }
+				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "all" || v.DateRange == ""), templ.KV("bg-muted text-muted-foreground", v.DateRange != "all" && v.DateRange != ""), "px-3 py-1 rounded text-sm font-medium transition-colors" }
 				hx-get="/partial/dashboard?range=all"
 				hx-target="#dashboard-content"
 				hx-swap="innerHTML"
@@ -83,112 +146,133 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 				全部
 			</button>
 		</div>
-
-		<!-- Grand Total Card -->
 		@card.Card() {
 			<div class="p-4">
 				<div class="flex items-center gap-4 py-2">
-					<!-- Donut -->
 					<div class="relative w-24 h-24 flex-shrink-0">
 						<div
 							class="w-24 h-24 rounded-full"
-							style={ fmt.Sprintf("background: %s", donutGradient) }
+							style={ fmt.Sprintf("background: %s", v.DonutGradient) }
 						></div>
-						<!-- Hole -->
 						<div class="absolute inset-0 m-auto w-14 h-14 rounded-full bg-card"></div>
 					</div>
-
-					<!-- Stats -->
 					<div class="flex-1 min-w-0">
 						<p class="text-xs text-muted-foreground mb-1 tracking-widest uppercase">總消費</p>
 						<p class="text-3xl font-bold text-primary leading-none mb-2 tracking-tight">
-							NT$ { grandTotal }
+							{ v.GrandTotal }
 						</p>
 						<div class="flex items-center gap-2 flex-wrap">
-							<span class="text-xs text-muted-foreground">{ fmt.Sprintf("%d 筆", itemCount) }</span>
-							if trendPct != 0 {
+							<span class="text-xs text-muted-foreground">{ fmt.Sprintf("%d 筆", v.ItemCount) }</span>
+							if v.TrendPct != 0 {
 								<span class={
 									templ.KV("text-xs font-semibold px-1.5 py-0.5 rounded", true),
-									templ.KV("bg-red-500/15 text-red-500 dark:text-red-400", trendPct > 0),
-									templ.KV("bg-green-500/15 text-green-500 dark:text-green-400", trendPct < 0),
+									templ.KV("bg-red-500/15 text-red-500 dark:text-red-400", v.TrendPct > 0),
+									templ.KV("bg-green-500/15 text-green-500 dark:text-green-400", v.TrendPct < 0),
 								}>
-									if trendPct > 0 {
+									if v.TrendPct > 0 {
 										{ "↑" }
 									} else {
 										{ "↓" }
 									}
-									{ fmt.Sprintf("%d%% vs 上期", int(math.Abs(float64(trendPct)))) }
+									{ fmt.Sprintf("%d%% vs 上期", int(math.Abs(float64(v.TrendPct)))) }
 								</span>
 							}
 						</div>
 					</div>
 				</div>
-
-				<!-- Donut legend -->
 				<div class="flex flex-wrap gap-x-3 gap-y-1 pt-3 mt-2 border-t border-border">
-					for _, cat := range categories {
+					for _, cat := range v.Categories {
 						if cat.Percentage == 0 {
 							continue
 						}
 						<div class="flex items-center gap-1.5 text-xs text-muted-foreground">
 							<span
 								class="w-2 h-2 rounded-sm inline-block"
-								style={ fmt.Sprintf("background: %s", CategoryColors[cat.Name]) }
+								style={ fmt.Sprintf("background: %s", CategoryColor(cat.Slug)) }
 							></span>
-							{ cat.Emoji } { cat.Name }
+							{ cat.Emoji } { cat.Label }
 						</div>
 					}
 				</div>
 			</div>
 		}
-
-		<!-- Empty State -->
-		if len(categories) == 0 {
+		if v.Settlement != nil {
+			@settlementCard(v.Settlement)
+		}
+		if len(v.Categories) == 0 {
 			<div class="text-center py-12">
 				<p class="text-lg text-muted-foreground">📊 這個期間沒有消費記錄</p>
 			</div>
 		} else {
-			<!-- By Category Section -->
 			<div class="space-y-3">
 				<h3 class="text-lg font-semibold text-foreground">分類明細</h3>
-				for _, cat := range categories {
+				for _, cat := range v.Categories {
 					if cat.Percentage == 0 {
 						continue
 					}
 					<div>
 						{{
-							beforeRequest := fmt.Sprintf("const detail = document.getElementById('cat-detail-%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", cat.Name)
+							beforeRequest := fmt.Sprintf("const detail = document.getElementById('cat-detail-%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", cat.Slug)
 							afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
 						}}
-							<div
-								class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
-								hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Name, dateRange) }
-								hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Name) }
-								hx-swap="innerHTML"
-								{ templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest}... }
-							>
+						<div
+							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+							hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Slug, v.DateRange) }
+							hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Slug) }
+							hx-swap="innerHTML"
+							{ templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest}... }
+						>
 							<div class="w-8 text-center">{ cat.Emoji }</div>
-							<div class="w-16 text-sm text-muted-foreground">{ cat.Name }</div>
+							<div class="w-20 text-sm text-muted-foreground">{ cat.Label }</div>
 							<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
 								<div
 									class="h-6 transition-all"
-									style={ fmt.Sprintf("width: %d%%; background: %s;", cat.Percentage, CategoryColors[cat.Name]) }
+									style={ fmt.Sprintf("width: %d%%; background: %s;", cat.Percentage, CategoryColor(cat.Slug)) }
 								></div>
 							</div>
-							<div class="w-16 text-right text-sm font-medium tabular-nums">{ cat.AmountTWD }</div>
+							<div class="w-20 text-right text-sm font-medium tabular-nums">{ cat.Amount }</div>
 							<div class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", cat.Percentage) }</div>
 							<span class="chevron text-xs text-muted-foreground w-4 text-center">▶</span>
 						</div>
-						<!-- Detail target -->
-						<div id={ fmt.Sprintf("cat-detail-%s", cat.Name) } class="pl-8 mt-1 empty:hidden"></div>
+						<div id={ fmt.Sprintf("cat-detail-%s", cat.Slug) } class="pl-8 mt-1 empty:hidden"></div>
 					</div>
 				}
 			</div>
-
-			<!-- By Date Section -->
+			<div class="space-y-3">
+				<h3 class="text-lg font-semibold text-foreground">付款方式明細</h3>
+				for _, method := range v.Methods {
+					<div>
+						{{
+							detailID := "method-detail-" + methodKey(method.Slug)
+							beforeRequest := fmt.Sprintf("const detail = document.getElementById('%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", detailID)
+							afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
+						}}
+						<div
+							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+							hx-get={ fmt.Sprintf("/partial/dashboard/method?name=%s&range=%s", method.Slug, v.DateRange) }
+							hx-target={ "#" + detailID }
+							hx-swap="innerHTML"
+							{ templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest}... }
+						>
+							<div class="w-8 text-center">{ method.Emoji }</div>
+							<div class="w-20 text-sm text-muted-foreground">{ method.Label }</div>
+							<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
+								<div
+									class="bg-accent h-6 transition-all"
+									style={ fmt.Sprintf("width: %d%%", method.Percentage) }
+								></div>
+							</div>
+							<div class="w-20 text-right text-sm font-medium tabular-nums">{ method.Amount }</div>
+							<div class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", method.Percentage) }</div>
+							<span class="chevron text-xs text-muted-foreground w-4 text-center">▶</span>
+						</div>
+						<div id={ "method-detail-" + methodKey(method.Slug) } class="pl-8 mt-1 empty:hidden"></div>
+					</div>
+				}
+			</div>
 			<div class="space-y-3">
 				<h3 class="text-lg font-semibold text-foreground">日期明細</h3>
-				for _, d := range dates {
+				for _, d := range v.Dates {
 					<div class="flex items-center gap-3">
 						<div class="w-12 text-sm text-muted-foreground">{ d.Date }</div>
 						<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
@@ -197,29 +281,25 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 								style={ fmt.Sprintf("width: %d%%", d.Percentage) }
 							></div>
 						</div>
-						<div class="w-16 text-right text-sm font-medium tabular-nums">{ d.AmountTWD }</div>
+						<div class="w-20 text-right text-sm font-medium tabular-nums">{ d.Amount }</div>
 					</div>
 				}
 			</div>
-
-			<!-- By Payer Section -->
 			<div class="space-y-3">
 				<h3 class="text-lg font-semibold text-foreground">付款人明細</h3>
-				for _, payer := range payers {
+				for _, payer := range v.Payers {
 					<div class="flex items-center justify-between">
 						<div class="text-sm font-medium">{ payer.Name }</div>
 						<div class="text-right">
-							<div class="text-sm font-medium tabular-nums">{ payer.AmountTWD }</div>
+							<div class="text-sm font-medium tabular-nums">{ payer.Amount }</div>
 							<div class="text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", payer.Percentage) }</div>
 						</div>
 					</div>
 				}
 			</div>
-
-			<!-- Export CSV Button -->
 			<div class="flex justify-center pt-4">
 				<a
-					href={ templ.SafeURL(fmt.Sprintf("/api/export/csv?range=%s", dateRange)) }
+					href={ templ.SafeURL(fmt.Sprintf("/api/export/csv?range=%s", v.DateRange)) }
 					download
 					class="px-4 py-2 rounded font-medium text-sm bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
 				>
@@ -228,6 +308,53 @@ templ DashboardContent(grandTotal string, itemCount int, trendPct int, donutGrad
 			</div>
 		}
 	</div>
+}
+
+// methodKey is the part of an element id that names a payment method; the
+// expenses that record none have no slug to name them by.
+func methodKey(slug string) string {
+	if slug == "" {
+		return "none"
+	}
+	return slug
+}
+
+templ settlementCard(settlement *SettlementView) {
+	@card.Card() {
+		<div class="p-4 space-y-3">
+			<h3 class="text-lg font-semibold text-foreground">💸 結算</h3>
+			if len(settlement.Balances) == 0 {
+				<p class="text-sm text-muted-foreground">🎉 目前沒有任何人欠款</p>
+			} else {
+				<div class="space-y-1">
+					for _, balance := range settlement.Balances {
+						<div class="flex items-center justify-between text-sm">
+							<span>{ balance.Name }</span>
+							<span
+								class={ "font-medium tabular-nums", templ.KV("text-green-500 dark:text-green-400", balance.Owed), templ.KV("text-red-500 dark:text-red-400", !balance.Owed) }
+							>
+								{ balance.Amount }
+							</span>
+						</div>
+					}
+				</div>
+				if len(settlement.Transfers) > 0 {
+					<div class="pt-2 border-t border-border space-y-1">
+						<p class="text-xs text-muted-foreground">建議轉帳</p>
+						for _, transfer := range settlement.Transfers {
+							<div class="flex items-center justify-between text-sm">
+								<span>{ transfer.From } → { transfer.To }</span>
+								<span class="font-medium tabular-nums">{ transfer.Amount }</span>
+							</div>
+						}
+					</div>
+				}
+			}
+			if settlement.Unconverted > 0 {
+				<p class="text-xs text-muted-foreground">{ fmt.Sprintf("⚠️ 有 %d 筆因為缺少匯率沒有計入", settlement.Unconverted) }</p>
+			}
+		</div>
+	}
 }
 
 templ CategoryDetailPartial(items []ExpenseItem, color string) {

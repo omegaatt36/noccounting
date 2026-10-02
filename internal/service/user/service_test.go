@@ -9,7 +9,7 @@ import (
 )
 
 func TestService_IsAuthorized(t *testing.T) {
-	repo := userrepo.NewRepo("12345:notion-abc:Alice")
+	repo := userrepo.NewRepo("12345:8:Alice")
 	svc := user.NewService(repo)
 	if !svc.IsAuthorized(12345) {
 		t.Error("Alice should be authorized")
@@ -20,7 +20,7 @@ func TestService_IsAuthorized(t *testing.T) {
 }
 
 func TestService_GetUser(t *testing.T) {
-	repo := userrepo.NewRepo("12345:notion-abc:Alice")
+	repo := userrepo.NewRepo("12345:8:Alice")
 	svc := user.NewService(repo)
 	telegramID := int64(12345)
 	u, err := svc.GetUser(domain.GetUserRequest{TelegramID: &telegramID})
@@ -33,7 +33,7 @@ func TestService_GetUser(t *testing.T) {
 }
 
 func TestService_GetAllUsers(t *testing.T) {
-	repo := userrepo.NewRepo("12345:notion-abc:Alice,67890:notion-def:Bob")
+	repo := userrepo.NewRepo("12345:8:Alice,67890:9:Bob")
 	svc := user.NewService(repo)
 	users, err := svc.GetAllUsers()
 	if err != nil {

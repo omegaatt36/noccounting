@@ -6,47 +6,55 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
 	tele "gopkg.in/telebot.v4"
 
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/app/format"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
-	"github.com/omegaatt36/noccounting/internal/service/ledger"
+	"github.com/omegaatt36/noccounting/internal/service/trip"
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-// Handler handles Telegram bot commands.
+// listLimit is how many expenses /list shows: a message is capped at 4096
+// characters, and a long trip would otherwise fail to send at all.
+const listLimit = 30
+
 type Handler struct {
 	userService    *user.Service
 	expenseService *expense.Service
-	ledgerService  *ledger.Service
+	tripService    *trip.Service
 	webAppURL      string
 	convManager    *ConversationManager
 }
 
-// NewHandler creates a new bot Handler.
 func NewHandler(
 	userService *user.Service,
 	expenseService *expense.Service,
-	ledgerService *ledger.Service,
+	tripService *trip.Service,
 	webAppURL string,
 ) *Handler {
 	return &Handler{
 		userService:    userService,
 		expenseService: expenseService,
-		ledgerService:  ledgerService,
+		tripService:    tripService,
 		webAppURL:      webAppURL,
 		convManager:    NewConversationManager(),
 	}
 }
 
-// RegisterHandlers registers all bot command handlers.
 func (h *Handler) RegisterHandlers(bot *tele.Bot) {
+	bot.Use(h.requireAuthorized)
+
 	bot.Handle("/start", h.handleStart)
 	bot.Handle("/help", h.handleHelp)
+	bot.Handle("/trip", h.handleTrip)
+	bot.Handle("/rate", h.handleRate)
 	bot.Handle("/add", h.handleAdd)
 	bot.Handle("/list", h.handleList)
 	bot.Handle("/summary", h.handleSummary)
@@ -54,18 +62,62 @@ func (h *Handler) RegisterHandlers(bot *tele.Bot) {
 	bot.Handle("/quick", h.handleQuick)
 	bot.Handle("/edit", h.handleEdit)
 	bot.Handle("/cancel", h.handleCancel)
-	bot.Handle("/ledgers", h.handleLedgers)
-	bot.Handle("/ledger_add", h.handleLedgerAdd)
-	bot.Handle("/ledger_use", h.handleLedgerUse)
 
-	// Handle text messages for conversation flows
 	bot.Handle(tele.OnText, h.handleText)
 
-	// Handle photo uploads for receipt scanning
 	bot.Handle(tele.OnPhoto, h.handlePhoto)
 
-	// Handle callback queries (inline keyboard buttons)
 	bot.Handle(tele.OnCallback, h.handleCallback)
+}
+
+// requireAuthorized lets only the people in the user mapping through. Every
+// command reads or changes the trip's real expenses, so none is open to someone
+// who merely found the bot.
+func (h *Handler) requireAuthorized(next tele.HandlerFunc) tele.HandlerFunc {
+	return func(c tele.Context) error {
+		sender := c.Sender()
+		if sender != nil && h.userService.IsAuthorized(sender.ID) {
+			return next(c)
+		}
+
+		if sender != nil {
+			slog.Warn("Ignoring an update from someone who is not in the user mapping", "telegram_id", sender.ID)
+		}
+		if c.Callback() != nil {
+			return c.Respond(&tele.CallbackResponse{Text: "未授權的使用者"})
+		}
+		return c.Send("❌ 未授權的使用者")
+	}
+}
+
+// currentTrip is the trip the sender is filing under. When there is none it has
+// already told them why, so the caller only has to stop.
+func (h *Handler) currentTrip(c tele.Context) (domain.Trip, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	current, err := h.tripService.Current(ctx, c.Sender().ID)
+	if err == nil {
+		return current, true
+	}
+
+	if errors.Is(err, trip.ErrNoTrip) {
+		_ = c.Send("📭 目前沒有可用的旅行\n\n請先在 TREK 把記帳帳號加入旅行")
+		return domain.Trip{}, false
+	}
+	slog.Error("Failed to read the trips", "error", err)
+	_ = c.Send("❌ 讀取旅行失敗，請稍後再試")
+	return domain.Trip{}, false
+}
+
+// writeFailure is what a person is told when an expense could not be written. A
+// payer or participant who is not on the trip is a thing they can fix, so it is
+// named; anything else is not theirs to act on.
+func writeFailure(err error, generic string) string {
+	if errors.Is(err, domain.ErrNotOnTrip) {
+		return "❌ 付款人或分攤的人不在這趟旅行裡\n\n請先在 TREK 把對方加入旅行"
+	}
+	return generic
 }
 
 func (h *Handler) handleStart(c tele.Context) error {
@@ -73,7 +125,12 @@ func (h *Handler) handleStart(c tele.Context) error {
 
 使用 /help 查看所有指令`
 
-	// If WebApp URL is configured, add a button to open Mini App
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if current, err := h.tripService.Current(ctx, c.Sender().ID); err == nil {
+		msg += "\n\n" + tripLine(current) + "\n使用 /trip 切換旅行"
+	}
+
 	if h.webAppURL != "" {
 		webapp := &tele.WebApp{URL: h.webAppURL}
 		btn := tele.InlineButton{
@@ -90,15 +147,24 @@ func (h *Handler) handleStart(c tele.Context) error {
 }
 
 func (h *Handler) handleHelp(c tele.Context) error {
-	catNames := strings.Join(domain.CategoryNames(), ", ")
-	methodNames := strings.Join(domain.PaymentMethodNames(), ", ")
+	labels := make([]string, 0, len(domain.CategoryValues()))
+	for _, category := range domain.CategoryValues() {
+		labels = append(labels, format.CategoryLabel(category))
+	}
+	methods := make([]string, 0, len(domain.PaymentMethodValues()))
+	for _, method := range domain.PaymentMethodValues() {
+		methods = append(methods, format.PaymentLabel(method))
+	}
 
 	help := fmt.Sprintf(`📖 指令說明
 
+/trip
+  查看並切換目前記帳的旅行
+
 /add <名稱> <金額> <幣別> <分類> <付款方式> [日期]
   新增一筆消費記錄，日期選填，格式 2006-01-02
-  範例: /add 拉麵 1200 JPY 食 cash
-        /add 拉麵 1200 JPY 食 cash 2026-05-01
+  範例: /add 拉麵 1200 JPY 餐飲 現金
+        /add 拉麵 1200 JPY food cash 2026-05-01
 
 /quick
   互動式新增消費（一步步引導）
@@ -106,29 +172,88 @@ func (h *Handler) handleHelp(c tele.Context) error {
 /today
   查看今日消費統計
 
-/list
-  列出所有消費記錄
+/list [付款方式]
+  列出最近的消費記錄，可只看某種付款方式
 
 /edit
   編輯最近的消費記錄
 
 /summary
-  查看消費總覽
+  查看結算：誰該付給誰
 
-/ledgers
-  列出所有帳本，目前使用中標記 ✅
+/rate
+  查看目前匯率
 
-/ledger_add <名稱> <notion_db_id>
-  註冊新帳本（第一筆自動設為使用中）
-
-/ledger_use <名稱>
-  切換目前使用中的帳本
-
-📌 分類選項: %s
+📌 分類: %s
 💳 付款方式: %s
-💱 幣別: TWD, JPY`, catNames, methodNames)
+💱 幣別: %s`, strings.Join(labels, ", "), strings.Join(methods, ", "), strings.Join(domain.CurrencyNames(), ", "))
 
 	return c.Send(help)
+}
+
+// handleTrip shows the trip the sender files under and offers the others.
+func (h *Handler) handleTrip(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	trips, err := h.tripService.List(ctx)
+	if err != nil {
+		slog.Error("Failed to list the trips", "error", err)
+		return c.Send("❌ 讀取旅行失敗，請稍後再試")
+	}
+	if len(trips) == 0 {
+		return c.Send("📭 目前沒有可用的旅行\n\n請先在 TREK 把記帳帳號加入旅行")
+	}
+
+	current, err := h.tripService.Current(ctx, c.Sender().ID)
+	if err != nil {
+		slog.Error("Failed to read the current trip", "error", err)
+		return c.Send("❌ 讀取旅行失敗，請稍後再試")
+	}
+
+	keyboard := &tele.ReplyMarkup{}
+	rows := make([]tele.Row, 0, len(trips))
+	for _, candidate := range trips {
+		label := truncate(format.Trip(candidate), 40)
+		if candidate.ID == current.ID {
+			label = "✅ " + label
+		}
+		rows = append(rows, keyboard.Row(keyboard.Data(label, "trip", strconv.FormatInt(candidate.ID, 10))))
+	}
+	keyboard.Inline(rows...)
+
+	return c.Send(fmt.Sprintf("目前記帳的旅行：\n%s\n\n切換到：", tripLine(current)), keyboard)
+}
+
+func (h *Handler) handleTripCallback(c tele.Context, data string) error {
+	_, value, _ := strings.Cut(data, "|")
+	tripID, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "無效的選擇"})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	selected, err := h.tripService.Select(ctx, c.Sender().ID, tripID)
+	if err != nil {
+		if errors.Is(err, trip.ErrTripNotFound) {
+			return c.Respond(&tele.CallbackResponse{Text: "這趟旅行已經不在清單裡"})
+		}
+		slog.Error("Failed to select a trip", "error", err)
+		return c.Respond(&tele.CallbackResponse{Text: "切換失敗"})
+	}
+
+	// A conversation under way keeps the trip it started with.
+	_ = c.Respond(&tele.CallbackResponse{Text: "已切換"})
+	return c.Send("✅ 已切換到\n" + tripLine(selected))
+}
+
+func (h *Handler) handleRate(c tele.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	return c.Send(rateMessage(h.expenseService.ExchangeRates(ctx)))
 }
 
 func (h *Handler) handleAdd(c tele.Context) error {
@@ -137,8 +262,8 @@ func (h *Handler) handleAdd(c tele.Context) error {
 		return c.Send(`❌ 格式錯誤
 
 用法: /add <名稱> <金額> <幣別> <分類> <付款方式> [日期]
-範例: /add 拉麵 1200 JPY 食 cash
-      /add 拉麵 1200 JPY 食 cash 2026-05-01`)
+範例: /add 拉麵 1200 JPY 餐飲 現金
+      /add 拉麵 1200 JPY food cash 2026-05-01`)
 	}
 
 	name := args[0]
@@ -150,17 +275,17 @@ func (h *Handler) handleAdd(c tele.Context) error {
 
 	currency := domain.Currency(strings.ToUpper(args[2]))
 	if !currency.IsValid() {
-		return c.Send("❌ 幣別錯誤，請使用 TWD 或 JPY")
+		return c.Send(fmt.Sprintf("❌ 幣別錯誤，請使用: %s", strings.Join(domain.CurrencyNames(), ", ")))
 	}
 
-	category := domain.Category(args[3])
-	if !category.IsValid() {
-		return c.Send(fmt.Sprintf("❌ 分類錯誤，請使用: %s", strings.Join(domain.CategoryNames(), ", ")))
+	category, err := format.ParseCategoryInput(args[3])
+	if err != nil {
+		return c.Send("❌ 分類錯誤，使用 /help 查看可用的分類")
 	}
 
-	method := domain.PaymentMethod(strings.ToLower(args[4]))
-	if !method.IsValid() {
-		return c.Send(fmt.Sprintf("❌ 付款方式錯誤，請使用: %s", strings.Join(domain.PaymentMethodNames(), ", ")))
+	method, err := format.ParsePaymentMethodInput(args[4])
+	if err != nil {
+		return c.Send("❌ 付款方式錯誤，使用 /help 查看可用的付款方式")
 	}
 
 	shoppedAt := time.Now()
@@ -172,7 +297,6 @@ func (h *Handler) handleAdd(c tele.Context) error {
 		shoppedAt = t
 	}
 
-	// Get Notion user ID from mapping
 	telegramUserID := c.Sender().ID
 	u, err := h.userService.GetUser(domain.GetUserRequest{
 		TelegramID: &telegramUserID,
@@ -181,38 +305,55 @@ func (h *Handler) handleAdd(c tele.Context) error {
 		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
 	}
 
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
+	}
+
 	exp := &domain.Expense{
 		Name:      name,
 		Price:     price,
 		Currency:  currency,
 		Category:  category,
 		Method:    method,
-		PaidByID:  u.NotionID,
+		PaidByID:  u.BackendUserID,
 		ShoppedAt: shoppedAt,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := h.expenseService.CreateExpense(ctx, exp); err != nil {
+	if err := h.expenseService.CreateExpense(ctx, current, exp); err != nil {
 		slog.Error("Failed to create expense", "error", err)
-		return c.Send("❌ 新增失敗，連線資料庫錯誤，請稍後再試")
+		return c.Send(writeFailure(err, "❌ 新增失敗，連線資料庫錯誤，請稍後再試"))
 	}
 
-	return c.Send(fmt.Sprintf(`✅ 已新增消費記錄
-
-📝 %s
-💰 %d %s
-📂 %s %s
-💳 %s`,
-		name, price, currency, category.Emoji(), category, method.DisplayName()))
+	return c.Send(expenseCard("✅ 已新增消費記錄", current, exp))
 }
 
+// handleList shows the latest expenses, optionally only those paid one way: the
+// method rides in the expense's note, so this is the only place to ask for it.
 func (h *Handler) handleList(c tele.Context) error {
+	filter := expense.ExpenseFilter{}
+	var heading string
+	if args := c.Args(); len(args) > 0 {
+		method, err := format.ParsePaymentMethodInput(args[0])
+		if err != nil {
+			return c.Send("❌ 付款方式錯誤，使用 /help 查看可用的付款方式")
+		}
+		filter.Method = &method
+		heading = " · " + format.PaymentEmoji(method) + " " + format.PaymentLabel(method)
+	}
+
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	expenses, err := h.expenseService.QueryExpenses(ctx)
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, current, filter)
 	if err != nil {
 		slog.Error("Failed to query expenses", "error", err)
 		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
@@ -222,33 +363,55 @@ func (h *Handler) handleList(c tele.Context) error {
 		return c.Send("📭 目前沒有消費記錄")
 	}
 
-	var sb strings.Builder
-	sb.WriteString("📋 消費記錄\n\n")
-
+	var total decimal.Decimal
 	for _, exp := range expenses {
-		fmt.Fprintf(&sb, "• %s: %d %s (%s %s)\n",
-			exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category)
+		total = total.Add(exp.TotalInBase(current.Currency))
 	}
+
+	shown := expenses
+	if len(shown) > listLimit {
+		shown = shown[:listLimit]
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📋 消費記錄%s\n%s\n\n", heading, tripLine(current))
+	for _, exp := range shown {
+		fmt.Fprintf(&sb, "• %s %s %s %s %s\n",
+			exp.ShoppedAt.Format("01/02"), exp.Name, format.Money(exp.Currency, exp.PriceDecimal()),
+			format.CategoryEmoji(exp.Category), format.PaymentEmoji(exp.Method))
+	}
+	if len(expenses) > len(shown) {
+		fmt.Fprintf(&sb, "\n僅顯示最近 %d 筆，共 %d 筆\n", len(shown), len(expenses))
+	}
+	fmt.Fprintf(&sb, "\n💰 合計: %s（%d 筆）", format.Money(current.Currency, total), len(expenses))
 
 	return c.Send(sb.String())
 }
 
+// handleSummary reports where the trip's money stands, as TREK works it out.
 func (h *Handler) handleSummary(c tele.Context) error {
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	summary, err := h.expenseService.GetSummary(ctx)
+	settlement, err := h.expenseService.Settlement(ctx, current)
 	if err != nil {
-		slog.Error("Failed to get summary", "error", err)
+		slog.Error("Failed to get the settlement", "error", err)
 		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
 	}
 
-	var sb strings.Builder
-	sb.WriteString("📊 消費總覽\n\n")
-	fmt.Fprintf(&sb, "📝 總筆數: %d\n", summary.ItemCount)
-	fmt.Fprintf(&sb, "💰 總金額: %s TWD\n\n", summary.GrandTotal.StringFixed(0))
+	names := map[string]string{}
+	if users, err := h.userService.GetAllUsers(); err == nil {
+		for _, u := range users {
+			names[u.BackendUserID] = u.Nickname
+		}
+	}
 
-	return c.Send(sb.String())
+	return c.Send(settlementMessage(current, settlement, names))
 }
 
 func (h *Handler) handleCancel(c tele.Context) error {
@@ -265,9 +428,14 @@ func (h *Handler) handleQuick(c tele.Context) error {
 		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
 	}
 
-	h.convManager.StartQuickFlow(telegramUserID, u.NotionID)
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
+	}
 
-	return c.Send("📝 開始新增消費\n\n請輸入消費名稱：\n\n(輸入 /cancel 取消)")
+	h.convManager.StartQuickFlow(telegramUserID, u.BackendUserID, current)
+
+	return c.Send(fmt.Sprintf("📝 開始新增消費\n%s\n\n請輸入消費名稱：\n\n(輸入 /cancel 取消)", tripLine(current)))
 }
 
 func (h *Handler) handlePhoto(c tele.Context) error {
@@ -275,20 +443,20 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("📸 收據分析功能尚未啟用")
 	}
 
-	if !h.userService.IsAuthorized(c.Sender().ID) {
-		return c.Send("❌ 未授權的使用者")
-	}
-
 	photo := c.Message().Photo
 	if photo == nil {
 		return c.Send("❌ 無法取得照片")
+	}
+
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
 	}
 
 	if err := c.Send("🔍 正在分析收據..."); err != nil {
 		slog.Warn("Failed to send analysis message", "error", err)
 	}
 
-	// Download photo from Telegram
 	reader, err := c.Bot().File(&photo.File)
 	if err != nil {
 		slog.Error("Failed to download photo", "error", err)
@@ -304,7 +472,6 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("❌ 無法讀取照片")
 	}
 
-	// Analyze receipt
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -314,23 +481,21 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("❌ 無法辨識收據，請嘗試手動輸入\n/quick")
 	}
 
-	// Store analysis and image in conversation state
 	h.convManager.SetState(c.Sender().ID, &ConversationState{
 		Step:            ReceiptConfirm,
+		Trip:            current,
 		ReceiptAnalysis: analysis,
 		ReceiptImage:    imageData,
 	})
 
-	// Format analysis result
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "📸 %s\n\n", analysis.Summary)
+	fmt.Fprintf(&sb, "📸 %s\n%s\n\n", analysis.Summary, tripLine(current))
 	for i, item := range analysis.Items {
-		fmt.Fprintf(&sb, "%d. %s %s ¥%d → %s\n",
-			i+1, item.Category.Emoji(), item.DisplayName(), item.Price, item.Category)
+		fmt.Fprintf(&sb, "%d. %s %s %s\n",
+			i+1, format.CategoryEmoji(item.Category), format.ReceiptName(item), format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
 	}
-	fmt.Fprintf(&sb, "\n合計: %d (%s)\n", analysis.Total, analysis.Currency)
+	fmt.Fprintf(&sb, "\n合計: %s\n", format.Money(analysis.Currency, decimal.NewFromUint64(analysis.Total)))
 
-	// Inline buttons
 	keyboard := &tele.ReplyMarkup{}
 	btnSingle := keyboard.Data("📦 整筆記", "receipt", "single")
 	btnSplit := keyboard.Data("📋 拆開記", "receipt", "split")
@@ -367,7 +532,6 @@ func (h *Handler) handleText(c tele.Context) error {
 		state.ExpenseDraft.Price = price
 		state.Step = StepQuickCurrency
 
-		// Show currency keyboard
 		keyboard := &tele.ReplyMarkup{}
 		keyboard.Inline(
 			keyboard.Row(
@@ -392,6 +556,11 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	// telebot v4 prefixes callback data with \f (form feed character)
 	// We need to strip it for proper parsing
 	data = strings.TrimPrefix(data, "\f")
+
+	// Handle trip selection (format: "trip|{trip_id}")
+	if strings.HasPrefix(data, "trip|") {
+		return h.handleTripCallback(c, data)
+	}
 
 	// Handle edit expense selection (format: "edit_select|{expense_id}")
 	if strings.HasPrefix(data, "edit_select|") {
@@ -445,11 +614,12 @@ func (h *Handler) handleQuickCurrency(c tele.Context, state *ConversationState, 
 
 	state.ExpenseDraft.Currency = currency
 
-	// Fetch exchange rate for JPY
-	if currency == domain.CurrencyJPY {
+	// A foreign expense is converted into the trip's currency at the rate of the
+	// day; one in the trip's own currency needs none.
+	if currency != state.Trip.Currency {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		rate, err := h.expenseService.FetchExchangeRate(ctx, currency)
+		rate, err := h.expenseService.FetchExchangeRate(ctx, currency, state.Trip.Currency)
 		if err != nil {
 			slog.Warn("Failed to fetch exchange rate", "error", err)
 		} else if !rate.IsZero() {
@@ -474,7 +644,7 @@ func (h *Handler) handleQuickCategory(c tele.Context, state *ConversationState, 
 	state.ExpenseDraft.Category = category
 	state.Step = StepQuickMethod
 
-	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + value})
+	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + format.CategoryLabel(category)})
 
 	return c.Send("💳 請選擇付款方式：", makePaymentMethodKeyboard("method"))
 }
@@ -488,27 +658,26 @@ func (h *Handler) handleQuickMethod(c tele.Context, state *ConversationState, va
 	state.ExpenseDraft.Method = method
 	state.Step = StepQuickConfirm
 
-	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + method.DisplayName()})
+	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + format.PaymentLabel(method)})
 
-	// Show confirmation
 	exp := state.ExpenseDraft
 
 	// Build confirmation message with optional exchange rate info
 	var rateInfo string
-
-	if exp.Currency == domain.CurrencyJPY && !exp.ExchangeRate.IsZero() {
-		twdAmount := exp.TotalInTWD()
-		rateInfo = fmt.Sprintf("\n💱 匯率: %s (≈NT$%s)", exp.ExchangeRate.StringFixed(4), twdAmount.StringFixed(0))
+	if exp.Currency != state.Trip.Currency && !exp.ExchangeRate.IsZero() {
+		rateInfo = fmt.Sprintf("\n💱 匯率: %s", exp.ExchangeRate.StringFixed(4))
 	}
 
 	confirmMsg := fmt.Sprintf(`📋 確認消費資訊
+%s
 
 📝 名稱: %s
-💰 金額: %d %s%s
-📂 分類: %s %s
+💰 金額: %s%s%s
+📂 分類: %s
 💳 付款: %s
 
-確定要新增嗎？`, exp.Name, exp.Price, exp.Currency, rateInfo, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName())
+確定要新增嗎？`, tripLine(state.Trip), exp.Name, format.Money(exp.Currency, exp.PriceDecimal()), convertedSuffix(state.Trip, exp), rateInfo,
+		format.Category(exp.Category), format.PaymentLabel(exp.Method))
 
 	keyboard := &tele.ReplyMarkup{}
 	keyboard.Inline(
@@ -532,34 +701,28 @@ func (h *Handler) handleQuickConfirm(c tele.Context, state *ConversationState, v
 	defer cancel()
 
 	exp := state.ExpenseDraft
-	if err := h.expenseService.CreateExpense(ctx, exp); err != nil {
+	if err := h.expenseService.CreateExpense(ctx, state.Trip, exp); err != nil {
 		slog.Error("Failed to create expense", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
-		return c.Send("❌ 新增失敗，連線資料庫錯誤，請稍後再試")
+		return c.Send(writeFailure(err, "❌ 新增失敗，連線資料庫錯誤，請稍後再試"))
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
-	return c.Send(fmt.Sprintf(`✅ 已新增消費記錄
-
-📝 %s
-💰 %d %s
-📂 %s %s
-💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
+	return c.Send(expenseCard("✅ 已新增消費記錄", state.Trip, exp))
 }
 
 func (h *Handler) handleEdit(c tele.Context) error {
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get recent 5 expenses
 	limit := 5
-	filter := expense.ExpenseFilter{
-		Limit: &limit,
-	}
-
-	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, filter)
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, current, expense.ExpenseFilter{Limit: &limit})
 	if err != nil {
 		slog.Error("Failed to query expenses for edit", "error", err)
 		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
@@ -569,25 +732,19 @@ func (h *Handler) handleEdit(c tele.Context) error {
 		return c.Send("📭 目前沒有消費記錄可編輯")
 	}
 
-	// Build inline keyboard with expense options
 	keyboard := &tele.ReplyMarkup{}
 	var rows []tele.Row
 
 	for _, exp := range expenses {
-		label := fmt.Sprintf("%s %d%s (%s)", exp.Name, exp.Price, exp.Currency, exp.Category)
-		// Truncate if too long
-		if len(label) > 40 {
-			label = label[:37] + "..."
-		}
+		label := truncate(fmt.Sprintf("%s %s (%s)", exp.Name, format.Money(exp.Currency, exp.PriceDecimal()), format.CategoryLabel(exp.Category)), 36)
 		btn := keyboard.Data(label, "edit_select", exp.ID)
 		rows = append(rows, keyboard.Row(btn))
 	}
 
-	// Add cancel button
 	rows = append(rows, keyboard.Row(keyboard.Data("❌ 取消", "edit_select", "cancel")))
 	keyboard.Inline(rows...)
 
-	return c.Send("📝 請選擇要編輯的消費記錄：", keyboard)
+	return c.Send(fmt.Sprintf("📝 請選擇要編輯的消費記錄：\n%s", tripLine(current)), keyboard)
 }
 
 func (h *Handler) handleEditSelectCallback(c tele.Context, data string) error {
@@ -604,13 +761,16 @@ func (h *Handler) handleEditSelectCallback(c tele.Context, data string) error {
 		return c.Send("❌ 已取消編輯")
 	}
 
-	// Fetch the expense to edit
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Query all and find by ID (Notion doesn't have get by ID in our current impl)
+	current, err := h.tripService.Current(ctx, c.Sender().ID)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "讀取旅行失敗"})
+	}
+
 	limit := 20
-	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, expense.ExpenseFilter{Limit: &limit})
+	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, current, expense.ExpenseFilter{Limit: &limit})
 	if err != nil {
 		return c.Respond(&tele.CallbackResponse{Text: "查詢失敗"})
 	}
@@ -627,8 +787,7 @@ func (h *Handler) handleEditSelectCallback(c tele.Context, data string) error {
 		return c.Respond(&tele.CallbackResponse{Text: "找不到該消費記錄"})
 	}
 
-	// Start edit flow
-	h.convManager.StartEditFlow(c.Sender().ID, targetExpense)
+	h.convManager.StartEditFlow(c.Sender().ID, current, targetExpense)
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇"})
 
@@ -651,14 +810,16 @@ func (h *Handler) handleEditSelectCallback(c tele.Context, data string) error {
 
 	exp := targetExpense
 	msg := fmt.Sprintf(`📋 編輯消費記錄
+%s
 
 📝 名稱: %s
-💰 金額: %d %s
+💰 金額: %s%s
 📂 分類: %s
 💳 付款: %s
 📅 日期: %s
 
-請選擇要修改的欄位：`, exp.Name, exp.Price, exp.Currency, exp.Category, exp.Method.DisplayName(), exp.ShoppedAt.Format("2006/01/02"))
+請選擇要修改的欄位：`, tripLine(current), exp.Name, format.Money(exp.Currency, exp.PriceDecimal()), convertedSuffix(current, exp),
+		format.Category(exp.Category), format.PaymentLabel(exp.Method), exp.ShoppedAt.Format("2006/01/02"))
 
 	return c.Send(msg, keyboard)
 }
@@ -724,24 +885,33 @@ func (h *Handler) handleEditValue(c tele.Context, state *ConversationState, text
 		return c.Send("❌ 未知的欄位")
 	}
 
-	// Update in Notion
+	return h.saveEdit(c, state, "更新失敗")
+}
+
+// saveEdit writes the expense an edit conversation has been changing and
+// reports it, so the four ways to change one end the same way.
+func (h *Handler) saveEdit(c tele.Context, state *ConversationState, failure string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := h.expenseService.UpdateExpense(ctx, exp); err != nil {
+	exp := state.EditingExpense
+	if err := h.expenseService.UpdateExpense(ctx, state.Trip, exp); err != nil {
+		if errors.Is(err, domain.ErrUnsupportedSplit) {
+			return c.Send("這筆消費使用自訂分攤，請到 TREK 修改")
+		}
 		slog.Error("Failed to update expense", "error", err)
-		return c.Send("❌ 更新失敗，請稍後再試")
+		if c.Callback() != nil {
+			_ = c.Respond(&tele.CallbackResponse{Text: failure})
+		}
+		return c.Send(writeFailure(err, "❌ 更新失敗，請稍後再試"))
 	}
 
 	h.convManager.ClearState(c.Sender().ID)
+	if c.Callback() != nil {
+		_ = c.Respond(&tele.CallbackResponse{Text: "已更新"})
+	}
 
-	return c.Send(fmt.Sprintf(`✅ 已更新消費記錄
-
-📝 %s
-💰 %d %s
-📂 %s %s
-💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
+	return c.Send(expenseCard("✅ 已更新消費記錄", state.Trip, exp))
 }
 
 func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) error {
@@ -753,7 +923,7 @@ func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) err
 	defer cancel()
 
 	exp := state.EditingExpense
-	if err := h.expenseService.DeleteExpense(ctx, exp.ID); err != nil {
+	if err := h.expenseService.DeleteExpense(ctx, state.Trip, exp.ID); err != nil {
 		slog.Error("Failed to delete expense", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "刪除失敗"})
 		return c.Send("❌ 刪除失敗，請稍後再試")
@@ -762,7 +932,7 @@ func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) err
 	h.convManager.ClearState(c.Sender().ID)
 	_ = c.Respond(&tele.CallbackResponse{Text: "已刪除"})
 
-	return c.Send(fmt.Sprintf("✅ 已刪除消費記錄：%s %d %s", exp.Name, exp.Price, exp.Currency))
+	return c.Send(fmt.Sprintf("✅ 已刪除消費記錄：%s %s", exp.Name, format.Money(exp.Currency, exp.PriceDecimal())))
 }
 
 func (h *Handler) handleEditCategory(c tele.Context, state *ConversationState, value string) error {
@@ -776,27 +946,7 @@ func (h *Handler) handleEditCategory(c tele.Context, state *ConversationState, v
 	}
 
 	state.EditingExpense.Category = category
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := h.expenseService.UpdateExpense(ctx, state.EditingExpense); err != nil {
-		slog.Error("Failed to update expense category", "error", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "更新失敗"})
-		return c.Send("❌ 更新失敗，請稍後再試")
-	}
-
-	h.convManager.ClearState(c.Sender().ID)
-	_ = c.Respond(&tele.CallbackResponse{Text: "已更新"})
-
-	exp := state.EditingExpense
-	return c.Send(fmt.Sprintf(`✅ 已更新消費記錄
-
-📝 %s
-💰 %d %s
-📂 %s %s
-💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
+	return h.saveEdit(c, state, "更新失敗")
 }
 
 func (h *Handler) handleEditMethod(c tele.Context, state *ConversationState, value string) error {
@@ -810,27 +960,7 @@ func (h *Handler) handleEditMethod(c tele.Context, state *ConversationState, val
 	}
 
 	state.EditingExpense.Method = method
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := h.expenseService.UpdateExpense(ctx, state.EditingExpense); err != nil {
-		slog.Error("Failed to update expense method", "error", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "更新失敗"})
-		return c.Send("❌ 更新失敗，請稍後再試")
-	}
-
-	h.convManager.ClearState(c.Sender().ID)
-	_ = c.Respond(&tele.CallbackResponse{Text: "已更新"})
-
-	exp := state.EditingExpense
-	return c.Send(fmt.Sprintf(`✅ 已更新消費記錄
-
-📝 %s
-💰 %d %s
-📂 %s %s
-💳 %s`,
-		exp.Name, exp.Price, exp.Currency, exp.Category.Emoji(), exp.Category, exp.Method.DisplayName()))
+	return h.saveEdit(c, state, "更新失敗")
 }
 
 func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState, data string) error {
@@ -882,24 +1012,22 @@ func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) 
 		return c.Send("❌ 無法取得用戶資訊")
 	}
 
-	if err := h.expenseService.CreateFromAnalysis(ctx, state.ReceiptAnalysis, state.ReceiptImage, u.NotionID, false); err != nil {
+	if err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, receiptCommand(state.ReceiptAnalysis), state.ReceiptImage, u.BackendUserID, false); err != nil {
 		slog.Error("Failed to create expense from receipt", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
-		return c.Send("❌ 新增失敗，請稍後再試")
+		return c.Send(writeFailure(err, "❌ 新增失敗，請稍後再試"))
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
 	analysis := state.ReceiptAnalysis
-	return c.Send(fmt.Sprintf(`✅ 已新增消費記錄
-
-📝 %s
-💰 %d %s
-📂 %s %s
-💳 %s`,
-		analysis.Summary, analysis.Total, analysis.Currency,
-		domain.Category食.Emoji(), domain.Category食,
-		domain.PaymentMethodCash.DisplayName()))
+	return c.Send(expenseCard("✅ 已新增消費記錄", state.Trip, &domain.Expense{
+		Name:     analysis.Summary,
+		Price:    analysis.Total,
+		Currency: analysis.Currency,
+		Category: domain.CategoryFood,
+		Method:   domain.PaymentMethodCash,
+	}))
 }
 
 func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) error {
@@ -918,53 +1046,51 @@ func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) e
 	}
 
 	analysis := state.ReceiptAnalysis
-	if err := h.expenseService.CreateFromAnalysis(ctx, analysis, state.ReceiptImage, u.NotionID, true); err != nil {
+	if err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, receiptCommand(analysis), state.ReceiptImage, u.BackendUserID, true); err != nil {
 		slog.Error("Failed to create expenses from receipt", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
-		return c.Send("❌ 新增失敗，請稍後再試")
+		return c.Send(writeFailure(err, "❌ 新增失敗，請稍後再試"))
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "✅ 已拆開新增 %d 項消費\n\n", len(analysis.Items))
+	fmt.Fprintf(&sb, "✅ 已拆開新增 %d 項消費\n%s\n\n", len(analysis.Items), tripLine(state.Trip))
 	for i, item := range analysis.Items {
-		fmt.Fprintf(&sb, "%d. %s %s %d %s\n",
-			i+1, item.Category.Emoji(), item.DisplayName(), item.Price, analysis.Currency)
+		fmt.Fprintf(&sb, "%d. %s %s %s\n",
+			i+1, format.CategoryEmoji(item.Category), format.ReceiptName(item), format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
 	}
 	return c.Send(sb.String())
 }
 
 func (h *Handler) handleToday(c tele.Context) error {
+	current, ok := h.currentTrip(c)
+	if !ok {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	summary, err := h.expenseService.GetTodaySummary(ctx)
+	summary, err := h.expenseService.GetTodaySummary(ctx, current)
 	if err != nil {
 		slog.Error("Failed to get today's summary", "error", err)
 		return c.Send("❌ 查詢失敗，請稍後再試")
 	}
 
 	if len(summary.Items) == 0 {
-		return c.Send(fmt.Sprintf("📅 %s 消費統計\n\n📭 今日尚無消費記錄", summary.Date.Format("2006/01/02")))
+		return c.Send(fmt.Sprintf("📅 %s 消費統計\n%s\n\n📭 今日尚無消費記錄", summary.Date.Format("2006/01/02"), tripLine(current)))
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "📅 %s 消費統計\n\n", summary.Date.Format("2006/01/02"))
+	fmt.Fprintf(&sb, "📅 %s 消費統計\n%s\n\n", summary.Date.Format("2006/01/02"), tripLine(current))
 
-	categories := domain.CategoryValues()
-	for _, cat := range categories {
-		for _, item := range summary.Items {
-			if item.Category == cat {
-				fmt.Fprintf(&sb, "%s %s: %d %s (≈NT$%s)\n",
-					cat.Emoji(), cat, item.Total, item.Currency, item.TotalTWD.Round(0).String())
-				break
-			}
-		}
+	for _, item := range summary.Items {
+		fmt.Fprintf(&sb, "%s: %s\n", format.Category(item.Category), format.Money(summary.Currency, item.Total))
 	}
 
 	sb.WriteString("─────────────\n")
-	fmt.Fprintf(&sb, "💰 今日合計: NT$%s (%d 筆)\n", summary.GrandTotalTWD.Round(0).String(), summary.ItemCount)
+	fmt.Fprintf(&sb, "💰 今日合計: %s (%d 筆)\n", format.Money(summary.Currency, summary.GrandTotal), summary.ItemCount)
 
 	return c.Send(sb.String())
 }
@@ -977,7 +1103,7 @@ func makeCategoryKeyboard(actionPrefix string) *tele.ReplyMarkup {
 
 	for i, cat := range categories {
 		btn := keyboard.Data(
-			fmt.Sprintf("%s %s", cat.Emoji(), cat),
+			format.Category(cat),
 			actionPrefix,
 			string(cat),
 		)
@@ -1001,7 +1127,7 @@ func makePaymentMethodKeyboard(actionPrefix string) *tele.ReplyMarkup {
 
 	for i, method := range methods {
 		btn := keyboard.Data(
-			method.DisplayName(),
+			format.PaymentEmoji(method)+" "+format.PaymentLabel(method),
 			actionPrefix,
 			string(method),
 		)
@@ -1017,95 +1143,12 @@ func makePaymentMethodKeyboard(actionPrefix string) *tele.ReplyMarkup {
 	return keyboard
 }
 
-// ledgerCtx returns a context with the standard timeout for ledger operations.
-func ledgerCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 10*time.Second)
-}
-
-func (h *Handler) handleLedgers(c tele.Context) error {
-	ctx, cancel := ledgerCtx()
-	defer cancel()
-
-	ledgers, err := h.ledgerService.List(ctx)
-	if err != nil {
-		slog.Error("Failed to list ledgers", "error", err)
-		return c.Send("❌ 查詢失敗，請稍後再試")
+func receiptCommand(analysis *domain.ReceiptAnalysis) *domain.ReceiptAnalysis {
+	command := *analysis
+	command.Items = slices.Clone(analysis.Items)
+	for i, item := range analysis.Items {
+		command.Items[i].Name = format.ReceiptName(item)
+		command.Items[i].NameZH = ""
 	}
-	if len(ledgers) == 0 {
-		return c.Send("📭 尚未註冊任何帳本\n\n使用 /ledger_add <名稱> <notion_db_id> 新增")
-	}
-
-	var sb strings.Builder
-	sb.WriteString("📚 帳本列表\n\n")
-	for _, l := range ledgers {
-		mark := "  "
-		if l.IsActive {
-			mark = "✅"
-		}
-		fmt.Fprintf(&sb, "%s %s\n", mark, l.Name)
-	}
-	return c.Send(sb.String())
-}
-
-func (h *Handler) handleLedgerAdd(c tele.Context) error {
-	args := c.Args()
-	if len(args) < 2 {
-		return c.Send("❌ 格式錯誤\n\n用法: /ledger_add <名稱> <notion_db_id>")
-	}
-	name := args[0]
-	dbID := args[1]
-
-	ctx, cancel := ledgerCtx()
-	defer cancel()
-
-	if err := h.ledgerService.Add(ctx, name, dbID); err != nil {
-		if errors.Is(err, domain.ErrLedgerExists) {
-			return c.Send("❌ 此名稱或 Notion DB 已註冊過")
-		}
-		slog.Error("Failed to add ledger", "error", err)
-		return c.Send("❌ 新增失敗，請稍後再試")
-	}
-	return c.Send(fmt.Sprintf("✅ 已新增帳本「%s」\n\n使用 /ledger_use %s 切換", name, name))
-}
-
-func (h *Handler) handleLedgerUse(c tele.Context) error {
-	args := c.Args()
-	if len(args) < 1 {
-		return c.Send("❌ 格式錯誤\n\n用法: /ledger_use <名稱>")
-	}
-	name := args[0]
-
-	ctx, cancel := ledgerCtx()
-	defer cancel()
-
-	// Pre-fetch ledger list to show alternatives when name is not found.
-	ledgers, listErr := h.ledgerService.List(ctx)
-	if listErr != nil {
-		slog.Error("Failed to list ledgers", "error", listErr)
-		return c.Send("❌ 查詢失敗，請稍後再試")
-	}
-
-	found := false
-	for _, l := range ledgers {
-		if l.Name == name {
-			found = true
-			break
-		}
-	}
-	if !found {
-		var names []string
-		for _, l := range ledgers {
-			names = append(names, l.Name)
-		}
-		return c.Send(fmt.Sprintf("❌ 找不到帳本「%s」\n\n可用帳本: %s", name, strings.Join(names, ", ")))
-	}
-
-	if err := h.ledgerService.SetActive(ctx, name); err != nil {
-		if errors.Is(err, domain.ErrLedgerNotFound) {
-			return c.Send(fmt.Sprintf("❌ 找不到帳本「%s」", name))
-		}
-		slog.Error("Failed to set active ledger", "error", err)
-		return c.Send("❌ 切換失敗，請稍後再試")
-	}
-	return c.Send(fmt.Sprintf("✅ 已切換至帳本「%s」", name))
+	return &command
 }
