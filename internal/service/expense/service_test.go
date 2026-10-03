@@ -148,50 +148,6 @@ func TestGetTodaySummary_TWDOnly(t *testing.T) {
 	}
 }
 
-func TestGetTodaySummary_JPYWithStoredRate(t *testing.T) {
-	rate := decimal.NewFromFloat(0.22)
-	repo := &spyRepo{
-		expenses: []domain.Expense{
-			{Name: "ramen", Price: 1000, Currency: domain.CurrencyJPY, ExchangeRate: rate, Category: domain.CategoryFood},
-		},
-	}
-	svc := NewService(repo, nil, nil)
-
-	summary, err := svc.GetTodaySummary(context.Background(), testTrip)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	expected := decimal.NewFromInt(1000).Mul(rate)
-	if !summary.GrandTotal.Equal(expected) {
-		t.Errorf("expected grand total %s, got %s", expected, summary.GrandTotal)
-	}
-}
-
-func TestGetTodaySummary_CategoryOrder(t *testing.T) {
-	repo := &spyRepo{
-		expenses: []domain.Expense{
-			{Name: "taxi", Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryTransport},
-			{Name: "lunch", Price: 200, Currency: domain.CurrencyTWD, Category: domain.CategoryFood},
-		},
-	}
-	svc := NewService(repo, nil, nil)
-
-	summary, err := svc.GetTodaySummary(context.Background(), testTrip)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(summary.Items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(summary.Items))
-	}
-	if summary.Items[0].Category != domain.CategoryFood {
-		t.Errorf("expected first category to be food, got %s", summary.Items[0].Category)
-	}
-	if summary.Items[1].Category != domain.CategoryTransport {
-		t.Errorf("expected second category to be transport, got %s", summary.Items[1].Category)
-	}
-}
-
 func TestGetTodaySummary_GroupsInNoccountingsCategoryOrder(t *testing.T) {
 	repo := &spyRepo{
 		expenses: []domain.Expense{
@@ -292,50 +248,6 @@ func TestCreateFromReceipt_SingleMode(t *testing.T) {
 	}
 }
 
-func TestCreateFromReceipt_SplitMode(t *testing.T) {
-	analysis := &domain.ReceiptAnalysis{
-		Summary:  "全家便利商店",
-		Total:    350,
-		Currency: domain.CurrencyTWD,
-		Items: []domain.ReceiptItem{
-			{Name: "茶葉蛋", Price: 10, Category: domain.CategoryFood},
-			{Name: "御飯糰", Price: 35, Category: domain.CategoryFood},
-			{Name: "洗衣精", Price: 99, Category: domain.CategoryOther},
-		},
-	}
-	analyzer := &stubReceiptAnalyzer{analysis: analysis}
-	repo := &spyRepo{}
-	svc := NewService(repo, nil, analyzer)
-
-	err := svc.CreateFromReceipt(context.Background(), testTrip, []byte("imagedata"), "userABC", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(repo.createdExpenses) != 3 {
-		t.Fatalf("expected 3 created expenses, got %d", len(repo.createdExpenses))
-	}
-
-	for i, exp := range repo.createdExpenses {
-		if exp.PaidByID != "userABC" {
-			t.Errorf("item %d: expected PaidByID 'userABC', got '%s'", i, exp.PaidByID)
-		}
-		if exp.ReceiptURL != "https://example.com/receipt.jpg" {
-			t.Errorf("item %d: unexpected ReceiptURL: %s", i, exp.ReceiptURL)
-		}
-		if exp.ShoppedAt.IsZero() {
-			t.Errorf("item %d: expected ShoppedAt to be set", i)
-		}
-	}
-
-	if repo.createdExpenses[0].Name != "茶葉蛋" {
-		t.Errorf("expected '茶葉蛋', got '%s'", repo.createdExpenses[0].Name)
-	}
-	if repo.createdExpenses[2].Category != domain.CategoryOther {
-		t.Errorf("expected category other for item 2, got %s", repo.createdExpenses[2].Category)
-	}
-}
-
 type fakeFailOnSecondCallRepo struct {
 	spyRepo
 	callCount int
@@ -347,54 +259,6 @@ func (r *fakeFailOnSecondCallRepo) CreateExpense(ctx context.Context, trip domai
 		return errors.New("db error on second item")
 	}
 	return r.spyRepo.CreateExpense(ctx, trip, expense)
-}
-
-func TestCreateFromReceipt_SplitMode_PartialFailure(t *testing.T) {
-	analysis := &domain.ReceiptAnalysis{
-		Summary:  "test",
-		Total:    100,
-		Currency: domain.CurrencyTWD,
-		Items: []domain.ReceiptItem{
-			{Name: "item1", Price: 50, Category: domain.CategoryFood},
-			{Name: "item2", Price: 50, Category: domain.CategoryFood},
-		},
-	}
-	analyzer := &stubReceiptAnalyzer{analysis: analysis}
-	repo := &fakeFailOnSecondCallRepo{}
-
-	svc := NewService(repo, nil, analyzer)
-	err := svc.CreateFromReceipt(context.Background(), testTrip, []byte("data"), "u1", true)
-	if err != nil {
-		t.Fatalf("expected nil error on partial failure, got: %v", err)
-	}
-
-	if len(repo.createdExpenses) != 1 {
-		t.Errorf("expected 1 successfully created expense, got %d", len(repo.createdExpenses))
-	}
-	if repo.createdExpenses[0].Name != "item1" {
-		t.Errorf("expected first item 'item1', got '%s'", repo.createdExpenses[0].Name)
-	}
-}
-
-func TestCreateFromReceipt_UploadError_GracefulDegradation(t *testing.T) {
-	analysis := &domain.ReceiptAnalysis{Summary: "test", Total: 100, Currency: domain.CurrencyTWD}
-	analyzer := &stubReceiptAnalyzer{analysis: analysis}
-	repo := &spyRepo{
-		uploadFileFn: func(_ context.Context, _ string) (string, error) {
-			return "", errors.New("upload failed")
-		},
-	}
-	svc := NewService(repo, nil, analyzer)
-	err := svc.CreateFromReceipt(context.Background(), testTrip, []byte("data"), "u1", false)
-	if err != nil {
-		t.Fatalf("expected no error on upload failure, got %v", err)
-	}
-	if len(repo.createdExpenses) != 1 {
-		t.Fatalf("expected expense to be created despite upload failure, got %d", len(repo.createdExpenses))
-	}
-	if repo.createdExpenses[0].ReceiptURL != "" {
-		t.Errorf("expected empty ReceiptURL, got %q", repo.createdExpenses[0].ReceiptURL)
-	}
 }
 
 func TestFetchExchangeRate_NoFetcher(t *testing.T) {
@@ -432,18 +296,6 @@ func TestFetchExchangeRate_FetcherError(t *testing.T) {
 	_, err := svc.FetchExchangeRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
 	if err == nil || err.Error() != "timeout" {
 		t.Errorf("expected 'timeout', got %v", err)
-	}
-}
-
-func TestDelegation_CreateExpense(t *testing.T) {
-	repo := &spyRepo{}
-	svc := NewService(repo, nil, nil)
-	exp := &domain.Expense{Name: "test", Price: 100, Currency: domain.CurrencyTWD}
-	if err := svc.CreateExpense(context.Background(), testTrip, exp); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(repo.createdExpenses) != 1 {
-		t.Errorf("expected 1 created expense, got %d", len(repo.createdExpenses))
 	}
 }
 

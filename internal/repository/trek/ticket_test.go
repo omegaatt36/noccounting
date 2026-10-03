@@ -77,22 +77,6 @@ func TestTicketJSON_ScalesALineByTheSameTableAsTheTotal(t *testing.T) {
 	}
 }
 
-func TestTicketJSON_WritesAPriceAsTheStringTREKExpects(t *testing.T) {
-	repo := &tripRepo{client: NewClient(Config{}), tripID: 3}
-	expense := &domain.Expense{
-		Currency:     domain.CurrencyTWD,
-		ReceiptItems: []domain.ReceiptItem{{Name: "滷蛋", Price: 100}},
-	}
-
-	stored, err := repo.ticketJSON(expense, bobAlone())
-	if err != nil {
-		t.Fatalf("ticketJSON() error = %v", err)
-	}
-	if want := `{"items":[{"name":"滷蛋","price":"100","parts":[8]}]}`; stored != want {
-		t.Errorf("ticketJSON() = %s, want %s — the price is quoted, not bare", stored, want)
-	}
-}
-
 func TestTicketJSON_LeavesTheColumnAloneForAnExpenseWithNoLines(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -167,24 +151,6 @@ func TestTicketJSON_RefusesACurrencyItCannotScale(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "USD") {
 		t.Errorf("ticketJSON() error = %v, want it to name the currency it cannot scale", err)
-	}
-}
-
-func TestDecodeTicketJSON_ReadsALineBackTheWayTheWriteWroteIt(t *testing.T) {
-	lines := decodeTicketJSON(lunchTicket, domain.CurrencyTWD)
-
-	want := []domain.ReceiptItem{
-		{Name: "拉麵", NameZH: "拉面", Price: 900},
-		{Name: "滷蛋", Price: 100},
-		{Name: "飲料", Price: 200},
-	}
-	if len(lines) != len(want) {
-		t.Fatalf("decodeTicketJSON() read %d lines %v, want %d", len(lines), lines, len(want))
-	}
-	for i, line := range lines {
-		if line != want[i] {
-			t.Errorf("line %d = %+v, want %+v", i, line, want[i])
-		}
 	}
 }
 

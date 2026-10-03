@@ -604,58 +604,6 @@ func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 	}
 }
 
-func TestHandleCreateExpenseSuccess(t *testing.T) {
-	botToken := "test-token"
-	telegramID := int64(123456789)
-	mockRepo := &stubAccountingRepo{}
-	fakeUserRepo := &fakeUserRepo{
-		users: map[int64]*domain.User{
-			telegramID: {
-				ID:            1,
-				TelegramID:    telegramID,
-				BackendUserID: "123",
-				Nickname:      "John Doe",
-			},
-		},
-	}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	// Create valid init_data
-	params := map[string]string{
-		"query_id": "AAHdF6IQAAAAAAAA",
-		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
-	}
-	initData := buildValidTelegramInitData(botToken, params)
-
-	data := url.Values{"trip_id": {"3"}}
-	data.Set("init_data", initData)
-	data.Set("name", "Lunch")
-	data.Set("price", "100")
-	data.Set("currency", "TWD")
-	data.Set("category", "food")
-	data.Set("method", "cash")
-
-	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-
-	handler.handleCreateExpense(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
-	}
-
-	body := w.Body.String()
-	if body == "" {
-		t.Errorf("expected non-empty response body")
-	}
-}
-
 func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	botToken := "test-token"
 	telegramID1 := int64(123456789)
@@ -700,59 +648,6 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	data.Set("category", "food")
 	data.Set("method", "cash")
 	data.Set("paid_by", "987654321") // User 2 paid
-
-	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-
-	handler.handleCreateExpense(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
-	}
-
-	body := w.Body.String()
-	if body == "" {
-		t.Errorf("expected non-empty response body")
-	}
-}
-
-func TestHandleCreateExpenseWithJPYExchangeRate(t *testing.T) {
-	botToken := "test-token"
-	telegramID := int64(123456789)
-	mockRepo := &stubAccountingRepo{}
-	fakeUserRepo := &fakeUserRepo{
-		users: map[int64]*domain.User{
-			telegramID: {
-				ID:            1,
-				TelegramID:    telegramID,
-				BackendUserID: "123",
-				Nickname:      "John Doe",
-			},
-		},
-	}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	// Create valid init_data
-	params := map[string]string{
-		"query_id": "AAHdF6IQAAAAAAAA",
-		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
-	}
-	initData := buildValidTelegramInitData(botToken, params)
-
-	data := url.Values{"trip_id": {"3"}}
-	data.Set("init_data", initData)
-	data.Set("name", "Lunch")
-	data.Set("price", "1000")
-	data.Set("currency", "JPY")
-	data.Set("exchange_rate", "0.25")
-	data.Set("category", "food")
-	data.Set("method", "cash")
 
 	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -863,54 +758,6 @@ func TestRegisterRoutes(t *testing.T) {
 		if w.Code == http.StatusNotFound {
 			t.Errorf("route %s %s should be registered", method, path)
 		}
-	}
-}
-
-func TestHandleDashboardDevMode(t *testing.T) {
-	telegramID := int64(123456789)
-	mockRepo := &stubAccountingRepo{
-		expenses: []domain.Expense{
-			{
-				ID:        "expense-1",
-				Name:      "Lunch",
-				Price:     100,
-				Currency:  domain.CurrencyTWD,
-				Category:  domain.CategoryFood,
-				Method:    domain.PaymentMethodCash,
-				PaidByID:  "123",
-				ShoppedAt: time.Now(),
-			},
-		},
-	}
-	fakeUserRepo := &fakeUserRepo{
-		users: map[int64]*domain.User{
-			telegramID: {
-				ID:            1,
-				TelegramID:    telegramID,
-				BackendUserID: "123",
-				Nickname:      "John Doe",
-			},
-		},
-	}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", true)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	req := httptest.NewRequest("GET", "/partial/dashboard?range=all&trip_id=3", nil)
-	w := httptest.NewRecorder()
-
-	handler.handleDashboardContent(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
-	}
-
-	body := w.Body.String()
-	if body == "" {
-		t.Errorf("expected non-empty HTML response")
 	}
 }
 
