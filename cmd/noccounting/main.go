@@ -61,6 +61,14 @@ func main() {
 	userMapping := env("USER_MAPPING", "")
 	port := env("PORT", "8080")
 	webAppURL := env("WEBAPP_URL", "")
+	botConfig := bot.Config{
+		Token:              telegramToken,
+		WebAppURL:          webAppURL,
+		Poller:             env("POLLER", bot.PollerLongPolling),
+		WebhookPublicURL:   env("WEBHOOK_PUBLIC_URL", ""),
+		WebhookListen:      env("WEBHOOK_LISTEN", ""),
+		WebhookSecretToken: env("WEBHOOK_SECRET_TOKEN", ""),
+	}
 	logLevel := env("LOG_LEVEL", "debug")
 	llmAPIKey := env("LLM_API_KEY", "")
 	llmBaseURL := env("LLM_BASE_URL", "")
@@ -121,11 +129,13 @@ func main() {
 			return fmt.Errorf("failed to start server: %w", err)
 		}
 
-		telegramBot, err := bot.New(telegramToken, webAppURL, userService, expenseService, tripService)
+		telegramBot, err := bot.New(botConfig, userService, expenseService, tripService)
 		if err != nil {
 			return fmt.Errorf("failed to create bot: %w", err)
 		}
-		telegramBot.Start()
+		if err := telegramBot.Start(); err != nil {
+			return fmt.Errorf("failed to start bot: %w", err)
+		}
 
 		<-ctx.Done()
 
