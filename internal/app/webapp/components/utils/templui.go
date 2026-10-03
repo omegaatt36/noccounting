@@ -7,9 +7,8 @@ import (
 	"maps"
 	"time"
 
-	"github.com/a-h/templ"
-
 	twmerge "github.com/Oudwins/tailwind-merge-go"
+	"github.com/a-h/templ"
 )
 
 // TwMerge combines Tailwind classes and resolves conflicts.
@@ -26,7 +25,7 @@ func If[T comparable](condition bool, value T) T {
 	return empty
 }
 
-func IfElse[T any](condition bool, trueValue T, falseValue T) T {
+func IfElse[T any](condition bool, trueValue, falseValue T) T {
 	if condition {
 		return trueValue
 	}

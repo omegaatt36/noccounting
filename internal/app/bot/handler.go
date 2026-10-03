@@ -448,6 +448,10 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("❌ 無法取得照片")
 	}
 
+	if state := h.convManager.GetState(c.Sender().ID); state != nil && state.Step == ReceiptConfirm {
+		return c.Send("⚠️ 您還有一筆收據待確認，請先完成或取消後再傳新照片\n/cancel")
+	}
+
 	current, ok := h.currentTrip(c)
 	if !ok {
 		return nil
@@ -472,8 +476,10 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		return c.Send("❌ 無法讀取照片")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
+
+	slog.Debug("Downloaded photo from Telegram", "bytes", len(imageData))
 
 	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imageData)
 	if err != nil {
@@ -543,6 +549,11 @@ func (h *Handler) handleText(c tele.Context) error {
 
 	case StepEditValue:
 		return h.handleEditValue(c, state, text)
+
+	case StepNone, StepQuickCurrency, StepQuickCategory, StepQuickMethod,
+		StepQuickConfirm, StepEditSelect, StepEditField, ReceiptConfirm:
+		// These steps accept callbacks rather than text input.
+		return nil
 	}
 
 	return nil

@@ -19,30 +19,8 @@ env:
   IMAGE: omegaatt36/noccounting
 
 jobs:
-  determine-tag:
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
-    steps:
-      - name: Determine image tag
-        id: version
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
-          fi
-
   build-and-push:
-    needs: determine-tag
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,7 +30,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
 
       - name: Install Tailwind CSS
         run: |
@@ -66,14 +44,13 @@ jobs:
           go tool tsgo -p web/ts/tsconfig.json
           tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
 
-      - name: Build binary on ${{ matrix.arch }}
+      - name: Build Go binaries
         env:
           GOOS: linux
-          GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
-          BINARY_NAME: noccounting-${{ matrix.arch }}
         run: |
-          go build -ldflags="-s -w" -o ${BINARY_NAME} ./cmd/noccounting
+          GOARCH=amd64 go build -ldflags="-s -w" -o noccounting-amd64 ./cmd/noccounting
+          GOARCH=arm64 go build -ldflags="-s -w" -o noccounting-arm64 ./cmd/noccounting
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -84,35 +61,15 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push image (${{ matrix.arch }})
+      - name: Build and push multi-platform image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./build/noccounting/Dockerfile
-          platforms: linux/${{ matrix.arch }}
-          build-args: TARGETARCH=${{ matrix.arch }}
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.IMAGE }}-linux-${{ matrix.arch }}:${{ needs.determine-tag.outputs.tag }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  create-manifests:
-    needs: [determine-tag, build-and-push]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Create multi-platform manifest
-        run: |
-          docker buildx imagetools create \
-            --tag ${{ env.IMAGE }}:latest \
-            --tag ${{ env.IMAGE }}:${{ needs.determine-tag.outputs.tag }} \
-            ${{ env.IMAGE }}-linux-amd64:${{ needs.determine-tag.outputs.tag }} \
-            ${{ env.IMAGE }}-linux-arm64:${{ needs.determine-tag.outputs.tag }}

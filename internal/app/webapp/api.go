@@ -1,8 +1,6 @@
 package webapp
 
 import (
-	"github.com/omegaatt36/noccounting/internal/app/format"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/omegaatt36/noccounting/internal/app/format"
 	"github.com/omegaatt36/noccounting/internal/service/trip"
 )
 

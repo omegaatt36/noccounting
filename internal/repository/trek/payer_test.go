@@ -68,7 +68,8 @@ func (s *payerRosterStub) handle(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	io.WriteString(w, answer)
+	// The client may cancel the request before the stub finishes writing.
+	_, _ = io.WriteString(w, answer)
 }
 
 func (s *payerRosterStub) client() *Client {

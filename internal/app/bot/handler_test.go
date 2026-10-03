@@ -968,3 +968,19 @@ func TestHandleHelp_AdvertisesNoLedgerCommand(t *testing.T) {
 		t.Errorf("the help text no longer documents /add, so it lists nothing at all: %q", help)
 	}
 }
+
+func TestHandlePhoto_AlreadyPending_PreservesReceipt(t *testing.T) {
+	h := newTestHandler(&spyAccountingRepo{}, &stubReceiptAnalyzer{result: newTestAnalysis()})
+	ctx := newPhotoContext(&spyBotAPI{fileReader: io.NopCloser(bytes.NewReader([]byte("image")))})
+	pending := &ConversationState{Step: ReceiptConfirm, ReceiptAnalysis: newTestAnalysis(), ReceiptImage: []byte("original")}
+	h.convManager.SetState(ctx.Sender().ID, pending)
+	if err := h.handlePhoto(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if state := h.convManager.GetState(ctx.Sender().ID); state != pending {
+		t.Fatal("pending receipt overwritten")
+	}
+	if len(ctx.sentMsgs) != 1 || !strings.Contains(ctx.sentMsgs[0].(string), "還有一筆收據待確認") {
+		t.Fatalf("messages: %v", ctx.sentMsgs)
+	}
+}

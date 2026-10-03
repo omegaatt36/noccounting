@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omegaatt36/noccounting/domain"
 	"github.com/shopspring/decimal"
+
+	"github.com/omegaatt36/noccounting/domain"
 )
 
 type spyRepo struct {
@@ -38,10 +39,12 @@ func (m *spyRepo) UpdateExpense(_ context.Context, trip domain.Trip, _ *domain.E
 	m.opened = append(m.opened, trip)
 	return nil
 }
+
 func (m *spyRepo) DeleteExpense(_ context.Context, trip domain.Trip, _ string) error {
 	m.opened = append(m.opened, trip)
 	return nil
 }
+
 func (m *spyRepo) Settlement(_ context.Context, trip domain.Trip) (*domain.Settlement, error) {
 	m.opened = append(m.opened, trip)
 	return &domain.Settlement{Currency: domain.CurrencyTWD}, nil

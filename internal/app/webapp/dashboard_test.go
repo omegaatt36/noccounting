@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/omegaatt36/noccounting/domain"
 	"github.com/shopspring/decimal"
+
+	"github.com/omegaatt36/noccounting/domain"
 )
 
 func mustDecimal(s string) decimal.Decimal {

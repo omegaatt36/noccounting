@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app/format"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components"
-	"github.com/shopspring/decimal"
 )
 
 type DashboardData struct {

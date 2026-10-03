@@ -9,12 +9,15 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
+	"github.com/omegaatt36/noccounting/internal/util/imageutil"
 )
 
 type Analyzer struct {
@@ -28,12 +31,17 @@ var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
 
 func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 	return &Analyzer{
-		httpClient: &http.Client{Timeout: 60 * time.Second},
+		httpClient: &http.Client{Timeout: 180 * time.Second},
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
 		model:      model,
 	}
 }
+
+const systemPrompt = `You are a receipt OCR parser.
+Your ONLY job is to read the receipt image and output a single JSON object.
+Do NOT think step by step. Do NOT explain. Do NOT output markdown code blocks.
+Output raw, valid JSON and nothing else.`
 
 const receiptPromptTemplate = `Analyze this receipt image. Extract all items with their prices, categories, and Traditional Chinese translations.
 
@@ -60,7 +68,13 @@ Rules:
 var receiptPrompt = fmt.Sprintf(receiptPromptTemplate, strings.Join(domain.CategoryNames(), ", "))
 
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {
-	b64Image := base64.StdEncoding.EncodeToString(imageData)
+	resized, err := imageutil.ResizeAndCompress(imageData, 512, 80)
+	if err != nil {
+		slog.Warn("Failed to resize image, using original", "error", err)
+		resized = imageData
+	}
+	b64Image := base64.StdEncoding.EncodeToString(resized)
+	slog.Debug("Prepared image for LLM", "original_bytes", len(imageData), "resized_bytes", len(resized))
 
 	const maxRetries = 2
 	var lastErr error
@@ -91,11 +105,14 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 	return nil, fmt.Errorf("failed to call LLM API after %d retries: %w", maxRetries, lastErr)
 }
 
+var jsonBlockRE = regexp.MustCompile(`(?s)\{.*\}`)
+
 func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.ReceiptAnalysis, error) {
 	reqID := uuid.New().String()
 	reqBody := chatRequest{
 		Model: a.model,
 		Messages: []message{
+			{Role: "system", Content: []contentPart{{Type: "text", Text: systemPrompt}}},
 			{
 				Role: "user",
 				Content: []contentPart{
@@ -109,8 +126,10 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 				},
 			},
 		},
-		ResponseFormat: &responseFormat{Type: "json_object"},
-		MaxTokens:      8192,
+		ResponseFormat:  &responseFormat{Type: "json_object"},
+		MaxTokens:       16384,
+		Temperature:     new(0.0),
+		ReasoningEffort: "low",
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -150,8 +169,15 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 
 	content := chatResp.Choices[0].Message.Content
 	var analysis receiptResponse
-	if err := json.Unmarshal([]byte(content), &analysis); err != nil {
-		return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", err, content)
+	parseErr := json.Unmarshal([]byte(content), &analysis)
+	if parseErr != nil {
+		if block := jsonBlockRE.FindString(content); block != "" {
+			analysis = receiptResponse{}
+			parseErr = json.Unmarshal([]byte(block), &analysis)
+		}
+		if parseErr != nil {
+			return nil, fmt.Errorf("failed to parse LLM response as receipt data: %w\nRaw Content: %s", parseErr, content)
+		}
 	}
 
 	items := make([]domain.ReceiptItem, 0, len(analysis.Items))
@@ -180,10 +206,12 @@ type receiptItemResponse struct {
 }
 
 type chatRequest struct {
-	Model          string          `json:"model"`
-	Messages       []message       `json:"messages"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
-	ResponseFormat *responseFormat `json:"response_format,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []message       `json:"messages"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	ResponseFormat  *responseFormat `json:"response_format,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 }
 
 type responseFormat struct {

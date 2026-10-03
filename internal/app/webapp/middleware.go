@@ -188,9 +188,11 @@ func rateLimit(rate int, window time.Duration) middleware {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "60")
 				w.WriteHeader(http.StatusTooManyRequests)
-				json.NewEncoder(w).Encode(map[string]string{
+				if err := json.NewEncoder(w).Encode(map[string]string{
 					"error": "too many requests",
-				})
+				}); err != nil {
+					slog.ErrorContext(r.Context(), "encode rate limit response", "error", err)
+				}
 				return
 			}
 

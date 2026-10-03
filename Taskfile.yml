@@ -1,6 +1,17 @@
 version: "3"
 
 tasks:
+  default:
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+
+  fmt:
+    cmds:
+      - go tool golangci-lint fmt
+      - go mod tidy
+
   ts:
     desc: Compile TypeScript with tsgo
     cmds:
@@ -40,4 +51,4 @@ tasks:
 
   lint:
     cmds:
-      - go vet ./...
+      - go tool golangci-lint run

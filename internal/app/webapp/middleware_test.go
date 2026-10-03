@@ -11,7 +11,9 @@ import (
 func TestRecoverWrapNoPanic(t *testing.T) {
 	handler := recoverWrap()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -151,7 +153,9 @@ func TestRateLimiterPerIP(t *testing.T) {
 func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 
 	ip := "192.168.1.1"
@@ -181,7 +185,9 @@ func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 
 	ip := "192.168.1.1"

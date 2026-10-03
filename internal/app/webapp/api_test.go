@@ -372,8 +372,10 @@ func TestHandleMethodDetail_ListsOnlyWhatWasPaidThatWay(t *testing.T) {
 
 func TestHandleExportCSV_WritesLabelsAndTheTripsCurrency(t *testing.T) {
 	repo := &stubAccountingRepo{expenses: []domain.Expense{
-		{ID: "1", Name: "ramen", Price: 1000, Currency: domain.CurrencyJPY, ExchangeRate: decimal.RequireFromString("0.22"),
-			Category: domain.CategoryFlights, Method: domain.PaymentMethodCreditCard, PaidByID: "8", ShoppedAt: time.Date(2026, 2, 22, 0, 0, 0, 0, time.UTC)},
+		{
+			ID: "1", Name: "ramen", Price: 1000, Currency: domain.CurrencyJPY, ExchangeRate: decimal.RequireFromString("0.22"),
+			Category: domain.CategoryFlights, Method: domain.PaymentMethodCreditCard, PaidByID: "8", ShoppedAt: time.Date(2026, 2, 22, 0, 0, 0, 0, time.UTC),
+		},
 	}}
 	handler, _ := devHandler(t, repo, twoTrips{})
 

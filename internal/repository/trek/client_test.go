@@ -108,7 +108,8 @@ func (s *stubTrek) handleTrips(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	io.WriteString(w, body)
+	// The client may cancel the request before the stub finishes writing.
+	_, _ = io.WriteString(w, body)
 }
 
 func (s *stubTrek) snapshot() (logins, trips int, auth []string, payload []byte) {
@@ -340,8 +341,10 @@ func TestClient_ListTrips_ReadsEveryTripTheAccountIsOn(t *testing.T) {
 	}
 
 	want := []domain.Trip{
-		{ID: 3, Title: "2026 Tokyo", Currency: domain.CurrencyJPY,
-			StartDate: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)},
+		{
+			ID: 3, Title: "2026 Tokyo", Currency: domain.CurrencyJPY,
+			StartDate: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC),
+		},
 		{ID: 9, Title: "Osaka 2026", Currency: domain.CurrencyTWD},
 	}
 	if !reflect.DeepEqual(trips, want) {

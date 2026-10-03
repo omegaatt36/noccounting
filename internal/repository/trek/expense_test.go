@@ -395,7 +395,7 @@ func oneDelete(t *testing.T, stub *createStub) createCall {
 	return deletes[0]
 }
 
-func wantBody(t *testing.T, got map[string]any, want map[string]any) {
+func wantBody(t *testing.T, got, want map[string]any) {
 	t.Helper()
 
 	want = asDecoded(t, want)
@@ -2139,24 +2139,31 @@ type tripRepoFixture struct {
 func (r *tripRepoFixture) CreateExpense(ctx context.Context, e *domain.Expense) error {
 	return r.repo.CreateExpense(ctx, r.trip, e)
 }
+
 func (r *tripRepoFixture) QueryExpenses(ctx context.Context) ([]domain.Expense, error) {
 	return r.repo.QueryExpenses(ctx, r.trip)
 }
+
 func (r *tripRepoFixture) QueryExpensesWithFilter(ctx context.Context, filter expense.ExpenseFilter) ([]domain.Expense, error) {
 	return r.repo.QueryExpensesWithFilter(ctx, r.trip, filter)
 }
+
 func (r *tripRepoFixture) UpdateExpense(ctx context.Context, e *domain.Expense) error {
 	return r.repo.UpdateExpense(ctx, r.trip, e)
 }
+
 func (r *tripRepoFixture) DeleteExpense(ctx context.Context, id string) error {
 	return r.repo.DeleteExpense(ctx, r.trip, id)
 }
+
 func (r *tripRepoFixture) Settlement(ctx context.Context) (*domain.Settlement, error) {
 	return r.repo.Settlement(ctx, r.trip)
 }
+
 func (r *tripRepoFixture) Members(ctx context.Context) ([]domain.Member, error) {
 	return r.repo.Members(ctx, r.trip)
 }
+
 func (r *tripRepoFixture) UploadFile(ctx context.Context, filePath string) (string, error) {
 	return r.repo.UploadFile(ctx, r.trip, filePath)
 }
