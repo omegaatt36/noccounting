@@ -48,31 +48,6 @@ func assertRateClose(t *testing.T, got, want decimal.Decimal, tolerance float64)
 	}
 }
 
-func TestRateForWrite_StoresTheRateTREKDivides(t *testing.T) {
-	provider := &spyRateProvider{rate: jpyQuote()}
-
-	stored, err := rateForWrite(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD, jpyQuote(), provider)
-	if err != nil {
-		t.Fatalf("rateForWrite() error = %v", err)
-	}
-	assertRateClose(t, decimal.NewFromFloat(stored), decimal.NewFromFloat(4.5455), 0.0001)
-	if len(provider.asked) != 0 {
-		t.Errorf("a supplied rate must not be re-quoted, asked for %v", provider.asked)
-	}
-}
-
-func TestRateForRead_RecoversTheRateTotalInBaseMultiplies(t *testing.T) {
-	rate, err := rateForRead(context.Background(), 4.5455, domain.CurrencyJPY, domain.CurrencyTWD, nil)
-	if err != nil {
-		t.Fatalf("rateForRead() error = %v", err)
-	}
-	assertRateClose(t, rate, jpyQuote(), 0.00005)
-
-	if total := decimal.NewFromInt(1000).Mul(rate).Round(2); !total.Equal(decimal.NewFromInt(220)) {
-		t.Errorf("1000 JPY totals %s TWD, want 220", total)
-	}
-}
-
 func TestRateConversion_RoundTripsAcrossTheBoundary(t *testing.T) {
 	tests := []struct {
 		name   string

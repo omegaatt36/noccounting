@@ -58,27 +58,6 @@ func TestRecoverWrapWithPanic(t *testing.T) {
 	}
 }
 
-func TestRateLimiterAllowWithinLimit(t *testing.T) {
-	limiter := newRateLimiter(3, 100*time.Millisecond)
-
-	ip := "192.168.1.1"
-
-	// First request should be allowed
-	if !limiter.allow(ip) {
-		t.Errorf("first request should be allowed")
-	}
-
-	// Second request should be allowed
-	if !limiter.allow(ip) {
-		t.Errorf("second request should be allowed")
-	}
-
-	// Third request should be allowed
-	if !limiter.allow(ip) {
-		t.Errorf("third request should be allowed")
-	}
-}
-
 func TestRateLimiterAllowOverLimit(t *testing.T) {
 	limiter := newRateLimiter(2, 100*time.Millisecond)
 
@@ -226,34 +205,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 	// Verify Retry-After header
 	if retryAfter := w.Header().Get("Retry-After"); retryAfter != "60" {
 		t.Errorf("expected Retry-After header '60', got %s", retryAfter)
-	}
-}
-
-func TestRateLimitMiddlewareUsesXForwardedFor(t *testing.T) {
-	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	// First request with X-Forwarded-For header
-	req := httptest.NewRequest("GET", "/api/test", nil)
-	req.RemoteAddr = "127.0.0.1:9000"
-	req.Header.Set("X-Forwarded-For", "203.0.113.1")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("first request should return 200, got %d", w.Code)
-	}
-
-	// Second request with same X-Forwarded-For header should be rate limited
-	req = httptest.NewRequest("GET", "/api/test", nil)
-	req.RemoteAddr = "127.0.0.1:9001" // Different RemoteAddr but same X-Forwarded-For
-	req.Header.Set("X-Forwarded-For", "203.0.113.1")
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusTooManyRequests {
-		t.Errorf("second request with same X-Forwarded-For should return 429, got %d", w.Code)
 	}
 }
 

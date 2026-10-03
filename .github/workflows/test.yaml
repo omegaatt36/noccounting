@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -28,3 +31,6 @@ jobs:
         run: node --experimental-vm-modules --test web/ts/*.test.mjs
       - run: go test ./... -race -coverprofile=coverage.out
       - run: go tool cover -func=coverage.out
+      - run: go vet -all ./...
+      - run: go tool golangci-lint run
+      - run: go tool govulncheck ./...
