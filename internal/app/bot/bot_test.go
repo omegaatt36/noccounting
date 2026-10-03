@@ -33,9 +33,13 @@ func TestNew_RejectsInvalidPollerConfig(t *testing.T) {
 
 func TestCommandMenu_IsRegisteredWithTelegram(t *testing.T) {
 	var path, body string
+	var deletes int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		path, body = r.URL.Path, string(raw)
+		if strings.HasSuffix(path, "/deleteMyCommands") {
+			deletes++
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
 	}))
@@ -46,12 +50,16 @@ func TestCommandMenu_IsRegisteredWithTelegram(t *testing.T) {
 		t.Fatalf("building an offline bot: %v", err)
 	}
 
-	if err := bot.SetCommands(commands); err != nil {
-		t.Fatalf("SetCommands: %v", err)
+	if err := registerCommandMenu(bot); err != nil {
+		t.Fatalf("registerCommandMenu: %v", err)
 	}
 
+	wantDeletes := len(shadowingScopes) * len(shadowingLanguages)
+	if deletes != wantDeletes {
+		t.Errorf("sent %d deleteMyCommands, want %d", deletes, wantDeletes)
+	}
 	if !strings.HasSuffix(path, "/setMyCommands") {
-		t.Fatalf("the menu went to %q, want setMyCommands", path)
+		t.Fatalf("the last call went to %q, want setMyCommands so the menu is set after the clean-up", path)
 	}
 	var req struct {
 		Commands []tele.Command `json:"commands"`

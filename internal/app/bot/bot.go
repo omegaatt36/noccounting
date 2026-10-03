@@ -45,6 +45,27 @@ var commands = []tele.Command{
 	{Text: "cancel", Description: "取消目前的操作"},
 }
 
+var (
+	shadowingScopes = []tele.CommandScope{
+		{Type: tele.CommandScopeDefault},
+		{Type: tele.CommandScopeAllPrivateChats},
+		{Type: tele.CommandScopeAllGroupChats},
+		{Type: tele.CommandScopeAllChatAdmin},
+	}
+	shadowingLanguages = []string{"", "en", "zh"}
+)
+
+func registerCommandMenu(b *tele.Bot) error {
+	for _, scope := range shadowingScopes {
+		for _, lang := range shadowingLanguages {
+			if err := b.DeleteCommands(scope, lang); err != nil {
+				return fmt.Errorf("failed to delete the %s menu (language %q): %w", scope.Type, lang, err)
+			}
+		}
+	}
+	return b.SetCommands(commands)
+}
+
 // Bot wraps the Telegram bot and its lifecycle management.
 type Bot struct {
 	cfg     Config
@@ -137,7 +158,7 @@ func (b *Bot) Start() error {
 		slog.Info("No webhook is set, using long polling")
 	}
 
-	if err := b.bot.SetCommands(commands); err != nil {
+	if err := registerCommandMenu(b.bot); err != nil {
 		slog.Warn("Failed to register the command menu, clients may show a stale one", "error", err)
 	}
 
