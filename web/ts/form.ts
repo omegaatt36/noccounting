@@ -168,9 +168,8 @@ export function setupEventListeners(ctx: TelegramContext): void {
   });
 
   if (form && submitBtn) {
-    form.addEventListener("htmx:beforeRequest", (e: Event) => {
+    form.addEventListener("htmx:before:request", (e: Event) => {
       if (!appReady() || !validateForm()) {
-        (e as CustomEvent).detail.shouldSwap = false;
         e.preventDefault();
         (submitBtn as HTMLButtonElement).disabled = !appReady();
         submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
@@ -183,8 +182,8 @@ export function setupEventListeners(ctx: TelegramContext): void {
       setMainButtonLoading(ctx, true);
     });
 
-    form.addEventListener("htmx:afterRequest", ((e: Event) => {
-      const detail = (e as CustomEvent).detail;
+    form.addEventListener("htmx:finally:request", ((e: Event) => {
+      const detail = (e as CustomEvent<{ ctx: { response?: { status: number } } }>).detail;
       (submitBtn as HTMLButtonElement).disabled = !appReady();
       submitBtn.querySelector(".btn-text")?.classList.remove("hidden");
       submitBtn.querySelector(".btn-loading")?.classList.add("hidden");
@@ -193,7 +192,8 @@ export function setupEventListeners(ctx: TelegramContext): void {
       const toastTrigger = $("toast-trigger");
       const success = toastTrigger?.dataset.success === "true";
 
-      if (detail.successful && success) {
+      const status = detail.ctx.response?.status ?? 0;
+      if (status >= 200 && status < 300 && success) {
         haptic(ctx, "notification", "success");
         saveDefaults();
         const nameInput = $("name") as HTMLInputElement | null;

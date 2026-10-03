@@ -460,7 +460,7 @@ func DashboardContent(v DashboardView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				beforeRequest := fmt.Sprintf("const detail = document.getElementById('cat-detail-%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", cat.Slug)
-				afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
+				afterRequest := "const status = event.detail.ctx.response?.status ?? 0; this.querySelector('.chevron').textContent = status >= 200 && status < 300 ? '▼' : '▶';"
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div class=\"cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors\" hx-get=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -491,7 +491,7 @@ func DashboardContent(v DashboardView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest})
+				templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, templ.Attributes{"hx-on:htmx:before:request": beforeRequest, "hx-on:htmx:finally:request": afterRequest})
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -589,7 +589,7 @@ func DashboardContent(v DashboardView) templ.Component {
 				}
 				detailID := "method-detail-" + methodKey(method.Slug)
 				beforeRequest := fmt.Sprintf("const detail = document.getElementById('%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", detailID)
-				afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
+				afterRequest := "const status = event.detail.ctx.response?.status ?? 0; this.querySelector('.chevron').textContent = status >= 200 && status < 300 ? '▼' : '▶';"
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<div class=\"cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors\" hx-get=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -620,7 +620,7 @@ func DashboardContent(v DashboardView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest})
+				templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, templ.Attributes{"hx-on:htmx:before:request": beforeRequest, "hx-on:htmx:finally:request": afterRequest})
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

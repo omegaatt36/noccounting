@@ -47,6 +47,12 @@ func recoverWrap() middleware {
 func logging() middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip logging for health checks; probes would flood the log.
+			if r.URL.Path == "/health" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			lrw := &loggedResponseWriter{ResponseWriter: w, statusCode: http.StatusInternalServerError}
 			start := time.Now()
 			next.ServeHTTP(lrw, r)

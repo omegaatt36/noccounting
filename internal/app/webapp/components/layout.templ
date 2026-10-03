@@ -16,9 +16,10 @@ templ Page(devMode bool) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 			<title>旅行記帳</title>
+			<meta name="htmx-config" content={ `{"noSwap":[204,304,"4xx","5xx"]}` }/>
 			<link rel="stylesheet" href={ "/static/output.css?v=" + utils.ScriptVersion }/>
 			<script src="https://telegram.org/js/telegram-web-app.js"></script>
-			<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+			<script src="https://unpkg.com/htmx.org@4.0.0/dist/htmx.min.js"></script>
 			@tabs.Script()
 			@toast.Script()
 		</head>
