@@ -10,8 +10,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Install Tailwind CSS
@@ -24,5 +24,7 @@ jobs:
           go tool templ generate
           go tool tsgo -p web/ts/tsconfig.json
           tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --minify
+      - name: Test web lifecycle
+        run: node --experimental-vm-modules --test web/ts/*.test.mjs
       - run: go test ./... -race -coverprofile=coverage.out
       - run: go tool cover -func=coverage.out

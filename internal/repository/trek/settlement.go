@@ -82,7 +82,11 @@ func (r *tripRepo) Members(ctx context.Context) ([]domain.Member, error) {
 	}
 
 	members := make([]domain.Member, 0, len(roster.members))
+	serviceUserID := r.client.serviceUserID()
 	for _, member := range roster.Members() {
+		if member.UserID == serviceUserID {
+			continue
+		}
 		members = append(members, domain.Member{
 			ID:   strconv.FormatInt(member.UserID, 10),
 			Name: member.Username,

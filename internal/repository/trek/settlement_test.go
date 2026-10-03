@@ -89,6 +89,28 @@ func TestMembers_ListsTheTripRosterOwnerIncluded(t *testing.T) {
 	}
 }
 
+func TestMembers_LeavesOutTheServiceAccount(t *testing.T) {
+	stub := newCreateStub(t)
+	stub.roster = `{
+	  "owner": {"id":3,"username":"owner-trek","role":"owner"},
+	  "members": [
+	    {"id":7,"username":"noccounting-dev","role":"member"},
+	    {"id":8,"username":"bob","role":"member"}
+	  ]
+	}`
+	repo := stub.repo(t, domain.CurrencyTWD, nil)
+
+	got, err := repo.Members(context.Background())
+	if err != nil {
+		t.Fatalf("Members() error = %v", err)
+	}
+
+	want := []domain.Member{{ID: "3", Name: "owner-trek"}, {ID: "8", Name: "bob"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Members() = %+v, want %+v", got, want)
+	}
+}
+
 func TestQueryExpensesWithFilter_KeepsOnlyTheExpensesPaidTheWayAsked(t *testing.T) {
 	stub := newCreateStub(t)
 	stub.listing = listingOf(t,

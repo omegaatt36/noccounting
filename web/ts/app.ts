@@ -25,16 +25,16 @@ if (initDataInput) initDataInput.value = ctx.initData;
 
 // Every HTMX request is about the trip the page was opened for, and in non-dev
 // mode carries the init_data that says who is asking.
-document.body.addEventListener("htmx:configRequest", (evt) => {
-  const htmxEvt = evt as CustomEvent<{ path: string }>;
-  let path = htmxEvt.detail.path;
+document.body.addEventListener("htmx:config:request", (evt) => {
+  const htmxEvt = evt as CustomEvent<{ ctx: { request: { action: string } } }>;
+  let path = htmxEvt.detail.ctx.request.action;
   const add = (key: string, value: string) => {
     if (!value || path.includes(`${key}=`)) return;
     path = `${path}${path.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
   };
   if (!DEV_MODE) add("init_data", ctx.initData);
   add("trip_id", tripId());
-  htmxEvt.detail.path = path;
+  htmxEvt.detail.ctx.request.action = path;
 });
 
 {

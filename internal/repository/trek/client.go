@@ -54,6 +54,9 @@ type loginRequest struct {
 type loginResponse struct {
 	Token       string `json:"token"`
 	MFARequired bool   `json:"mfa_required"`
+	User        struct {
+		ID int64 `json:"id"`
+	} `json:"user"`
 }
 
 type tripsResponse struct {
@@ -74,8 +77,9 @@ type Client struct {
 	email      string
 	password   string
 
-	mu    sync.Mutex
-	token string
+	mu     sync.Mutex
+	token  string
+	userID int64
 }
 
 func NewClient(cfg Config) *Client {
@@ -95,10 +99,17 @@ func (c *Client) Start(ctx context.Context) error {
 	return c.login(ctx)
 }
 
-func (c *Client) setToken(token string) {
+func (c *Client) setSession(token string, userID int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.token = token
+	c.token, c.userID = token, userID
+}
+
+// The service account only records expenses; it never takes part in a trip.
+func (c *Client) serviceUserID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.userID
 }
 
 func (c *Client) sessionToken() string {
@@ -130,7 +141,7 @@ func (c *Client) login(ctx context.Context) error {
 		return fmt.Errorf("trek login returned no session token")
 	}
 
-	c.setToken(resp.Token)
+	c.setSession(resp.Token, resp.User.ID)
 	slog.Info("authenticated against TREK")
 	return nil
 }

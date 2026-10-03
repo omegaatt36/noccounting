@@ -213,14 +213,14 @@ templ DashboardContent(v DashboardView) {
 					<div>
 						{{
 							beforeRequest := fmt.Sprintf("const detail = document.getElementById('cat-detail-%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", cat.Slug)
-							afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
+							afterRequest := "const status = event.detail.ctx.response?.status ?? 0; this.querySelector('.chevron').textContent = status >= 200 && status < 300 ? '▼' : '▶';"
 						}}
 						<div
 							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
 							hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Slug, v.DateRange) }
 							hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Slug) }
 							hx-swap="innerHTML"
-							{ templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest}... }
+							{ templ.Attributes{"hx-on:htmx:before:request": beforeRequest, "hx-on:htmx:finally:request": afterRequest}... }
 						>
 							<div class="w-8 text-center">{ cat.Emoji }</div>
 							<div class="w-20 text-sm text-muted-foreground">{ cat.Label }</div>
@@ -245,14 +245,14 @@ templ DashboardContent(v DashboardView) {
 						{{
 							detailID := "method-detail-" + methodKey(method.Slug)
 							beforeRequest := fmt.Sprintf("const detail = document.getElementById('%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", detailID)
-							afterRequest := "this.querySelector('.chevron').textContent = event.detail.successful ? '▼' : '▶';"
+							afterRequest := "const status = event.detail.ctx.response?.status ?? 0; this.querySelector('.chevron').textContent = status >= 200 && status < 300 ? '▼' : '▶';"
 						}}
 						<div
 							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
 							hx-get={ fmt.Sprintf("/partial/dashboard/method?name=%s&range=%s", method.Slug, v.DateRange) }
 							hx-target={ "#" + detailID }
 							hx-swap="innerHTML"
-							{ templ.Attributes{"hx-on:htmx:before-request": beforeRequest, "hx-on:htmx:after-request": afterRequest}... }
+							{ templ.Attributes{"hx-on:htmx:before:request": beforeRequest, "hx-on:htmx:finally:request": afterRequest}... }
 						>
 							<div class="w-8 text-center">{ method.Emoji }</div>
 							<div class="w-20 text-sm text-muted-foreground">{ method.Label }</div>
