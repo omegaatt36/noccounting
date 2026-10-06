@@ -45,28 +45,58 @@ type ConversationState struct {
 	ReceiptImage    []byte
 }
 
+const defaultConversationTTL = 15 * time.Minute
+
 // ConversationManager is conversation state per user id.
 type ConversationManager struct {
 	states sync.Map // map[int64]*ConversationState (user ID -> state)
+	ttl    time.Duration
 }
 
 func NewConversationManager() *ConversationManager {
-	return &ConversationManager{}
+	return NewConversationManagerWithTTL(defaultConversationTTL)
+}
+
+func NewConversationManagerWithTTL(ttl time.Duration) *ConversationManager {
+	return &ConversationManager{ttl: ttl}
 }
 
 func (m *ConversationManager) GetState(userID int64) *ConversationState {
-	if state, ok := m.states.Load(userID); ok {
-		return state.(*ConversationState)
+	val, ok := m.states.Load(userID)
+	if !ok {
+		return nil
 	}
-	return nil
+	state := val.(*ConversationState)
+	if m.ttl > 0 && time.Since(state.StartedAt) > m.ttl {
+		m.states.Delete(userID)
+		return nil
+	}
+	return state
 }
 
 func (m *ConversationManager) SetState(userID int64, state *ConversationState) {
+	if state != nil && state.StartedAt.IsZero() {
+		state.StartedAt = time.Now()
+	}
 	m.states.Store(userID, state)
 }
 
 func (m *ConversationManager) ClearState(userID int64) {
 	m.states.Delete(userID)
+}
+
+func (m *ConversationManager) Cleanup() {
+	if m.ttl <= 0 {
+		return
+	}
+	m.states.Range(func(key, value any) bool {
+		if state, ok := value.(*ConversationState); ok {
+			if time.Since(state.StartedAt) > m.ttl {
+				m.states.Delete(key)
+			}
+		}
+		return true
+	})
 }
 
 func (m *ConversationManager) StartQuickFlow(userID int64, backendUserID string, trip domain.Trip) *ConversationState {

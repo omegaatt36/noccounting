@@ -73,9 +73,14 @@ func (s *Service) Members(ctx context.Context, trip domain.Trip) ([]domain.Membe
 	return s.repo.Members(ctx, trip)
 }
 
-func (s *Service) GetTodaySummary(ctx context.Context, trip domain.Trip) (*TodaySummary, error) {
-	now := time.Now()
-	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+func (s *Service) GetTodaySummary(ctx context.Context, trip domain.Trip, loc ...*time.Location) (*TodaySummary, error) {
+	location := time.Local
+	if len(loc) > 0 && loc[0] != nil {
+		location = loc[0]
+	}
+
+	now := time.Now().In(location)
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	endOfDay := startOfDay.Add(24 * time.Hour).Add(-time.Nanosecond)
 
 	expenses, err := s.repo.QueryExpensesWithFilter(ctx, trip, ExpenseFilter{

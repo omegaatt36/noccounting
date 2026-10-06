@@ -9,7 +9,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/shopspring/decimal"
 	tele "gopkg.in/telebot.v4"
@@ -31,6 +33,8 @@ type Handler struct {
 	tripService    *trip.Service
 	webAppURL      string
 	convManager    *ConversationManager
+	tzMu           sync.RWMutex
+	timezones      map[int64]*time.Location
 }
 
 func NewHandler(
@@ -45,6 +49,7 @@ func NewHandler(
 		tripService:    tripService,
 		webAppURL:      webAppURL,
 		convManager:    NewConversationManager(),
+		timezones:      make(map[int64]*time.Location),
 	}
 }
 
@@ -59,6 +64,8 @@ func (h *Handler) RegisterHandlers(bot *tele.Bot) {
 	bot.Handle("/list", h.handleList)
 	bot.Handle("/summary", h.handleSummary)
 	bot.Handle("/today", h.handleToday)
+	bot.Handle("/tz", h.handleTimezone)
+	bot.Handle("/timezone", h.handleTimezone)
 	bot.Handle("/quick", h.handleQuick)
 	bot.Handle("/edit", h.handleEdit)
 	bot.Handle("/cancel", h.handleCancel)
@@ -171,6 +178,9 @@ func (h *Handler) handleHelp(c tele.Context) error {
 
 /today
   查看今日消費統計
+
+/tz [時區]
+  查看並切換統計時區（台灣 Asia/Taipei 或日本 Asia/Tokyo）
 
 /list [付款方式]
   列出最近的消費記錄，可只看某種付款方式
@@ -531,11 +541,15 @@ func (h *Handler) handleText(c tele.Context) error {
 		return c.Send("💰 請輸入金額（正整數）：")
 
 	case StepQuickPrice:
-		price, err := strconv.ParseUint(text, 10, 64)
-		if err != nil {
-			return c.Send("❌ 金額格式錯誤，請輸入正整數：")
+		priceDec, err := decimal.NewFromString(text)
+		if err != nil || !priceDec.IsPositive() {
+			return c.Send("❌ 金額格式錯誤，請輸入大於 0 的金額：")
 		}
-		state.ExpenseDraft.Price = price
+		rounded := priceDec.Round(0)
+		if !rounded.IsPositive() || !rounded.BigInt().IsUint64() {
+			return c.Send("❌ 金額格式錯誤，請輸入大於 0 的金額：")
+		}
+		state.ExpenseDraft.Price = rounded.BigInt().Uint64()
 		state.Step = StepQuickCurrency
 
 		keyboard := &tele.ReplyMarkup{}
@@ -571,6 +585,11 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	// Handle trip selection (format: "trip|{trip_id}")
 	if strings.HasPrefix(data, "trip|") {
 		return h.handleTripCallback(c, data)
+	}
+
+	// Handle timezone selection (format: "tz|{timezone}")
+	if strings.HasPrefix(data, "tz|") {
+		return h.handleTimezoneCallback(c, data)
 	}
 
 	// Handle edit expense selection (format: "edit_select|{expense_id}")
@@ -887,11 +906,15 @@ func (h *Handler) handleEditValue(c tele.Context, state *ConversationState, text
 	case "name":
 		exp.Name = text
 	case "price":
-		price, err := strconv.ParseUint(text, 10, 64)
-		if err != nil {
-			return c.Send("❌ 金額格式錯誤，請輸入正整數：")
+		priceDec, err := decimal.NewFromString(text)
+		if err != nil || !priceDec.IsPositive() {
+			return c.Send("❌ 金額格式錯誤，請輸入大於 0 的金額：")
 		}
-		exp.Price = price
+		rounded := priceDec.Round(0)
+		if !rounded.IsPositive() || !rounded.BigInt().IsUint64() {
+			return c.Send("❌ 金額格式錯誤，請輸入大於 0 的金額：")
+		}
+		exp.Price = rounded.BigInt().Uint64()
 	default:
 		return c.Send("❌ 未知的欄位")
 	}
@@ -1083,18 +1106,20 @@ func (h *Handler) handleToday(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	summary, err := h.expenseService.GetTodaySummary(ctx, current)
+	loc := h.getTimezone(c.Sender().ID)
+	summary, err := h.expenseService.GetTodaySummary(ctx, current, loc)
 	if err != nil {
 		slog.Error("Failed to get today's summary", "error", err)
 		return c.Send("❌ 查詢失敗，請稍後再試")
 	}
 
+	tzNotice := fmt.Sprintf("（%s）", loc.String())
 	if len(summary.Items) == 0 {
-		return c.Send(fmt.Sprintf("📅 %s 消費統計\n%s\n\n📭 今日尚無消費記錄", summary.Date.Format("2006/01/02"), tripLine(current)))
+		return c.Send(fmt.Sprintf("📅 %s %s消費統計\n%s\n\n📭 今日尚無消費記錄", summary.Date.Format("2006/01/02"), tzNotice, tripLine(current)))
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "📅 %s 消費統計\n%s\n\n", summary.Date.Format("2006/01/02"), tripLine(current))
+	fmt.Fprintf(&sb, "📅 %s %s消費統計\n%s\n\n", summary.Date.Format("2006/01/02"), tzNotice, tripLine(current))
 
 	for _, item := range summary.Items {
 		fmt.Fprintf(&sb, "%s: %s\n", format.Category(item.Category), format.Money(summary.Currency, item.Total))
@@ -1162,4 +1187,87 @@ func receiptCommand(analysis *domain.ReceiptAnalysis) *domain.ReceiptAnalysis {
 		command.Items[i].NameZH = ""
 	}
 	return &command
+}
+
+func (h *Handler) getTimezone(userID int64) *time.Location {
+	h.tzMu.RLock()
+	defer h.tzMu.RUnlock()
+	if loc, ok := h.timezones[userID]; ok && loc != nil {
+		return loc
+	}
+	loc, err := time.LoadLocation("Asia/Taipei")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
+}
+
+func (h *Handler) setTimezone(userID int64, loc *time.Location) {
+	h.tzMu.Lock()
+	defer h.tzMu.Unlock()
+	h.timezones[userID] = loc
+}
+
+func (h *Handler) handleTimezone(c tele.Context) error {
+	loc := h.getTimezone(c.Sender().ID)
+	name := loc.String()
+	offset := tzOffsetString(loc)
+
+	payload := strings.TrimSpace(c.Message().Payload)
+	if payload != "" {
+		newLoc, err := parseTimezone(payload)
+		if err != nil {
+			return c.Send("❌ 無法辨識的時區名稱。支援例如：Asia/Taipei, Asia/Tokyo 或直接使用 /tz 點擊按鈕選擇")
+		}
+		h.setTimezone(c.Sender().ID, newLoc)
+		return c.Send(fmt.Sprintf("✅ 已將時區設定為：%s (%s)", newLoc.String(), tzOffsetString(newLoc)))
+	}
+
+	keyboard := &tele.ReplyMarkup{}
+	keyboard.Inline(
+		keyboard.Row(
+			keyboard.Data("🇹🇼 台灣 (UTC+8)", "tz", "Asia/Taipei"),
+			keyboard.Data("🇯🇵 日本 (UTC+9)", "tz", "Asia/Tokyo"),
+		),
+	)
+
+	return c.Send(fmt.Sprintf("🕒 目前統計時區：%s (%s)\n\n請選擇統計時區：", name, offset), keyboard)
+}
+
+func (h *Handler) handleTimezoneCallback(c tele.Context, data string) error {
+	parts := strings.Split(data, "|")
+	if len(parts) < 2 {
+		return c.Respond(&tele.CallbackResponse{Text: "無效的選擇"})
+	}
+	tzName := parts[1]
+	newLoc, err := parseTimezone(tzName)
+	if err != nil {
+		return c.Respond(&tele.CallbackResponse{Text: "無法辨識的時區"})
+	}
+	h.setTimezone(c.Sender().ID, newLoc)
+	if err := c.Respond(&tele.CallbackResponse{Text: "已更新時區為 " + newLoc.String()}); err != nil {
+		slog.Warn("Failed to respond callback", "error", err)
+	}
+	return c.Send(fmt.Sprintf("✅ 已將統計時區設定為：%s (%s)", newLoc.String(), tzOffsetString(newLoc)))
+}
+
+func parseTimezone(input string) (*time.Location, error) {
+	norm := strings.ToLower(strings.TrimSpace(input))
+	switch norm {
+	case "tw", "taiwan", "taipei", "asia/taipei", "utc+8", "gmt+8":
+		return time.LoadLocation("Asia/Taipei")
+	case "jp", "japan", "tokyo", "asia/tokyo", "utc+9", "gmt+9":
+		return time.LoadLocation("Asia/Tokyo")
+	default:
+		return time.LoadLocation(strings.TrimSpace(input))
+	}
+}
+
+func tzOffsetString(loc *time.Location) string {
+	_, offsetSec := time.Now().In(loc).Zone()
+	hours := offsetSec / 3600
+	if hours >= 0 {
+		return fmt.Sprintf("UTC+%d", hours)
+	}
+	return fmt.Sprintf("UTC%d", hours)
 }

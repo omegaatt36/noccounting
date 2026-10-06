@@ -3,6 +3,7 @@ package trek
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/service/expense"
@@ -13,12 +14,18 @@ type Repo struct {
 	rates   rateProvider
 	mu      sync.Mutex
 	rosters map[int64]*PayerResolver
+	budgets map[int64]*budgetCache
 }
 
 var _ expense.AccountingRepo = (*Repo)(nil)
 
 func NewRepo(client *Client, rates rateProvider) *Repo {
-	return &Repo{client: client, rates: rates, rosters: make(map[int64]*PayerResolver)}
+	return &Repo{
+		client:  client,
+		rates:   rates,
+		rosters: make(map[int64]*PayerResolver),
+		budgets: make(map[int64]*budgetCache),
+	}
 }
 
 func (r *Repo) forTrip(trip domain.Trip) *tripRepo {
@@ -29,7 +36,12 @@ func (r *Repo) forTrip(trip domain.Trip) *tripRepo {
 		resolver = NewPayerResolver(r.client, trip.ID)
 		r.rosters[trip.ID] = resolver
 	}
-	return newTripRepo(r.client, trip, resolver, r.rates)
+	bCache := r.budgets[trip.ID]
+	if bCache == nil {
+		bCache = newBudgetCache(10 * time.Second)
+		r.budgets[trip.ID] = bCache
+	}
+	return newTripRepo(r.client, trip, resolver, r.rates, bCache)
 }
 
 func (r *Repo) CreateExpense(ctx context.Context, trip domain.Trip, e *domain.Expense) error {

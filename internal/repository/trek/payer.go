@@ -143,6 +143,7 @@ func (r *PayerResolver) Participants(ctx context.Context, ids []string) ([]int64
 
 	participants := make([]int64, 0, len(ids))
 	seen := make(map[int64]struct{}, len(ids))
+	refreshed := false
 	for _, id := range ids {
 		userID, err := parseTrekUserID(PayerRef{ID: id})
 		if err != nil {
@@ -153,9 +154,12 @@ func (r *PayerResolver) Participants(ctx context.Context, ids []string) ([]int64
 		}
 
 		if !roster.Contains(userID) {
-			roster, err = r.refreshRoster(ctx)
-			if err != nil {
-				return nil, err
+			if !refreshed {
+				roster, err = r.refreshRoster(ctx)
+				if err != nil {
+					return nil, err
+				}
+				refreshed = true
 			}
 			if !roster.Contains(userID) {
 				return nil, fmt.Errorf("%w: TREK user %d is not on trip %d. On the trip: %s",

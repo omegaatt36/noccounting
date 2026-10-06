@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -15,28 +16,38 @@ import (
 )
 
 const (
-	finMindBaseURL = "https://api.finmindtrade.com/api/v4/data"
+	finMindBaseURL  = "https://api.finmindtrade.com/api/v4/data"
+	defaultCacheTTL = 1 * time.Hour
 )
 
 type FinMindClient struct {
 	httpClient *http.Client
 	baseURL    string
+	cacheTTL   time.Duration
+
+	mu         sync.RWMutex
+	cachedRate decimal.Decimal
+	cachedAt   time.Time
 }
 
 var _ expense.ExchangeRateFetcher = (*FinMindClient)(nil)
 
 func NewFinMindClient() *FinMindClient {
-	return &FinMindClient{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		baseURL:    finMindBaseURL,
-	}
+	return NewFinMindClientWithBaseURL(finMindBaseURL)
 }
 
 func NewFinMindClientWithBaseURL(baseURL string) *FinMindClient {
 	return &FinMindClient{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		baseURL:    baseURL,
+		cacheTTL:   defaultCacheTTL,
 	}
+}
+
+func (c *FinMindClient) SetCacheTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cacheTTL = ttl
 }
 
 type finMindResponse struct {
@@ -75,9 +86,16 @@ func (c *FinMindClient) GetRate(ctx context.Context, source, target domain.Curre
 // fetchTWDPerJPY is the board's latest cash selling rate: what a traveller
 // pays in TWD for one JPY of cash.
 func (c *FinMindClient) fetchTWDPerJPY(ctx context.Context) (decimal.Decimal, error) {
-	// Query yesterday's data to ensure availability
-	yesterday := time.Now().AddDate(0, 0, -1)
-	startDate := yesterday.Format("2006-01-02")
+	c.mu.RLock()
+	if !c.cachedRate.IsZero() && time.Since(c.cachedAt) < c.cacheTTL {
+		cached := c.cachedRate
+		c.mu.RUnlock()
+		return cached, nil
+	}
+	c.mu.RUnlock()
+
+	// Query past 7 days to tolerate weekends and market holidays.
+	startDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
 
 	url := fmt.Sprintf("%s?dataset=TaiwanExchangeRate&data_id=JPY&start_date=%s", c.baseURL, startDate)
 
@@ -110,5 +128,12 @@ func (c *FinMindClient) fetchTWDPerJPY(ctx context.Context) (decimal.Decimal, er
 	if latestRate.CashSell <= 0 {
 		return decimal.Zero, fmt.Errorf("no exchange rate data available")
 	}
-	return decimal.NewFromFloat(latestRate.CashSell), nil
+
+	rate := decimal.NewFromFloat(latestRate.CashSell)
+	c.mu.Lock()
+	c.cachedRate = rate
+	c.cachedAt = time.Now()
+	c.mu.Unlock()
+
+	return rate, nil
 }

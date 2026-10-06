@@ -96,6 +96,7 @@ type rateLimiter struct {
 	visitors map[string]*visitor
 	rate     int           // requests per window
 	window   time.Duration // time window
+	stopChan chan struct{}
 }
 
 type visitor struct {
@@ -108,6 +109,7 @@ func newRateLimiter(rate int, window time.Duration) *rateLimiter {
 		visitors: make(map[string]*visitor),
 		rate:     rate,
 		window:   window,
+		stopChan: make(chan struct{}),
 	}
 
 	go rl.cleanup()
@@ -115,18 +117,31 @@ func newRateLimiter(rate int, window time.Duration) *rateLimiter {
 	return rl
 }
 
+func (rl *rateLimiter) Stop() {
+	select {
+	case <-rl.stopChan:
+	default:
+		close(rl.stopChan)
+	}
+}
+
 func (rl *rateLimiter) cleanup() {
 	ticker := time.NewTicker(rl.window * 2)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		rl.mu.Lock()
-		for ip, v := range rl.visitors {
-			if time.Since(v.lastReset) > rl.window*2 {
-				delete(rl.visitors, ip)
+	for {
+		select {
+		case <-ticker.C:
+			rl.mu.Lock()
+			for ip, v := range rl.visitors {
+				if time.Since(v.lastReset) > rl.window*2 {
+					delete(rl.visitors, ip)
+				}
 			}
+			rl.mu.Unlock()
+		case <-rl.stopChan:
+			return
 		}
-		rl.mu.Unlock()
 	}
 }
 
@@ -157,28 +172,29 @@ func (rl *rateLimiter) allow(ip string) bool {
 	return false
 }
 
-// getClientIP uses the first valid IP from X-Forwarded-For if present,
-// otherwise r.RemoteAddr.
+// getClientIP extracts the client IP address. It splits host:port from RemoteAddr.
+// If RemoteAddr is from a loopback or private network, it checks X-Forwarded-For;
+// otherwise it uses RemoteAddr directly to prevent unverified header spoofing.
 func getClientIP(r *http.Request) string {
-	ip := r.RemoteAddr
+	remoteIP := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		remoteIP = host
+	}
 
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		// Take the first IP (closest to the client) before any comma
-		firstIP := strings.TrimSpace(strings.Split(forwarded, ",")[0])
-		if net.ParseIP(firstIP) != nil {
-			ip = firstIP
+	parsedRemote := net.ParseIP(remoteIP)
+	if parsedRemote != nil && (parsedRemote.IsLoopback() || parsedRemote.IsPrivate()) {
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			firstIP := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			if net.ParseIP(firstIP) != nil {
+				return firstIP
+			}
 		}
 	}
 
-	return ip
+	return remoteIP
 }
 
-// rateLimit creates a rate limiting middleware.
-// rate: number of requests allowed per window
-// window: time window for rate limiting
-func rateLimit(rate int, window time.Duration) middleware {
-	limiter := newRateLimiter(rate, window)
-
+func (rl *rateLimiter) middleware() middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip rate limiting for health checks
@@ -188,16 +204,15 @@ func rateLimit(rate int, window time.Duration) middleware {
 			}
 
 			ip := getClientIP(r)
-
-			if !limiter.allow(ip) {
-				slog.Warn("Rate limit exceeded", "ip", ip, "path", r.URL.Path)
+			if !rl.allow(ip) {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "60")
 				w.WriteHeader(http.StatusTooManyRequests)
-				if err := json.NewEncoder(w).Encode(map[string]string{
+				resp := map[string]string{
 					"error": "too many requests",
-				}); err != nil {
-					slog.ErrorContext(r.Context(), "encode rate limit response", "error", err)
+				}
+				if err := json.NewEncoder(w).Encode(resp); err != nil {
+					slog.ErrorContext(r.Context(), "Failed to encode rate limit response", "error", err)
 				}
 				return
 			}
@@ -205,4 +220,9 @@ func rateLimit(rate int, window time.Duration) middleware {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// rateLimit creates a rate limiting middleware.
+func rateLimit(rate int, window time.Duration) middleware {
+	return newRateLimiter(rate, window).middleware()
 }

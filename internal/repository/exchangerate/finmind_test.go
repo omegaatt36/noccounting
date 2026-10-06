@@ -124,3 +124,39 @@ func TestFinMindClient_GetRate_ServerError(t *testing.T) {
 		t.Fatal("expected error for server error")
 	}
 }
+
+func TestFinMindClient_GetRate_UsesCachedRate(t *testing.T) {
+	requests := 0
+	response := map[string]any{
+		"status": 200,
+		"data": []map[string]any{
+			{"date": "2026-02-20", "currency": "JPY", "cash_sell": 0.2200},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			t.Fatalf("Encode error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
+	rate1, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
+	if err != nil {
+		t.Fatalf("first GetRate() error = %v", err)
+	}
+
+	rate2, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
+	if err != nil {
+		t.Fatalf("second GetRate() error = %v", err)
+	}
+
+	if !rate1.Equal(rate2) {
+		t.Errorf("rate1 (%s) != rate2 (%s)", rate1, rate2)
+	}
+	if requests != 1 {
+		t.Errorf("requests = %d, want 1 (second call should use cache)", requests)
+	}
+}

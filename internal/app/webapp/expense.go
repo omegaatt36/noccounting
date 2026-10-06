@@ -110,11 +110,18 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	price, err := strconv.ParseUint(r.FormValue("price"), 10, 64)
-	if err != nil || price == 0 {
+	priceStr := strings.TrimSpace(r.FormValue("price"))
+	priceDec, err := decimal.NewFromString(priceStr)
+	if err != nil || !priceDec.IsPositive() {
 		h.renderResult(w, r, resultData{Error: "請輸入有效金額"})
 		return
 	}
+	priceUint := priceDec.Round(0)
+	if !priceUint.IsPositive() || !priceUint.BigInt().IsUint64() {
+		h.renderResult(w, r, resultData{Error: "請輸入有效金額"})
+		return
+	}
+	price := priceUint.BigInt().Uint64()
 
 	currency, err := domain.ParseCurrency(r.FormValue("currency"))
 	if err != nil {

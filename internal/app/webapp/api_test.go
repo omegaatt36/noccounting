@@ -264,6 +264,25 @@ func TestHandleCreateExpense_SaysWhenSomeoneIsNotOnTheTrip(t *testing.T) {
 	}
 }
 
+func TestHandleCreateExpense_AcceptsDecimalPriceAndRoundsToWholeUnits(t *testing.T) {
+	repo := &stubAccountingRepo{}
+	handler, _ := devHandler(t, repo, twoTrips{})
+
+	w := post(t, handler.handleCreateExpense, "/api/expense", expenseForm(map[string]string{
+		"price": "120.6",
+	}))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("created %d expenses, want 1", len(repo.created))
+	}
+	if repo.created[0].Price != 121 {
+		t.Errorf("Price = %d, want 121 (rounded from 120.6)", repo.created[0].Price)
+	}
+}
+
 func TestHandleGetMembers_UsesNicknamesForPeopleInTheMapping(t *testing.T) {
 	repo := &stubAccountingRepo{members: []domain.Member{{ID: "3", Name: "owner-trek"}, {ID: "8", Name: "bob"}}}
 	handler, _ := devHandler(t, repo, twoTrips{})

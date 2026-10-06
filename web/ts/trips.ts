@@ -55,7 +55,7 @@ export async function loadTrips(ctx: TelegramContext): Promise<boolean> {
     }
     setTrip(data.trips.find((trip) => trip.id === data.current) ?? data.trips[0]);
 
-    select.addEventListener("change", async () => {
+    select.onchange = async () => {
       const previousId = document.body.dataset.tripId ?? "";
       select.disabled = true;
       showView("loading");
@@ -71,7 +71,7 @@ export async function loadTrips(ctx: TelegramContext): Promise<boolean> {
         showView("trip-error");
         console.error("Failed to select trip:", error);
       }
-    });
+    };
     return true;
   } catch (e) {
     console.error("Failed to load trips:", e);

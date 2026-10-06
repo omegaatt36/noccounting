@@ -77,9 +77,10 @@ type Client struct {
 	email      string
 	password   string
 
-	mu     sync.Mutex
-	token  string
-	userID int64
+	mu       sync.Mutex
+	token    string
+	userID   int64
+	reauthMu sync.Mutex
 }
 
 func NewClient(cfg Config) *Client {
@@ -116,6 +117,19 @@ func (c *Client) sessionToken() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.token
+}
+
+// reauth serializes concurrent token refreshes so multiple 401s do not hammer the login endpoint.
+func (c *Client) reauth(ctx context.Context, failedToken string) error {
+	c.reauthMu.Lock()
+	defer c.reauthMu.Unlock()
+
+	// If the token changed while waiting for the lock, another goroutine already refreshed it.
+	if c.sessionToken() != failedToken && c.sessionToken() != "" {
+		return nil
+	}
+
+	return c.login(ctx)
 }
 
 // Login failures indicate invalid credentials and must not trigger session retries.
@@ -192,7 +206,8 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 func (c *Client) call(ctx context.Context, method, path string, send func(token string) ([]byte, int, error), out any) error {
 	didRetry := false
 	for {
-		respBody, status, err := send(c.sessionToken())
+		tokenUsed := c.sessionToken()
+		respBody, status, err := send(tokenUsed)
 		if err != nil {
 			return err
 		}
@@ -200,7 +215,7 @@ func (c *Client) call(ctx context.Context, method, path string, send func(token 
 		if status == http.StatusUnauthorized && !didRetry {
 			didRetry = true
 			slog.Warn("TREK rejected the session token; re-authenticating once", "method", method, "path", path)
-			if err := c.login(ctx); err != nil {
+			if err := c.reauth(ctx, tokenUsed); err != nil {
 				return fmt.Errorf("trek re-authentication after %s %s: %w", method, path, err)
 			}
 			continue
@@ -253,20 +268,24 @@ func (c *Client) raw(ctx context.Context, method, path string, in any, token str
 	return respBody, resp.StatusCode, nil
 }
 
-// Rewind before retrying: the first HTTP attempt consumes the file stream.
+// Stream multipart content without buffering the entire file into memory, while providing exact Content-Length.
 func (c *Client) postMultipart(ctx context.Context, path, fieldName, filename string, content io.ReadSeeker, contentType string, out any) error {
 	return c.call(ctx, http.MethodPost, path, func(token string) ([]byte, int, error) {
+		size, err := content.Seek(0, io.SeekEnd)
+		if err != nil {
+			return nil, 0, fmt.Errorf("trek %s %s: determining size of %s: %w", http.MethodPost, path, filename, err)
+		}
 		if _, err := content.Seek(0, io.SeekStart); err != nil {
 			return nil, 0, fmt.Errorf("trek %s %s: rewinding %s: %w", http.MethodPost, path, filename, err)
 		}
-		return c.sendMultipart(ctx, path, fieldName, filename, content, contentType, token)
+		return c.sendMultipart(ctx, path, fieldName, filename, content, size, contentType, token)
 	}, out)
 }
 
-// Buffer multipart content so TREK receives an exact Content-Length.
-func (c *Client) sendMultipart(ctx context.Context, path, fieldName, filename string, content io.Reader, contentType, token string) ([]byte, int, error) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
+// sendMultipart streams multipart content with exact Content-Length.
+func (c *Client) sendMultipart(ctx context.Context, path, fieldName, filename string, content io.Reader, size int64, contentType, token string) ([]byte, int, error) {
+	var prefix bytes.Buffer
+	writer := multipart.NewWriter(&prefix)
 
 	disposition := mime.FormatMediaType("form-data", map[string]string{
 		"name":     fieldName,
@@ -281,25 +300,27 @@ func (c *Client) sendMultipart(ctx context.Context, path, fieldName, filename st
 	header.Set("Content-Disposition", disposition)
 	header.Set("Content-Type", contentType)
 
-	part, err := writer.CreatePart(header)
-	if err != nil {
-		return nil, 0, fmt.Errorf("trek %s %s: %w", http.MethodPost, path, err)
-	}
-	if _, err := io.Copy(part, content); err != nil {
-		return nil, 0, fmt.Errorf("trek %s %s: reading the file to upload: %w", http.MethodPost, path, err)
-	}
-	if err := writer.Close(); err != nil {
+	if _, err := writer.CreatePart(header); err != nil {
 		return nil, 0, fmt.Errorf("trek %s %s: %w", http.MethodPost, path, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, &body)
+	contentTypeHeader := writer.FormDataContentType()
+	boundary := writer.Boundary()
+	prefixBytes := prefix.Bytes()
+	suffixBytes := []byte("\r\n--" + boundary + "--\r\n")
+
+	totalLength := int64(len(prefixBytes)) + size + int64(len(suffixBytes))
+	body := io.MultiReader(bytes.NewReader(prefixBytes), content, bytes.NewReader(suffixBytes))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, body)
 	if err != nil {
 		return nil, 0, fmt.Errorf("trek request: %w", err)
 	}
+	req.ContentLength = totalLength
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", contentTypeHeader)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

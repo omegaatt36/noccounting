@@ -15,6 +15,7 @@ import (
 type Server struct {
 	handler *Handler
 	port    string
+	limiter *rateLimiter
 	server  *http.Server
 }
 
@@ -35,9 +36,11 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	s.handler.RegisterRoutes(mux)
 
+	s.limiter = newRateLimiter(60, time.Minute)
+
 	s.server = &http.Server{
 		Addr:         ":" + s.port,
-		Handler:      chainMiddleware(recoverWrap(), logging(), rateLimit(60, time.Minute))(mux),
+		Handler:      chainMiddleware(recoverWrap(), logging(), s.limiter.middleware())(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -56,6 +59,10 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("Shutting down web server...")
+
+	if s.limiter != nil {
+		s.limiter.Stop()
+	}
 
 	if s.server == nil {
 		return nil

@@ -554,3 +554,47 @@ func TestClient_ListTripsIsSafeUnderConcurrency(t *testing.T) {
 		}
 	}
 }
+
+func TestClient_ConcurrentUnauthorizedOnlyReauthenticatesOnce(t *testing.T) {
+	stub := newStubTrek(t)
+	stub.tripOnCall[1] = stubAnswer{
+		status: http.StatusUnauthorized,
+		body:   `{"error":"Access token required","code":"AUTH_REQUIRED"}`,
+	}
+	stub.tripOnCall[2] = stubAnswer{
+		status: http.StatusUnauthorized,
+		body:   `{"error":"Access token required","code":"AUTH_REQUIRED"}`,
+	}
+	stub.loginOnCall[2] = stubAnswer{
+		status: http.StatusOK,
+		body:   `{"token":"token-2","user":{"id":7,"email":"bot@example.com"}}`,
+	}
+	client := stub.client()
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := client.ListTrips(context.Background())
+			errCh <- err
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Errorf("ListTrips() error = %v", err)
+		}
+	}
+
+	logins, _, _, _ := stub.snapshot()
+	if logins != 2 {
+		t.Errorf("login calls = %d, want 2 (initial + exactly one re-auth across concurrent calls)", logins)
+	}
+}

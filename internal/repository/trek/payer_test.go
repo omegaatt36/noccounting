@@ -483,3 +483,18 @@ func slicesEqual(got, want []int64) bool {
 	}
 	return true
 }
+
+func TestPayerResolver_Participants_RefreshesAtMostOnceWhenMultipleParticipantsMissing(t *testing.T) {
+	stub := newPayerRosterStub(t, payerRosterJSON)
+	resolver := NewPayerResolver(stub.client(), payerTripID)
+
+	_, err := resolver.Participants(context.Background(), []string{"998", "999"})
+	if !errors.Is(err, ErrParticipantNotOnTrip) {
+		t.Fatalf("Participants() error = %v, want ErrParticipantNotOnTrip", err)
+	}
+
+	// 1 initial fetch + 1 refresh attempt = 2 total requests, NOT 3 requests!
+	if paths := stub.paths(); len(paths) != 2 {
+		t.Errorf("roster requests = %v (count %d), want exactly 2 (1 initial + 1 refresh)", paths, len(paths))
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -29,16 +30,59 @@ type tripRepo struct {
 	baseCurrency domain.Currency
 	payers       *PayerResolver
 	rates        rateProvider
+	budgetCache  *budgetCache
 }
 
-func newTripRepo(client *Client, trip domain.Trip, payers *PayerResolver, rates rateProvider) *tripRepo {
+func newTripRepo(client *Client, trip domain.Trip, payers *PayerResolver, rates rateProvider, cache ...*budgetCache) *tripRepo {
+	var bCache *budgetCache
+	if len(cache) > 0 {
+		bCache = cache[0]
+	}
 	return &tripRepo{
 		client:       client,
 		tripID:       trip.ID,
 		baseCurrency: trip.Currency,
 		payers:       payers,
 		rates:        rates,
+		budgetCache:  bCache,
 	}
+}
+
+type budgetCache struct {
+	mu        sync.Mutex
+	items     []budgetItem
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
+func newBudgetCache(ttl time.Duration) *budgetCache {
+	return &budgetCache{ttl: ttl}
+}
+
+func (c *budgetCache) get(ctx context.Context, client *Client, tripID int64) ([]budgetItem, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.items != nil && time.Since(c.fetchedAt) < c.ttl {
+		return c.items, nil
+	}
+
+	var resp budgetItemsResponse
+	if err := client.do(ctx, http.MethodGet, tripPath(tripID, budgetPathSuffix), nil, &resp); err != nil {
+		return nil, err
+	}
+	c.items, c.fetchedAt = resp.Items, time.Now()
+	return resp.Items, nil
+}
+
+func (c *budgetCache) invalidate() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items = nil
+	c.fetchedAt = time.Time{}
 }
 
 func (r *tripRepo) CreateExpense(ctx context.Context, e *domain.Expense) error {
@@ -58,6 +102,8 @@ func (r *tripRepo) CreateExpense(ctx context.Context, e *domain.Expense) error {
 	if err := r.client.do(ctx, http.MethodPost, tripPath(r.tripID, budgetPathSuffix), body, &created); err != nil {
 		return fmt.Errorf("creating the TREK budget item for %q: %w", e.Name, err)
 	}
+
+	r.budgetCache.invalidate()
 
 	if created.Item.ID > 0 {
 		e.ID = strconv.FormatInt(created.Item.ID, 10)
@@ -327,6 +373,8 @@ func (r *tripRepo) UpdateExpense(ctx context.Context, e *domain.Expense) error {
 		return fmt.Errorf("updating the TREK budget item %d for %q: %w", itemID, e.Name, err)
 	}
 
+	r.budgetCache.invalidate()
+
 	if math.Abs(updated.Item.TotalPrice-body.TotalPrice) > storedAmountTolerance {
 		slog.Warn("TREK stored an amount other than the one noccounting sent; the expense no longer has the total it was edited to",
 			"trip_id", r.tripID, "item_id", itemID, "name", e.Name,
@@ -346,12 +394,22 @@ type storedRow struct {
 }
 
 func (r *tripRepo) storedRowOf(ctx context.Context, itemID int64) (storedRow, error) {
-	var resp budgetItemsResponse
-	if err := r.client.do(ctx, http.MethodGet, tripPath(r.tripID, budgetPathSuffix), nil, &resp); err != nil {
-		return storedRow{}, fmt.Errorf("reading the TREK budget of trip %d to keep the note of item %d: %w", r.tripID, itemID, err)
+	var items []budgetItem
+	if r.budgetCache != nil {
+		cached, err := r.budgetCache.get(ctx, r.client, r.tripID)
+		if err != nil {
+			return storedRow{}, fmt.Errorf("reading the TREK budget of trip %d to keep the note of item %d: %w", r.tripID, itemID, err)
+		}
+		items = cached
+	} else {
+		var resp budgetItemsResponse
+		if err := r.client.do(ctx, http.MethodGet, tripPath(r.tripID, budgetPathSuffix), nil, &resp); err != nil {
+			return storedRow{}, fmt.Errorf("reading the TREK budget of trip %d to keep the note of item %d: %w", r.tripID, itemID, err)
+		}
+		items = resp.Items
 	}
 
-	for _, item := range resp.Items {
+	for _, item := range items {
 		if item.ID == itemID {
 			_, text := decodeNote(item.Note)
 			if strings.HasPrefix(text, legacyTicketPrefix) {
@@ -383,6 +441,8 @@ func (r *tripRepo) DeleteExpense(ctx context.Context, id string) error {
 	if !removed.Success {
 		return fmt.Errorf("TREK answered the delete of its budget item %d without saying it removed it", itemID)
 	}
+
+	r.budgetCache.invalidate()
 
 	slog.Info("deleted a TREK budget item, permanently", "trip_id", r.tripID, "item_id", itemID)
 	return nil
