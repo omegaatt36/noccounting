@@ -16,6 +16,8 @@ type spyRepo struct {
 	opened          []domain.Trip
 	expenses        []domain.Expense
 	createdExpenses []*domain.Expense
+	deletedIDs      []string
+	queriedFilters  []ExpenseFilter
 	uploadFileFn    func(ctx context.Context, filePath string) (string, error)
 }
 
@@ -30,8 +32,9 @@ func (m *spyRepo) QueryExpenses(_ context.Context, trip domain.Trip) ([]domain.E
 	return m.expenses, nil
 }
 
-func (m *spyRepo) QueryExpensesWithFilter(_ context.Context, trip domain.Trip, _ ExpenseFilter) ([]domain.Expense, error) {
+func (m *spyRepo) QueryExpensesWithFilter(_ context.Context, trip domain.Trip, f ExpenseFilter) ([]domain.Expense, error) {
 	m.opened = append(m.opened, trip)
+	m.queriedFilters = append(m.queriedFilters, f)
 	return m.expenses, nil
 }
 
@@ -40,8 +43,9 @@ func (m *spyRepo) UpdateExpense(_ context.Context, trip domain.Trip, _ *domain.E
 	return nil
 }
 
-func (m *spyRepo) DeleteExpense(_ context.Context, trip domain.Trip, _ string) error {
+func (m *spyRepo) DeleteExpense(_ context.Context, trip domain.Trip, id string) error {
 	m.opened = append(m.opened, trip)
+	m.deletedIDs = append(m.deletedIDs, id)
 	return nil
 }
 
@@ -224,27 +228,11 @@ func TestCreateFromReceipt_SingleMode(t *testing.T) {
 		t.Fatalf("expected 1 created expense, got %d", len(repo.createdExpenses))
 	}
 
+	// Verify CreateFromReceipt properly pipes analysis to creation.
+	// Field mapping specifics are tested separately in TestCreateFromAnalysis_SingleMode.
 	exp := repo.createdExpenses[0]
-	if exp.Name != "松屋 午餐" {
-		t.Errorf("expected name '松屋 午餐', got '%s'", exp.Name)
-	}
-	if exp.Price != 850 {
-		t.Errorf("expected price 850, got %d", exp.Price)
-	}
-	if exp.Category != domain.CategoryFood {
-		t.Errorf("expected category food, got %s", exp.Category)
-	}
-	if exp.Method != domain.PaymentMethodCash {
-		t.Errorf("expected method cash, got %s", exp.Method)
-	}
-	if exp.PaidByID != "userXYZ" {
-		t.Errorf("expected PaidByID 'userXYZ', got '%s'", exp.PaidByID)
-	}
-	if exp.ReceiptURL != "https://example.com/receipt.jpg" {
-		t.Errorf("unexpected ReceiptURL: %s", exp.ReceiptURL)
-	}
-	if exp.ShoppedAt.IsZero() {
-		t.Error("expected ShoppedAt to be set")
+	if exp.Name != "松屋 午餐" || exp.Price != 850 || exp.PaidByID != "userXYZ" {
+		t.Errorf("expense = %+v, want delegated analysis summary, total, and paidBy", exp)
 	}
 }
 
@@ -537,6 +525,48 @@ func TestService_SettlementAndMembersReachTheRepo(t *testing.T) {
 	members, err := svc.Members(context.Background(), testTrip)
 	if err != nil || len(members) != 1 {
 		t.Fatalf("Members() = %v, %v, want the repo's", members, err)
+	}
+}
+
+func TestService_DeleteExpenseReachesTheRepo(t *testing.T) {
+	repo := &spyRepo{}
+	svc := NewService(repo, nil, nil)
+
+	if err := svc.DeleteExpense(context.Background(), testTrip, "exp-123"); err != nil {
+		t.Fatalf("DeleteExpense() error = %v", err)
+	}
+	if len(repo.deletedIDs) != 1 || repo.deletedIDs[0] != "exp-123" {
+		t.Errorf("repo got deletedIDs %+v, want [exp-123]", repo.deletedIDs)
+	}
+}
+
+func TestService_QueryExpensesWithFilterReachesTheRepo(t *testing.T) {
+	repo := &spyRepo{expenses: []domain.Expense{{Name: "拉麵"}}}
+	svc := NewService(repo, nil, nil)
+
+	limit := 10
+	filter := ExpenseFilter{Limit: &limit}
+	expenses, err := svc.QueryExpensesWithFilter(context.Background(), testTrip, filter)
+	if err != nil {
+		t.Fatalf("QueryExpensesWithFilter() error = %v", err)
+	}
+	if len(expenses) != 1 || expenses[0].Name != "拉麵" {
+		t.Errorf("QueryExpensesWithFilter() = %+v, want the repo's expenses", expenses)
+	}
+	if len(repo.queriedFilters) != 1 || repo.queriedFilters[0].Limit == nil || *repo.queriedFilters[0].Limit != 10 {
+		t.Errorf("queriedFilters = %+v, want limit 10", repo.queriedFilters)
+	}
+}
+
+func TestService_HasReceiptAnalyzer(t *testing.T) {
+	svcWithout := NewService(&spyRepo{}, nil, nil)
+	if svcWithout.HasReceiptAnalyzer() {
+		t.Error("expected HasReceiptAnalyzer() to be false when nil")
+	}
+
+	svcWith := NewService(&spyRepo{}, nil, &stubReceiptAnalyzer{})
+	if !svcWith.HasReceiptAnalyzer() {
+		t.Error("expected HasReceiptAnalyzer() to be true when provided")
 	}
 }
 

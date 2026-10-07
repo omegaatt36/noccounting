@@ -19,12 +19,16 @@ import (
 )
 
 type spyAccountingRepo struct {
-	createErr       error
-	trips           []domain.Trip
-	uploadErr       error
-	uploadResult    string
-	createdExpenses []*domain.Expense // records every CreateExpense call
-	uploadCalls     int
+	createErr         error
+	updateErr         error
+	deleteErr         error
+	trips             []domain.Trip
+	uploadErr         error
+	uploadResult      string
+	createdExpenses   []*domain.Expense // records every CreateExpense call
+	updatedExpenses   []*domain.Expense
+	deletedExpenseIDs []string
+	uploadCalls       int
 
 	expenses   []domain.Expense      // what a query answers
 	lastFilter expense.ExpenseFilter // what the last query asked
@@ -50,11 +54,19 @@ func (m *spyAccountingRepo) QueryExpensesWithFilter(_ context.Context, selected 
 	return m.expenses, nil
 }
 
-func (m *spyAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, _ *domain.Expense) error {
+func (m *spyAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, e *domain.Expense) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	m.updatedExpenses = append(m.updatedExpenses, e)
 	return nil
 }
 
-func (m *spyAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, _ string) error {
+func (m *spyAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, id string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	m.deletedExpenseIDs = append(m.deletedExpenseIDs, id)
 	return nil
 }
 
@@ -163,11 +175,21 @@ func (m *spyContext) PurchasedPaidMedia() *tele.PaidMediaPurchased { return nil 
 func (m *spyContext) Sender() *tele.User                           { return m.sender }
 func (m *spyContext) Chat() *tele.Chat                             { return nil }
 func (m *spyContext) Recipient() tele.Recipient                    { return m.sender }
-func (m *spyContext) Text() string                                 { return "" }
-func (m *spyContext) ThreadID() int                                { return 0 }
-func (m *spyContext) Entities() tele.Entities                      { return nil }
-func (m *spyContext) Data() string                                 { return "" }
-func (m *spyContext) Args() []string                               { return m.args }
+func (m *spyContext) Text() string {
+	if m.message != nil {
+		return m.message.Text
+	}
+	return ""
+}
+func (m *spyContext) ThreadID() int           { return 0 }
+func (m *spyContext) Entities() tele.Entities { return nil }
+func (m *spyContext) Data() string {
+	if m.callback != nil {
+		return m.callback.Data
+	}
+	return ""
+}
+func (m *spyContext) Args() []string { return m.args }
 
 func (m *spyContext) Send(what any, opts ...any) error {
 	m.sentMsgs = append(m.sentMsgs, what)

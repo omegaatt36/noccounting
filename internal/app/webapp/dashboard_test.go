@@ -410,3 +410,103 @@ func TestParseDateRange(t *testing.T) {
 		})
 	}
 }
+
+func TestGetPreviousDateRange(t *testing.T) {
+	now := time.Date(2026, 2, 22, 15, 30, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		rangeStr string
+		wantFrom time.Time
+		wantTo   time.Time
+		wantNil  bool
+	}{
+		{
+			name:     "today",
+			rangeStr: "today",
+			wantFrom: time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC),
+			wantTo:   time.Date(2026, 2, 21, 23, 59, 59, 999999999, time.UTC),
+			wantNil:  false,
+		},
+		{
+			name:     "3d (previous 3-day block)",
+			rangeStr: "3d",
+			wantFrom: time.Date(2026, 2, 17, 0, 0, 0, 0, time.UTC),
+			wantTo:   time.Date(2026, 2, 19, 23, 59, 59, 999999999, time.UTC),
+			wantNil:  false,
+		},
+		{
+			name:     "7d (previous 7-day block)",
+			rangeStr: "7d",
+			wantFrom: time.Date(2026, 2, 9, 0, 0, 0, 0, time.UTC),
+			wantTo:   time.Date(2026, 2, 15, 23, 59, 59, 999999999, time.UTC),
+			wantNil:  false,
+		},
+		{
+			name:     "all",
+			rangeStr: "all",
+			wantNil:  true,
+		},
+		{
+			name:     "empty string",
+			rangeStr: "",
+			wantNil:  true,
+		},
+		{
+			name:     "invalid range",
+			rangeStr: "other",
+			wantNil:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			from, to := getPreviousDateRange(tt.rangeStr, now)
+			if tt.wantNil {
+				if from != nil || to != nil {
+					t.Errorf("expected nil, got from=%v, to=%v", from, to)
+				}
+				return
+			}
+			if from == nil || to == nil {
+				t.Fatalf("expected non-nil pointers, got from=%v, to=%v", from, to)
+			}
+			if !from.Equal(tt.wantFrom) {
+				t.Errorf("from: expected %v, got %v", tt.wantFrom, *from)
+			}
+			if !to.Equal(tt.wantTo) {
+				t.Errorf("to: expected %v, got %v", tt.wantTo, *to)
+			}
+		})
+	}
+}
+
+func TestIsWithinRange(t *testing.T) {
+	from := time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 2, 20, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		t    time.Time
+		from *time.Time
+		to   *time.Time
+		want bool
+	}{
+		{"within bounded range", time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC), &from, &to, true},
+		{"before bounded range", time.Date(2026, 2, 9, 0, 0, 0, 0, time.UTC), &from, &to, false},
+		{"after bounded range", time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC), &from, &to, false},
+		{"nil bounds", time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC), nil, nil, true},
+		{"nil from only within", time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC), nil, &to, true},
+		{"nil from only after", time.Date(2026, 2, 25, 0, 0, 0, 0, time.UTC), nil, &to, false},
+		{"nil to only within", time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC), &from, nil, true},
+		{"nil to only before", time.Date(2026, 2, 5, 0, 0, 0, 0, time.UTC), &from, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isWithinRange(tt.t, tt.from, tt.to); got != tt.want {
+				t.Errorf("isWithinRange() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

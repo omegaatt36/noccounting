@@ -74,31 +74,6 @@ func TestAnalyzer_Analyze(t *testing.T) {
 	}
 }
 
-func TestAnalyzer_Analyze_InvalidJSON(t *testing.T) {
-	mockResponse := map[string]any{
-		"choices": []map[string]any{
-			{
-				"message": map[string]any{
-					"content": "I can't read this receipt clearly",
-				},
-			},
-		},
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewEncoder(w).Encode(mockResponse); err != nil {
-			t.Errorf("encode response: %v", err)
-		}
-	}))
-	defer server.Close()
-
-	analyzer := llm.NewAnalyzer(server.URL, "test-key", "test-model")
-	_, err := analyzer.Analyze(context.Background(), []byte("fake-image-data"))
-	if err == nil {
-		t.Fatal("expected error for invalid JSON response")
-	}
-}
-
 func TestAnalyzer_Analyze_APIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

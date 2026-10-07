@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 )
@@ -262,4 +263,69 @@ func TestRateLimitMiddlewareIgnoresInvalidXForwardedFor(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Errorf("second request with same RemoteAddr should return 429, got %d", w.Code)
 	}
+}
+
+func TestChainMiddleware(t *testing.T) {
+	var trace []string
+
+	m1 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			trace = append(trace, "m1-in")
+			next.ServeHTTP(w, r)
+			trace = append(trace, "m1-out")
+		})
+	}
+	m2 := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			trace = append(trace, "m2-in")
+			next.ServeHTTP(w, r)
+			trace = append(trace, "m2-out")
+		})
+	}
+
+	handler := chainMiddleware(m1, m2)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		trace = append(trace, "handler")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	want := []string{"m1-in", "m2-in", "handler", "m2-out", "m1-out"}
+	if !slices.Equal(trace, want) {
+		t.Errorf("chain order = %v, want %v", trace, want)
+	}
+}
+
+func TestLoggingMiddleware(t *testing.T) {
+	mw := logging()
+
+	t.Run("skips /health", func(t *testing.T) {
+		handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		req := httptest.NewRequest("GET", "/health", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("status = %d, want 200", w.Code)
+		}
+	})
+
+	t.Run("logs regular request and captures status", func(t *testing.T) {
+		handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte("ok"))
+		}))
+		req := httptest.NewRequest("POST", "/api/expense", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Errorf("status = %d, want 201", w.Code)
+		}
+		if w.Body.String() != "ok" {
+			t.Errorf("body = %q, want ok", w.Body.String())
+		}
+	})
 }
