@@ -15,17 +15,23 @@ export function setupNumpad(ctx: TelegramContext): void {
   priceField.setAttribute("inputmode", "none");
   priceField.setAttribute("readonly", "true");
 
+  // Telegram's back button closes the sheet instead of closing the whole app.
+  const backButton = ctx.tg?.BackButton;
+  backButton?.onClick(closeNumpad);
+
   priceField.addEventListener("click", () => openNumpad());
 
   function openNumpad(): void {
     numpad!.classList.remove("hidden");
     numpad!.classList.add("flex");
     updateDisplay();
+    backButton?.show();
   }
 
   function closeNumpad(): void {
     numpad!.classList.add("hidden");
     numpad!.classList.remove("flex");
+    backButton?.hide();
   }
 
   function updateDisplay(): void {

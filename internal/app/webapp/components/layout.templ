@@ -3,6 +3,7 @@ package components
 import (
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/skeleton"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/alert"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/button"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/tabs"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
@@ -46,12 +47,29 @@ templ Page(devMode bool) {
 					}
 				</div>
 			</div>
-			<div id="trip-error" class="hidden max-w-md mx-auto px-4 py-6">
- @alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
- @alert.Title() { 無法載入旅行 }
- @alert.Description() { 請確認有可用的旅行，然後重新整理頁面 }
- }
- </div>
+			<div id="trip-error" class="hidden max-w-md mx-auto px-4 py-6 space-y-3">
+				@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+					@alert.Title() { 無法載入旅行 }
+					@alert.Description() { 網路或伺服器暫時有問題，請稍後再試 }
+				}
+				@button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"onclick": "location.reload()"}}) {
+					重試
+				}
+			</div>
+			<div id="trip-empty" class="hidden max-w-md mx-auto px-4 py-6">
+				@card.Card(card.Props{}) {
+					@card.Content(card.ContentProps{}) {
+						<div class="flex flex-col items-center gap-3 py-10 text-center">
+							<span class="text-4xl">🧳</span>
+							<p class="text-lg font-semibold">還沒有可用的旅行</p>
+							<p class="text-sm text-muted-foreground">請先在 TREK 把記帳帳號加入旅行，完成後重新載入就會看到行程。</p>
+							@button.Button(button.Props{Type: button.TypeButton, Class: "mt-2", Attributes: templ.Attributes{"onclick": "location.reload()"}}) {
+								重新載入
+							}
+						</div>
+					}
+				}
+			</div>
  <div id="app" class="hidden max-w-md mx-auto px-4 py-6 pb-20">
 				<div class="mb-3">
 					<select

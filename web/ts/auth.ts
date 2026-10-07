@@ -1,9 +1,8 @@
 import type { TelegramContext } from "./telegram.js";
-import { STORAGE_KEYS } from "./storage.js";
 
 const $ = (id: string) => document.getElementById(id);
 
-type ViewName = "loading" | "forbidden" | "trip-error" | "app";
+type ViewName = "loading" | "forbidden" | "trip-error" | "trip-empty" | "app";
 
 function showView(view: ViewName): void {
   const ready = view === "app";
@@ -21,7 +20,9 @@ function showView(view: ViewName): void {
   const forbidden = $("forbidden");
   const app = $("app");
   const tripError = $("trip-error");
+  const tripEmpty = $("trip-empty");
   if (tripError) tripError.classList.toggle("hidden", view !== "trip-error");
+  if (tripEmpty) tripEmpty.classList.toggle("hidden", view !== "trip-empty");
 
   if (loading) {
     loading.className =
@@ -36,7 +37,8 @@ function showView(view: ViewName): void {
         : "hidden";
   }
   if (app) {
-    app.className = view === "app" ? "max-w-md mx-auto px-4 py-6" : "hidden";
+    // pb-20 clears the fixed bottom nav; dropping it hides the form tail under it.
+    app.className = view === "app" ? "max-w-md mx-auto px-4 py-6 pb-20" : "hidden";
   }
 }
 
@@ -55,19 +57,12 @@ async function loadUsers(
 
     select.textContent = "";
 
-    const savedPaidBy = localStorage.getItem(STORAGE_KEYS.paidBy);
-
     data.users.forEach((u: { telegram_id: number; nickname: string }) => {
       const opt = document.createElement("option");
       opt.value = String(u.telegram_id);
       const isCurrent = u.telegram_id === ctx.currentUserId;
       opt.textContent = isCurrent ? `${u.nickname} (本人)` : u.nickname;
-
-      if (savedPaidBy && String(u.telegram_id) === savedPaidBy) {
-        opt.selected = true;
-      } else if (!savedPaidBy && isCurrent) {
-        opt.selected = true;
-      }
+      if (isCurrent) opt.selected = true;
       select.appendChild(opt);
     });
   } catch (e) {

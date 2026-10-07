@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Native form controls (select, date input) and scrollbars render dark with the page. */
+html {
+  color-scheme: dark;
+}
+
 @theme {
   /* Flexoki Dark palette — https://stephango.com/flexoki */
   --color-flexoki-black: #100F0F;

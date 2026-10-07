@@ -16,6 +16,13 @@ export function initTelegram(devMode: boolean): TelegramContext {
   const tg = window.Telegram.WebApp;
   tg.ready();
   tg.expand();
+  // A long form should not close on a stray swipe, and losing a half-filled one
+  // to closing the app deserves a confirmation. The header and background blend
+  // into the Flexoki black page instead of Telegram's default color.
+  tg.disableVerticalSwipes?.();
+  tg.enableClosingConfirmation?.();
+  tg.setHeaderColor?.("#100F0F");
+  tg.setBackgroundColor?.("#100F0F");
 
   const initData = tg.initData || "";
   const currentUserId = tg.initDataUnsafe?.user?.id ?? null;

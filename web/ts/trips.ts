@@ -1,5 +1,6 @@
 import { apiUrl } from "./api.js";
 import { showView } from "./auth.js";
+import { showToast } from "./toast.js";
 import type { TelegramContext } from "./telegram.js";
 
 const $ = (id: string) => document.getElementById(id);
@@ -28,9 +29,13 @@ function setTrip(trip: Trip): void {
   if (input) input.value = String(trip.id);
 }
 
-export async function loadTrips(ctx: TelegramContext): Promise<boolean> {
+// The empty result is a normal onboarding state — the bot's TREK account has
+// not been added to any trip yet — and must not read as a failure.
+export type TripsResult = "ok" | "empty" | "error";
+
+export async function loadTrips(ctx: TelegramContext): Promise<TripsResult> {
   const select = $("trip-select") as HTMLSelectElement | null;
-  if (!select) return false;
+  if (!select) return "error";
 
   try {
     const res = await fetch(apiUrl("/api/trips", ctx));
@@ -39,11 +44,7 @@ export async function loadTrips(ctx: TelegramContext): Promise<boolean> {
     select.textContent = "";
 
     if (data.trips.length === 0) {
-      const none = document.createElement("option");
-      none.textContent = "目前沒有可用的旅行";
-      select.appendChild(none);
-      select.disabled = true;
-      return false;
+      return "empty";
     }
 
     for (const trip of data.trips) {
@@ -67,15 +68,18 @@ export async function loadTrips(ctx: TelegramContext): Promise<boolean> {
         if (!response.ok) throw new Error(`Trip selection failed: ${response.status}`);
         window.location.reload();
       } catch (error) {
+        // A transient failure keeps the app open: revert the picker and say so.
         select.value = previousId;
-        showView("trip-error");
+        select.disabled = false;
+        showView("app");
+        showToast("⚠️ 切換失敗", "切換旅行失敗，請稍後再試");
         console.error("Failed to select trip:", error);
       }
     };
-    return true;
+    return "ok";
   } catch (e) {
     console.error("Failed to load trips:", e);
-    return false;
+    return "error";
   }
 }
 

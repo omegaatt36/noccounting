@@ -12,6 +12,19 @@ interface TelegramWebAppUser {
   username?: string;
 }
 
+interface TelegramBackButton {
+  isVisible: boolean;
+  show(): TelegramBackButton;
+  hide(): TelegramBackButton;
+  onClick(callback: () => void): TelegramBackButton;
+  offClick(callback: () => void): TelegramBackButton;
+}
+
+interface TelegramCloudStorage {
+  setItem(key: string, value: string, callback?: (error: string | null, status: boolean) => void): void;
+  getItem(key: string, callback?: (error: string | null, value: string | null) => void): void;
+}
+
 interface TelegramMainButton {
   text: string;
   color: string;
@@ -46,6 +59,12 @@ interface TelegramWebApp {
   };
   HapticFeedback: TelegramHapticFeedback;
   MainButton: TelegramMainButton;
+  BackButton?: TelegramBackButton;
+  CloudStorage?: TelegramCloudStorage;
+  setHeaderColor?(color: string): void;
+  setBackgroundColor?(color: string): void;
+  disableVerticalSwipes?(): void;
+  enableClosingConfirmation?(): void;
 }
 
 interface Window {

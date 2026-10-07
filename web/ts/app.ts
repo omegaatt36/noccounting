@@ -2,13 +2,10 @@ import { initTelegram } from "./telegram.js";
 import { authenticate, showView } from "./auth.js";
 import { restoreDefaults } from "./storage.js";
 import { setupEventListeners } from "./form.js";
-import {
-  updateExchangeRateVisibility,
-  fetchExchangeRate,
-} from "./exchange-rate.js";
+import { updateExchangeRateVisibility } from "./exchange-rate.js";
 import { setupNumpad } from "./numpad.js";
 import { loadTrips, loadMembers } from "./trips.js";
-import { tripCurrency, tripId } from "./api.js";
+import { tripId } from "./api.js";
 import "./navigation.js";
 
 const DEV_MODE = !!document.getElementById("dev-mode-flag");
@@ -59,20 +56,14 @@ document.body.addEventListener("htmx:config:request", (evt) => {
 
 authenticate(ctx, DEV_MODE).then(async (authorized) => {
   if (!authorized) return;
-  if (!(await loadTrips(ctx))) {
-    showView("trip-error");
+  const trips = await loadTrips(ctx);
+  if (trips !== "ok") {
+    showView(trips === "empty" ? "trip-empty" : "trip-error");
     return;
   }
   await loadMembers(ctx, tripId());
   setupEventListeners(ctx);
   setupNumpad(ctx);
-  restoreDefaults(updateExchangeRateVisibility);
-
-  const currencyInput = document.getElementById(
-    "currency-input",
-  ) as HTMLInputElement | null;
-  if (currencyInput && currencyInput.value !== tripCurrency()) {
-    fetchExchangeRate(ctx);
-  }
+  await restoreDefaults(updateExchangeRateVisibility);
   showView("app");
 });

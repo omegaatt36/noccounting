@@ -33,7 +33,7 @@ async function bootstrap(authorized, tripsReady, options = {}) {
 }
 
 test("failed authentication never initializes trips or form", async () => {
-  const calls = await bootstrap(false, Promise.resolve(true));
+  const calls = await bootstrap(false, Promise.resolve("ok"));
   assert.deepEqual(calls, []);
 });
 
@@ -43,12 +43,17 @@ test("trip loading keeps the form and dashboard unavailable", async () => {
 });
 
 test("trip load failure leaves scoped operations unavailable", async () => {
-  const calls = await bootstrap(true, Promise.resolve(false));
+  const calls = await bootstrap(true, Promise.resolve("error"));
   assert.deepEqual(calls, ["trips", "trip-error"]);
 });
 
+test("an empty trip list is onboarding, not a failure", async () => {
+  const calls = await bootstrap(true, Promise.resolve("empty"));
+  assert.deepEqual(calls, ["trips", "trip-empty"]);
+});
+
 test("successful trip load initializes form before showing app", async () => {
-  const calls = await bootstrap(true, Promise.resolve(true));
+  const calls = await bootstrap(true, Promise.resolve("ok"));
   assert.deepEqual(calls, ["trips", "members", "form", "numpad", "app"]);
 });
 
@@ -66,9 +71,10 @@ async function tripSwitcher(switchResult) {
     fetch: async () => ++requests === 1 ? { ok: true, json: async () => ({ current: 3, trips: [{ id: 3, title: "Tokyo", label: "Tokyo", currency: "TWD" }, { id: 9, title: "Osaka", label: "Osaka", currency: "JPY" }] }) } : await switchResult,
   });
   const module = new vm.SourceTextModule(await readFile("internal/app/webapp/static/trips.js", "utf8"), { context });
-  await module.link(() => new vm.SyntheticModule(["apiUrl", "showView"], function () {
+  await module.link(() => new vm.SyntheticModule(["apiUrl", "showView", "showToast"], function () {
     this.setExport("apiUrl", (path) => path);
     this.setExport("showView", (view) => views.push(view));
+    this.setExport("showToast", () => views.push("toast"));
   }, { context }));
   await module.evaluate();
   await module.namespace.loadTrips({});
@@ -85,13 +91,14 @@ test("pending trip switch prevents scoped operations", async () => {
   assert.equal(state.input.value, "3");
 });
 
-test("rejected trip switch restores confirmed trip and keeps app unavailable", async () => {
+test("rejected trip switch restores confirmed trip and stays in the app", async () => {
   const state = await tripSwitcher(Promise.resolve({ ok: false, status: 403 }));
   await state.pending;
   assert.equal(state.select.value, "3");
   assert.equal(state.input.value, "3");
   assert.equal(state.body.dataset.tripId, "3");
-  assert.deepEqual(state.views, ["loading", "trip-error"]);
+  assert.equal(state.select.disabled, false);
+  assert.deepEqual(state.views, ["loading", "app", "toast"]);
 });
 
 async function nativeForm(success = false) {

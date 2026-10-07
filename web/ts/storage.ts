@@ -6,6 +6,39 @@ export const STORAGE_KEYS = {
   exchangeRate: "noccounting_exchange_rate",
 } as const;
 
+// Telegram CloudStorage keeps defaults in sync across the user's devices and
+// survives iOS webview eviction; localStorage covers dev mode and clients
+// without it.
+function cloudStorage(): TelegramCloudStorage | null {
+  return window.Telegram?.WebApp?.CloudStorage ?? null;
+}
+
+export function storageGet(key: string): Promise<string | null> {
+  const cloud = cloudStorage();
+  if (!cloud) return Promise.resolve(localStorage.getItem(key));
+  return new Promise((resolve) => {
+    cloud.getItem(key, (error, value) => {
+      resolve(error ? null : (value ?? null));
+    });
+  });
+}
+
+export function storageSet(key: string, value: string): void {
+  const cloud = cloudStorage();
+  if (cloud) {
+    cloud.setItem(key, value);
+    return;
+  }
+  localStorage.setItem(key, value);
+}
+
+// Preferences that depend on where the trip is (the currency) or who is in it
+// (the payer) must not leak between trips.
+function tripScopedKey(key: string): string {
+  const tripId = document.body.dataset.tripId ?? "";
+  return tripId ? `${key}_${tripId}` : key;
+}
+
 export function saveDefaults(): void {
   const get = (id: string) => document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
   const currencyInput = get("currency-input");
@@ -13,10 +46,10 @@ export function saveDefaults(): void {
   const methodInput = get("method-input");
   const paidBySelect = get("paid-by-select");
 
-  if (currencyInput) localStorage.setItem(STORAGE_KEYS.currency, currencyInput.value);
-  if (categoryInput) localStorage.setItem(STORAGE_KEYS.category, categoryInput.value);
-  if (methodInput) localStorage.setItem(STORAGE_KEYS.method, methodInput.value);
-  if (paidBySelect) localStorage.setItem(STORAGE_KEYS.paidBy, paidBySelect.value);
+  if (currencyInput) storageSet(tripScopedKey(STORAGE_KEYS.currency), currencyInput.value);
+  if (categoryInput) storageSet(STORAGE_KEYS.category, categoryInput.value);
+  if (methodInput) storageSet(STORAGE_KEYS.method, methodInput.value);
+  if (paidBySelect) storageSet(tripScopedKey(STORAGE_KEYS.paidBy), paidBySelect.value);
 }
 
 // Clicks the tab for a saved value and says whether there was one: a value saved
@@ -32,37 +65,49 @@ function selectTab(tabsId: string, value: string): boolean {
   return true;
 }
 
-export function restoreDefaults(
+export async function restoreDefaults(
   updateExchangeRateVisibility: () => void
-): void {
+): Promise<void> {
   const get = (id: string) => document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
 
-  const savedCurrency = localStorage.getItem(STORAGE_KEYS.currency);
-  if (savedCurrency && selectTab("currency-tabs", savedCurrency)) {
-    const input = get("currency-input");
-    if (input) input.value = savedCurrency;
+  // Last-used currency for this trip, falling back to the trip's own currency:
+  // a trip in a new country should not inherit the previous one's money.
+  const tripCurrency = document.body.dataset.tripCurrency ?? "";
+  let currency = "JPY";
+  for (const candidate of [
+    await storageGet(tripScopedKey(STORAGE_KEYS.currency)),
+    tripCurrency,
+  ]) {
+    if (candidate && selectTab("currency-tabs", candidate)) {
+      currency = candidate;
+      break;
+    }
   }
+  const currencyInput = get("currency-input");
+  if (currencyInput) currencyInput.value = currency;
 
-  const savedCategory = localStorage.getItem(STORAGE_KEYS.category);
+  const savedCategory = await storageGet(STORAGE_KEYS.category);
   if (savedCategory && selectTab("category-tabs", savedCategory)) {
     const input = get("category-input");
     if (input) input.value = savedCategory;
   }
 
-  const savedMethod = localStorage.getItem(STORAGE_KEYS.method);
+  const savedMethod = await storageGet(STORAGE_KEYS.method);
   if (savedMethod && selectTab("method-tabs", savedMethod)) {
     const input = get("method-input");
     if (input) input.value = savedMethod;
   }
 
-  const savedPaidBy = localStorage.getItem(STORAGE_KEYS.paidBy);
+  // Reuse a payer only while they are still in this trip's member list;
+  // otherwise the select keeps the current user chosen by loadUsers.
+  const savedPaidBy = await storageGet(tripScopedKey(STORAGE_KEYS.paidBy));
   const paidBySelect = get("paid-by-select") as HTMLSelectElement | null;
   if (paidBySelect && savedPaidBy) {
-    paidBySelect.value = savedPaidBy;
+    const known = Array.from(paidBySelect.options).some(
+      (opt) => opt.value === savedPaidBy,
+    );
+    if (known) paidBySelect.value = savedPaidBy;
   }
-
-  const dateInput = get("date-input") as HTMLInputElement | null;
-  if (dateInput) dateInput.value = new Date().toISOString().split("T")[0];
 
   updateExchangeRateVisibility();
 }
