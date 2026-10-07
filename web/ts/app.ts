@@ -54,6 +54,17 @@ document.body.addEventListener("htmx:config:request", (evt) => {
   });
 }
 
+{
+  // A delete response names this event. htmx fires it after the swap, when the
+  // delete button is already off the page, so it lands on `document`; the active
+  // range chip re-issues the dashboard fetch that redraws every card in place.
+  document.addEventListener("dashboard-refresh", () => {
+    document
+      .querySelector<HTMLButtonElement>("#dashboard-content button.bg-primary")
+      ?.click();
+  });
+}
+
 authenticate(ctx, DEV_MODE).then(async (authorized) => {
   if (!authorized) return;
   const trips = await loadTrips(ctx);

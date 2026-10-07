@@ -32,21 +32,6 @@ templ ExpenseForm() {
 				🔍 正在分析收據...
 			</span>
 		</div>
-		<div>
-			@label.Label(label.Props{}) {
-				分類
-			}
-			<input type="hidden" name="category" id="category-input" value={ string(domain.CategoryFood) }/>
-			@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}) {
-					for i, category := range domain.CategoryValues() {
-						@tabs.Trigger(tabs.TriggerProps{Value: string(category), IsActive: i == 0}) {
-							{ format.Category(category) }
-						}
-					}
-				}
-			}
-		</div>
 		<div class="grid grid-cols-5 gap-3">
 			<div class="col-span-3">
 				@label.Label(label.Props{For: "name"}) {
@@ -56,7 +41,7 @@ templ ExpenseForm() {
 					ID:          "name",
 					Name:        "name",
 					Type:        input.TypeText,
-					Placeholder: "例：拉麵",
+					Placeholder: "例：拉麪",
 					Attributes:  templ.Attributes{"required": true},
 				})
 				<p id="name-error" class="hidden text-xs text-destructive mt-1">請輸入消費名稱</p>
@@ -79,6 +64,21 @@ templ ExpenseForm() {
 				})
 				<p id="price-error" class="hidden text-xs text-destructive mt-1">請輸入有效金額</p>
 			</div>
+		</div>
+		<div>
+			@label.Label(label.Props{}) {
+				分類
+			}
+			<input type="hidden" name="category" id="category-input" value={ string(domain.CategoryFood) }/>
+			@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}) {
+					for i, category := range domain.CategoryValues() {
+						@tabs.Trigger(tabs.TriggerProps{Value: string(category), IsActive: i == 0}) {
+							{ format.Category(category) }
+						}
+					}
+				}
+			}
 		</div>
 		<div>
 			@label.Label(label.Props{}) {
@@ -190,6 +190,10 @@ templ ExpenseForm() {
 			<span class="btn-loading hidden">⏳ 處理中...</span>
 		}
 		<div
+			id="numpad-backdrop"
+			class="hidden fixed inset-0 bg-black/60 z-40"
+		></div>
+		<div
 			id="numpad-sheet"
 			class="hidden fixed bottom-0 left-0 right-0 flex-col bg-background border-t border-border rounded-t-2xl p-3 pb-8 z-50 shadow-2xl"
 		>
@@ -198,7 +202,14 @@ templ ExpenseForm() {
 					<span id="numpad-display" class="text-3xl font-bold tracking-tight">0</span>
 					<span class="text-sm text-muted-foreground" id="numpad-currency-label">JPY</span>
 				</div>
-				<span id="numpad-convert" class="text-sm text-cyan-500"></span>
+				<div class="flex items-center gap-2">
+					<span id="numpad-convert" class="text-sm text-cyan-500"></span>
+					<button
+						type="button"
+						id="numpad-clear"
+						class="text-sm text-muted-foreground hover:text-foreground px-2 py-1 transition-colors"
+					>清除</button>
+				</div>
 			</div>
 			<div class="grid grid-cols-3 gap-2 mb-3">
 				@numpadKey("1")

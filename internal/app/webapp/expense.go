@@ -231,6 +231,9 @@ func (h *Handler) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The row swap only removes the line item; the totals, settlement, and
+	// category bars on the dashboard are now stale, so ask for a redraw.
+	w.Header().Set("HX-Trigger", "dashboard-refresh")
 	w.WriteHeader(http.StatusOK)
 }
 

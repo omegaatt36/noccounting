@@ -459,6 +459,9 @@ func TestHandleDeleteExpense(t *testing.T) {
 	if len(repo.deleted) != 1 || repo.deleted[0] != "exp-123" {
 		t.Errorf("deleted = %v, want exp-123", repo.deleted)
 	}
+	if w.Header().Get("HX-Trigger") != "dashboard-refresh" {
+		t.Errorf("HX-Trigger = %q, want dashboard-refresh", w.Header().Get("HX-Trigger"))
+	}
 }
 
 type stubAnalyzer struct {

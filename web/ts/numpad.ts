@@ -1,13 +1,15 @@
 import type { TelegramContext } from "./telegram.js";
 import { haptic } from "./telegram.js";
-import { symbol, tripCurrency } from "./api.js";
+import { appReady, symbol, tripCurrency } from "./api.js";
 
 export function setupNumpad(ctx: TelegramContext): void {
   const priceField = document.getElementById("price") as HTMLInputElement | null;
   const numpad = document.getElementById("numpad-sheet");
+  const backdrop = document.getElementById("numpad-backdrop");
   const numpadDisplay = document.getElementById("numpad-display");
   const numpadConvert = document.getElementById("numpad-convert");
   const numpadConfirm = document.getElementById("numpad-confirm");
+  const numpadClear = document.getElementById("numpad-clear");
 
   if (!priceField || !numpad) return;
 
@@ -15,15 +17,26 @@ export function setupNumpad(ctx: TelegramContext): void {
   priceField.setAttribute("inputmode", "none");
   priceField.setAttribute("readonly", "true");
 
-  // Telegram's back button closes the sheet instead of closing the whole app.
+  // Telegram's back button closes the sheet instead of closing the whole app,
+  // and the MainButton hides while typing so a stray tap cannot submit a
+  // half-typed amount.
   const backButton = ctx.tg?.BackButton;
   backButton?.onClick(closeNumpad);
+  backdrop?.addEventListener("click", closeNumpad);
+
+  numpadClear?.addEventListener("click", () => {
+    priceField.value = "";
+    updateDisplay();
+    haptic(ctx, "impact", "light");
+  });
 
   priceField.addEventListener("click", () => openNumpad());
 
   function openNumpad(): void {
     numpad!.classList.remove("hidden");
     numpad!.classList.add("flex");
+    backdrop?.classList.remove("hidden");
+    ctx.tg?.MainButton.hide();
     updateDisplay();
     backButton?.show();
   }
@@ -31,7 +44,9 @@ export function setupNumpad(ctx: TelegramContext): void {
   function closeNumpad(): void {
     numpad!.classList.add("hidden");
     numpad!.classList.remove("flex");
+    backdrop?.classList.add("hidden");
     backButton?.hide();
+    if (appReady()) ctx.tg?.MainButton.show();
   }
 
   function updateDisplay(): void {
