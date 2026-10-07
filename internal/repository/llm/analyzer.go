@@ -43,11 +43,13 @@ Your ONLY job is to read the receipt image and output a single JSON object.
 Do NOT think step by step. Do NOT explain. Do NOT output markdown code blocks.
 Output raw, valid JSON and nothing else.`
 
-const receiptPromptTemplate = `Analyze this receipt image. Extract all items with their prices, categories, and Traditional Chinese translations.
+const receiptPromptTemplate = `Analyze this receipt image. Extract all items with their prices, categories, payment method, and Traditional Chinese translations.
 
 Respond ONLY with valid JSON in this exact format:
 {
   "summary": "店名或簡短描述",
+  "category": "food",
+  "payment_method": "cash",
   "items": [
     {"name": "ラーメン", "name_zh": "拉麵", "price": 1200, "category": "food"}
   ],
@@ -57,18 +59,20 @@ Respond ONLY with valid JSON in this exact format:
 
 Rules:
 - "summary" should be a short, readable name for the receipt (e.g. "松屋 午餐", "全家便利商店", "唐吉訶德 伴手禮"). Use the store name if visible, otherwise describe the main purchase.
+- "category" is the overall primary category for this expense, must be exactly one of: %s. Use "groceries" for food bought to take away from a supermarket or convenience store, "food" for meals and drinks consumed out, "shopping" for goods and souvenirs, and "other" when nothing fits.
+- "payment_method" must be exactly one of: cash, credit_card, ic_card, e_pay. If the receipt indicates credit card (クレジット, VISA, Master, etc.), use "credit_card". If IC card (Suica, PASMO, ICOCA, etc.), use "ic_card". If QR/barcode (PayPay, LINE Pay, etc.), use "e_pay". If cash (現金) or unspecified, default to "cash".
 - "name" is the item name as it appears on the receipt (original language).
 - "name_zh" is the Traditional Chinese (正體中文) translation of the item name. If the item name is already in Chinese, set "name_zh" to "".
-- "category" must be exactly one of: %s. Use "groceries" for food bought to take away from a supermarket or convenience store, "food" for meals and drinks consumed out, "shopping" for goods and souvenirs, and "other" when nothing fits.
+- Each item's "category" must be exactly one of: %s.
 - Currency must be either "TWD" or "JPY".
 - Price must be a positive integer (>= 0, no decimals).
 - Do NOT include discount items, tax adjustments, service fees, or set-deal breakdowns (e.g. セット値引き, discount, tax, etc.). Only list the actual goods or services purchased.
 - When a receipt shows a set meal with sub-items and discounts, list the set as a single item with its final set price, or list only the main items with their final prices after discount. Do NOT include negative prices.`
 
-var receiptPrompt = fmt.Sprintf(receiptPromptTemplate, strings.Join(domain.CategoryNames(), ", "))
+var receiptPrompt = fmt.Sprintf(receiptPromptTemplate, strings.Join(domain.CategoryNames(), ", "), strings.Join(domain.CategoryNames(), ", "))
 
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {
-	resized, err := imageutil.ResizeAndCompress(imageData, 512, 80)
+	resized, err := imageutil.ResizeAndCompress(imageData, 1024, 85)
 	if err != nil {
 		slog.Warn("Failed to resize image, using original", "error", err)
 		resized = imageData
@@ -186,16 +190,38 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 			Name: item.Name, NameZH: item.NameZH, Price: item.Price, Category: item.Category,
 		})
 	}
+
+	category := analysis.Category
+	if !category.IsValid() {
+		if len(items) > 0 && items[0].Category.IsValid() {
+			category = items[0].Category
+		} else {
+			category = domain.CategoryFood
+		}
+	}
+
+	paymentMethod := analysis.PaymentMethod
+	if !paymentMethod.IsValid() {
+		paymentMethod = domain.PaymentMethodCash
+	}
+
 	return &domain.ReceiptAnalysis{
-		Summary: analysis.Summary, Items: items, Currency: analysis.Currency, Total: analysis.Total,
+		Summary:       analysis.Summary,
+		Items:         items,
+		Currency:      analysis.Currency,
+		Total:         analysis.Total,
+		Category:      category,
+		PaymentMethod: paymentMethod,
 	}, nil
 }
 
 type receiptResponse struct {
-	Summary  string                `json:"summary"`
-	Items    []receiptItemResponse `json:"items"`
-	Currency domain.Currency       `json:"currency"`
-	Total    uint64                `json:"total"`
+	Summary       string                `json:"summary"`
+	Category      domain.Category       `json:"category"`
+	PaymentMethod domain.PaymentMethod  `json:"payment_method"`
+	Items         []receiptItemResponse `json:"items"`
+	Currency      domain.Currency       `json:"currency"`
+	Total         uint64                `json:"total"`
 }
 
 type receiptItemResponse struct {
@@ -238,7 +264,9 @@ type chatResponse struct {
 }
 
 type choice struct {
-	Message struct {
-		Content string `json:"content"`
-	} `json:"message"`
+	Message choiceMessage `json:"message"`
+}
+
+type choiceMessage struct {
+	Content string `json:"content"`
 }

@@ -90,9 +90,9 @@ func TestHandleTripCallback_SwitchesTheTripForThatPerson(t *testing.T) {
 		t.Errorf("message = %q, want the new trip named", msg)
 	}
 
-	listCtx := newCommandContext()
-	if err := h.handleList(listCtx); err != nil {
-		t.Fatalf("handleList() error = %v", err)
+	todayCtx := newCommandContext()
+	if err := h.handleToday(todayCtx); err != nil {
+		t.Fatalf("handleToday() error = %v", err)
 	}
 	if len(ledger.trips) != 1 || ledger.trips[0].ID != osakaTrip.ID {
 		t.Errorf("books opened for %+v, want the trip just chosen", ledger.trips)
@@ -108,69 +108,6 @@ func TestHandleTripCallback_RefusesATripThatIsGone(t *testing.T) {
 	}
 	if len(c.responded) != 1 || !strings.Contains(c.responded[0].Text, "不在清單") {
 		t.Errorf("responses = %+v, want the trip reported as gone", c.responded)
-	}
-}
-
-// A conversation files under the trip it started with: switching halfway through
-// must not move the expense to a trip the person never confirmed it for.
-func TestQuickFlow_FilesUnderTheTripItStartedWith(t *testing.T) {
-	repo := &spyAccountingRepo{}
-	h, ledger := newTwoTripHandler(repo)
-
-	if err := h.handleQuick(newCommandContext()); err != nil {
-		t.Fatalf("handleQuick() error = %v", err)
-	}
-	state := h.convManager.GetState(testTelegramUserID)
-	if state == nil || state.Trip.ID != tokyoTrip.ID {
-		t.Fatalf("state = %+v, want the flow started under the default trip", state)
-	}
-	state.ExpenseDraft.Name = "拉麵"
-	state.ExpenseDraft.Price = 1200
-	state.ExpenseDraft.Currency = domain.CurrencyTWD
-	state.ExpenseDraft.Category = domain.CategoryFood
-	state.ExpenseDraft.Method = domain.PaymentMethodCash
-
-	if err := h.handleCallback(newCallbackContext(&spyBotAPI{}, "trip|9")); err != nil {
-		t.Fatalf("switching trip: %v", err)
-	}
-	if err := h.handleCallback(newCallbackContext(&spyBotAPI{}, "confirm|yes")); err != nil {
-		t.Fatalf("confirming: %v", err)
-	}
-
-	if len(repo.createdExpenses) != 1 {
-		t.Fatalf("created %d expenses, want 1", len(repo.createdExpenses))
-	}
-	if last := ledger.trips[len(ledger.trips)-1]; last.ID != tokyoTrip.ID {
-		t.Errorf("the expense was filed under trip %d, want %d, where the flow started", last.ID, tokyoTrip.ID)
-	}
-}
-
-func TestHandleList_FiltersByPaymentMethod(t *testing.T) {
-	repo := &spyAccountingRepo{}
-	h, _ := newTwoTripHandler(repo)
-
-	if err := h.handleList(newCommandContext("信用卡")); err != nil {
-		t.Fatalf("handleList() error = %v", err)
-	}
-
-	if repo.lastFilter.Method == nil || *repo.lastFilter.Method != domain.PaymentMethodCreditCard {
-		t.Errorf("filter method = %v, want credit_card read off the label", repo.lastFilter.Method)
-	}
-}
-
-func TestHandleList_RefusesAMethodItDoesNotKnow(t *testing.T) {
-	repo := &spyAccountingRepo{}
-	h, ledger := newTwoTripHandler(repo)
-	c := newCommandContext("bitcoin")
-
-	if err := h.handleList(c); err != nil {
-		t.Fatalf("handleList() error = %v", err)
-	}
-	if !strings.Contains(lastMessage(t, c), "付款方式錯誤") {
-		t.Errorf("message = %q, want the method refused", lastMessage(t, c))
-	}
-	if len(ledger.trips) != 0 {
-		t.Error("the trip's books were opened for a query that was never going to run")
 	}
 }
 
@@ -190,8 +127,6 @@ func TestHandleSummary_ReportsTheSettlementUnderTheNicknames(t *testing.T) {
 	}
 
 	msg := lastMessage(t, c)
-	// The user mapping names user 8 test-user; user 3 is not in it and keeps the
-	// name TREK gave.
 	if !strings.Contains(msg, "test-user → owner-trek  NT$1,500") {
 		t.Errorf("message = %q, want the transfer under the mapped nickname", msg)
 	}

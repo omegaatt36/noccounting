@@ -4,8 +4,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/omegaatt36/noccounting/domain"
 )
 
@@ -13,12 +11,6 @@ type ConversationStep int
 
 const (
 	StepNone ConversationStep = iota
-	StepQuickName
-	StepQuickPrice
-	StepQuickCurrency
-	StepQuickCategory
-	StepQuickMethod
-	StepQuickConfirm
 	StepEditSelect
 	StepEditField
 	StepEditValue
@@ -33,9 +25,6 @@ type ConversationState struct {
 	// expense there even if the person switches trip halfway through it.
 	Trip domain.Trip
 
-	// For /quick flow
-	ExpenseDraft *domain.Expense
-
 	// For /edit flow
 	EditingExpense *domain.Expense
 	EditField      string
@@ -43,6 +32,8 @@ type ConversationState struct {
 	// For receipt scanning flow
 	ReceiptAnalysis *domain.ReceiptAnalysis
 	ReceiptImage    []byte
+	ReceiptCategory domain.Category
+	ReceiptMethod   domain.PaymentMethod
 }
 
 const defaultConversationTTL = 15 * time.Minute
@@ -97,21 +88,6 @@ func (m *ConversationManager) Cleanup() {
 		}
 		return true
 	})
-}
-
-func (m *ConversationManager) StartQuickFlow(userID int64, backendUserID string, trip domain.Trip) *ConversationState {
-	state := &ConversationState{
-		Step:      StepQuickName,
-		StartedAt: time.Now(),
-		Trip:      trip,
-		ExpenseDraft: &domain.Expense{
-			PaidByID:     backendUserID,
-			ShoppedAt:    time.Now(),
-			ExchangeRate: decimal.Zero,
-		},
-	}
-	m.SetState(userID, state)
-	return state
 }
 
 func (m *ConversationManager) StartEditFlow(userID int64, trip domain.Trip, expense *domain.Expense) *ConversationState {

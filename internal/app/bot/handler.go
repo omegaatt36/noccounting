@@ -23,10 +23,6 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-// listLimit is how many expenses /list shows: a message is capped at 4096
-// characters, and a long trip would otherwise fail to send at all.
-const listLimit = 30
-
 type Handler struct {
 	userService    *user.Service
 	expenseService *expense.Service
@@ -60,20 +56,15 @@ func (h *Handler) RegisterHandlers(bot *tele.Bot) {
 	bot.Handle("/help", h.handleHelp)
 	bot.Handle("/trip", h.handleTrip)
 	bot.Handle("/rate", h.handleRate)
-	bot.Handle("/add", h.handleAdd)
-	bot.Handle("/list", h.handleList)
 	bot.Handle("/summary", h.handleSummary)
 	bot.Handle("/today", h.handleToday)
 	bot.Handle("/tz", h.handleTimezone)
 	bot.Handle("/timezone", h.handleTimezone)
-	bot.Handle("/quick", h.handleQuick)
 	bot.Handle("/edit", h.handleEdit)
 	bot.Handle("/cancel", h.handleCancel)
 
 	bot.Handle(tele.OnText, h.handleText)
-
 	bot.Handle(tele.OnPhoto, h.handlePhoto)
-
 	bot.Handle(tele.OnCallback, h.handleCallback)
 }
 
@@ -109,7 +100,7 @@ func (h *Handler) currentTrip(c tele.Context) (domain.Trip, bool) {
 	}
 
 	if errors.Is(err, trip.ErrNoTrip) {
-		_ = c.Send("📭 目前沒有可用的旅行\n\n請先在 TREK 把記帳帳號加入旅行")
+		_ = c.Send("📬 目前沒有可用的旅行\n\n請先在 TREK 把記帳帳號加入旅行")
 		return domain.Trip{}, false
 	}
 	slog.Error("Failed to read the trips", "error", err)
@@ -141,7 +132,7 @@ func (h *Handler) handleStart(c tele.Context) error {
 	if h.webAppURL != "" {
 		webapp := &tele.WebApp{URL: h.webAppURL}
 		btn := tele.InlineButton{
-			Text:   "📝 新增消費",
+			Text:   "📝 開啟記帳 App",
 			WebApp: webapp,
 		}
 		keyboard := &tele.ReplyMarkup{
@@ -168,22 +159,8 @@ func (h *Handler) handleHelp(c tele.Context) error {
 /trip
   查看並切換目前記帳的旅行
 
-/add <名稱> <金額> <幣別> <分類> <付款方式> [日期]
-  新增一筆消費記錄，日期選填，格式 2006-01-02
-  範例: /add 拉麵 1200 JPY 餐飲 現金
-        /add 拉麵 1200 JPY food cash 2026-05-01
-
-/quick
-  互動式新增消費（一步步引導）
-
 /today
   查看今日消費統計
-
-/tz [時區]
-  查看並切換統計時區（台灣 Asia/Taipei 或日本 Asia/Tokyo）
-
-/list [付款方式]
-  列出最近的消費記錄，可只看某種付款方式
 
 /edit
   編輯最近的消費記錄
@@ -194,9 +171,20 @@ func (h *Handler) handleHelp(c tele.Context) error {
 /rate
   查看目前匯率
 
+/tz [時區]
+  查看並切換統計時區（台灣 Asia/Taipei 或日本 Asia/Tokyo）
+
+/cancel
+  取消目前的編輯操作
+
+📸 傳送收據照片
+  直接發送收據照片自動辨識記帳
+
+💡 新增消費與完整圖表請使用 Mini App 操作。
+
 📌 分類: %s
 💳 付款方式: %s
-💱 幣別: %s`, strings.Join(labels, ", "), strings.Join(methods, ", "), strings.Join(domain.CurrencyNames(), ", "))
+💰 幣別: %s`, strings.Join(labels, ", "), strings.Join(methods, ", "), strings.Join(domain.CurrencyNames(), ", "))
 
 	return c.Send(help)
 }
@@ -212,7 +200,7 @@ func (h *Handler) handleTrip(c tele.Context) error {
 		return c.Send("❌ 讀取旅行失敗，請稍後再試")
 	}
 	if len(trips) == 0 {
-		return c.Send("📭 目前沒有可用的旅行\n\n請先在 TREK 把記帳帳號加入旅行")
+		return c.Send("📬 目前沒有可用的旅行\n\n請先在 TREK 把記帳帳號加入旅行")
 	}
 
 	current, err := h.tripService.Current(ctx, c.Sender().ID)
@@ -254,7 +242,6 @@ func (h *Handler) handleTripCallback(c tele.Context, data string) error {
 		return c.Respond(&tele.CallbackResponse{Text: "切換失敗"})
 	}
 
-	// A conversation under way keeps the trip it started with.
 	_ = c.Respond(&tele.CallbackResponse{Text: "已切換"})
 	return c.Send("✅ 已切換到\n" + tripLine(selected))
 }
@@ -264,138 +251,6 @@ func (h *Handler) handleRate(c tele.Context) error {
 	defer cancel()
 
 	return c.Send(rateMessage(h.expenseService.ExchangeRates(ctx)))
-}
-
-func (h *Handler) handleAdd(c tele.Context) error {
-	args := c.Args()
-	if len(args) < 5 {
-		return c.Send(`❌ 格式錯誤
-
-用法: /add <名稱> <金額> <幣別> <分類> <付款方式> [日期]
-範例: /add 拉麵 1200 JPY 餐飲 現金
-      /add 拉麵 1200 JPY food cash 2026-05-01`)
-	}
-
-	name := args[0]
-
-	price, err := strconv.ParseUint(args[1], 10, 64)
-	if err != nil {
-		return c.Send("❌ 金額格式錯誤，請輸入正整數")
-	}
-
-	currency := domain.Currency(strings.ToUpper(args[2]))
-	if !currency.IsValid() {
-		return c.Send(fmt.Sprintf("❌ 幣別錯誤，請使用: %s", strings.Join(domain.CurrencyNames(), ", ")))
-	}
-
-	category, err := format.ParseCategoryInput(args[3])
-	if err != nil {
-		return c.Send("❌ 分類錯誤，使用 /help 查看可用的分類")
-	}
-
-	method, err := format.ParsePaymentMethodInput(args[4])
-	if err != nil {
-		return c.Send("❌ 付款方式錯誤，使用 /help 查看可用的付款方式")
-	}
-
-	shoppedAt := time.Now()
-	if len(args) >= 6 {
-		t, err := time.Parse("2006-01-02", args[5])
-		if err != nil {
-			return c.Send("❌ 日期格式錯誤，請使用 2006-01-02（例如 2026-05-03）")
-		}
-		shoppedAt = t
-	}
-
-	telegramUserID := c.Sender().ID
-	u, err := h.userService.GetUser(domain.GetUserRequest{
-		TelegramID: &telegramUserID,
-	})
-	if err != nil {
-		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
-	}
-
-	current, ok := h.currentTrip(c)
-	if !ok {
-		return nil
-	}
-
-	exp := &domain.Expense{
-		Name:      name,
-		Price:     price,
-		Currency:  currency,
-		Category:  category,
-		Method:    method,
-		PaidByID:  u.BackendUserID,
-		ShoppedAt: shoppedAt,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := h.expenseService.CreateExpense(ctx, current, exp); err != nil {
-		slog.Error("Failed to create expense", "error", err)
-		return c.Send(writeFailure(err, "❌ 新增失敗，連線資料庫錯誤，請稍後再試"))
-	}
-
-	return c.Send(expenseCard("✅ 已新增消費記錄", current, exp))
-}
-
-// handleList shows the latest expenses, optionally only those paid one way: the
-// method rides in the expense's note, so this is the only place to ask for it.
-func (h *Handler) handleList(c tele.Context) error {
-	filter := expense.ExpenseFilter{}
-	var heading string
-	if args := c.Args(); len(args) > 0 {
-		method, err := format.ParsePaymentMethodInput(args[0])
-		if err != nil {
-			return c.Send("❌ 付款方式錯誤，使用 /help 查看可用的付款方式")
-		}
-		filter.Method = &method
-		heading = " · " + format.PaymentEmoji(method) + " " + format.PaymentLabel(method)
-	}
-
-	current, ok := h.currentTrip(c)
-	if !ok {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	expenses, err := h.expenseService.QueryExpensesWithFilter(ctx, current, filter)
-	if err != nil {
-		slog.Error("Failed to query expenses", "error", err)
-		return c.Send("❌ 查詢失敗，連線資料庫錯誤，請稍後再試")
-	}
-
-	if len(expenses) == 0 {
-		return c.Send("📭 目前沒有消費記錄")
-	}
-
-	var total decimal.Decimal
-	for _, exp := range expenses {
-		total = total.Add(exp.TotalInBase(current.Currency))
-	}
-
-	shown := expenses
-	if len(shown) > listLimit {
-		shown = shown[:listLimit]
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "📋 消費記錄%s\n%s\n\n", heading, tripLine(current))
-	for _, exp := range shown {
-		fmt.Fprintf(&sb, "• %s %s %s %s %s\n",
-			exp.ShoppedAt.Format("01/02"), exp.Name, format.Money(exp.Currency, exp.PriceDecimal()),
-			format.CategoryEmoji(exp.Category), format.PaymentEmoji(exp.Method))
-	}
-	if len(expenses) > len(shown) {
-		fmt.Fprintf(&sb, "\n僅顯示最近 %d 筆，共 %d 筆\n", len(shown), len(expenses))
-	}
-	fmt.Fprintf(&sb, "\n💰 合計: %s（%d 筆）", format.Money(current.Currency, total), len(expenses))
-
-	return c.Send(sb.String())
 }
 
 // handleSummary reports where the trip's money stands, as TREK works it out.
@@ -429,23 +284,28 @@ func (h *Handler) handleCancel(c tele.Context) error {
 	return c.Send("❌ 已取消操作")
 }
 
-func (h *Handler) handleQuick(c tele.Context) error {
-	telegramUserID := c.Sender().ID
-	u, err := h.userService.GetUser(domain.GetUserRequest{
-		TelegramID: &telegramUserID,
-	})
-	if err != nil {
-		return c.Send("❌ 無法取得用戶資訊，請確認您已註冊")
+func (h *Handler) renderReceiptMessage(current domain.Trip, analysis *domain.ReceiptAnalysis) (string, *tele.ReplyMarkup) {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📸 %s\n%s\n\n", analysis.Summary, tripLine(current))
+	for i, item := range analysis.Items {
+		fmt.Fprintf(&sb, "%d. %s %s %s\n",
+			i+1, format.CategoryEmoji(item.Category), format.ReceiptName(item), format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
 	}
+	fmt.Fprintf(&sb, "\n💰 合計: %s\n", format.Money(analysis.Currency, decimal.NewFromUint64(analysis.Total)))
+	fmt.Fprintf(&sb, "📂 分類: %s\n", format.Category(analysis.Category))
+	fmt.Fprintf(&sb, "💳 付款方式: %s\n", format.PaymentLabel(analysis.PaymentMethod))
 
-	current, ok := h.currentTrip(c)
-	if !ok {
-		return nil
-	}
-
-	h.convManager.StartQuickFlow(telegramUserID, u.BackendUserID, current)
-
-	return c.Send(fmt.Sprintf("📝 開始新增消費\n%s\n\n請輸入消費名稱：\n\n(輸入 /cancel 取消)", tripLine(current)))
+	keyboard := &tele.ReplyMarkup{}
+	btnSingle := keyboard.Data("📦 整筆記", "receipt", "single")
+	btnSplit := keyboard.Data("📋 拆開記", "receipt", "split")
+	btnToggleMethod := keyboard.Data("💳 切換付款方式 ("+format.PaymentLabel(analysis.PaymentMethod)+")", "receipt", "toggle_method")
+	btnCancel := keyboard.Data("❌ 取消", "receipt", "cancel")
+	keyboard.Inline(
+		keyboard.Row(btnSingle, btnSplit),
+		keyboard.Row(btnToggleMethod),
+		keyboard.Row(btnCancel),
+	)
+	return sb.String(), keyboard
 }
 
 func (h *Handler) handlePhoto(c tele.Context) error {
@@ -494,7 +354,7 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imageData)
 	if err != nil {
 		slog.Error("Receipt analysis failed", "error", err)
-		return c.Send("❌ 無法辨識收據，請嘗試手動輸入\n/quick")
+		return c.Send("❌ 無法辨識收據，請使用 Mini App 手動新增")
 	}
 
 	h.convManager.SetState(c.Sender().ID, &ConversationState{
@@ -502,26 +362,12 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 		Trip:            current,
 		ReceiptAnalysis: analysis,
 		ReceiptImage:    imageData,
+		ReceiptCategory: analysis.Category,
+		ReceiptMethod:   analysis.PaymentMethod,
 	})
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "📸 %s\n%s\n\n", analysis.Summary, tripLine(current))
-	for i, item := range analysis.Items {
-		fmt.Fprintf(&sb, "%d. %s %s %s\n",
-			i+1, format.CategoryEmoji(item.Category), format.ReceiptName(item), format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
-	}
-	fmt.Fprintf(&sb, "\n合計: %s\n", format.Money(analysis.Currency, decimal.NewFromUint64(analysis.Total)))
-
-	keyboard := &tele.ReplyMarkup{}
-	btnSingle := keyboard.Data("📦 整筆記", "receipt", "single")
-	btnSplit := keyboard.Data("📋 拆開記", "receipt", "split")
-	btnCancel := keyboard.Data("❌ 取消", "receipt", "cancel")
-	keyboard.Inline(
-		keyboard.Row(btnSingle, btnSplit),
-		keyboard.Row(btnCancel),
-	)
-
-	return c.Send(sb.String(), keyboard)
+	msg, keyboard := h.renderReceiptMessage(current, analysis)
+	return c.Send(msg, keyboard)
 }
 
 func (h *Handler) handleText(c tele.Context) error {
@@ -535,37 +381,10 @@ func (h *Handler) handleText(c tele.Context) error {
 	text := strings.TrimSpace(c.Text())
 
 	switch state.Step {
-	case StepQuickName:
-		state.ExpenseDraft.Name = text
-		state.Step = StepQuickPrice
-		return c.Send("💰 請輸入金額（正整數）：")
-
-	case StepQuickPrice:
-		priceDec, err := decimal.NewFromString(text)
-		if err != nil || !priceDec.IsPositive() {
-			return c.Send("❌ 金額格式錯誤，請輸入大於 0 的金額：")
-		}
-		rounded := priceDec.Round(0)
-		if !rounded.IsPositive() || !rounded.BigInt().IsUint64() {
-			return c.Send("❌ 金額格式錯誤，請輸入大於 0 的金額：")
-		}
-		state.ExpenseDraft.Price = rounded.BigInt().Uint64()
-		state.Step = StepQuickCurrency
-
-		keyboard := &tele.ReplyMarkup{}
-		keyboard.Inline(
-			keyboard.Row(
-				keyboard.Data("🇯🇵 JPY", "currency", "JPY"),
-				keyboard.Data("🇹🇼 TWD", "currency", "TWD"),
-			),
-		)
-		return c.Send("💱 請選擇幣別：", keyboard)
-
 	case StepEditValue:
 		return h.handleEditValue(c, state, text)
 
-	case StepNone, StepQuickCurrency, StepQuickCategory, StepQuickMethod,
-		StepQuickConfirm, StepEditSelect, StepEditField, ReceiptConfirm:
+	case StepNone, StepEditSelect, StepEditField, ReceiptConfirm:
 		// These steps accept callbacks rather than text input.
 		return nil
 	}
@@ -579,7 +398,6 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	data := c.Callback().Data
 
 	// telebot v4 prefixes callback data with \f (form feed character)
-	// We need to strip it for proper parsing
 	data = strings.TrimPrefix(data, "\f")
 
 	// Handle trip selection (format: "trip|{trip_id}")
@@ -619,14 +437,6 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	action, value := parts[0], parts[1]
 
 	switch action {
-	case "currency":
-		return h.handleQuickCurrency(c, state, value)
-	case "category":
-		return h.handleQuickCategory(c, state, value)
-	case "method":
-		return h.handleQuickMethod(c, state, value)
-	case "confirm":
-		return h.handleQuickConfirm(c, state, value)
 	case "edit_cat":
 		return h.handleEditCategory(c, state, value)
 	case "edit_method":
@@ -634,112 +444,6 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	}
 
 	return c.Respond(&tele.CallbackResponse{Text: "未知操作"})
-}
-
-func (h *Handler) handleQuickCurrency(c tele.Context, state *ConversationState, value string) error {
-	currency := domain.Currency(value)
-	if !currency.IsValid() {
-		return c.Respond(&tele.CallbackResponse{Text: "無效的幣別"})
-	}
-
-	state.ExpenseDraft.Currency = currency
-
-	// A foreign expense is converted into the trip's currency at the rate of the
-	// day; one in the trip's own currency needs none.
-	if currency != state.Trip.Currency {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		rate, err := h.expenseService.FetchExchangeRate(ctx, currency, state.Trip.Currency)
-		if err != nil {
-			slog.Warn("Failed to fetch exchange rate", "error", err)
-		} else if !rate.IsZero() {
-			state.ExpenseDraft.ExchangeRate = rate
-			slog.Info("Fetched exchange rate", "currency", currency, "rate", rate.String())
-		}
-	}
-
-	state.Step = StepQuickCategory
-
-	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + value})
-
-	return c.Send("📂 請選擇分類：", makeCategoryKeyboard("category"))
-}
-
-func (h *Handler) handleQuickCategory(c tele.Context, state *ConversationState, value string) error {
-	category := domain.Category(value)
-	if !category.IsValid() {
-		return c.Respond(&tele.CallbackResponse{Text: "無效的分類"})
-	}
-
-	state.ExpenseDraft.Category = category
-	state.Step = StepQuickMethod
-
-	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + format.CategoryLabel(category)})
-
-	return c.Send("💳 請選擇付款方式：", makePaymentMethodKeyboard("method"))
-}
-
-func (h *Handler) handleQuickMethod(c tele.Context, state *ConversationState, value string) error {
-	method := domain.PaymentMethod(value)
-	if !method.IsValid() {
-		return c.Respond(&tele.CallbackResponse{Text: "無效的付款方式"})
-	}
-
-	state.ExpenseDraft.Method = method
-	state.Step = StepQuickConfirm
-
-	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇 " + format.PaymentLabel(method)})
-
-	exp := state.ExpenseDraft
-
-	// Build confirmation message with optional exchange rate info
-	var rateInfo string
-	if exp.Currency != state.Trip.Currency && !exp.ExchangeRate.IsZero() {
-		rateInfo = fmt.Sprintf("\n💱 匯率: %s", exp.ExchangeRate.StringFixed(4))
-	}
-
-	confirmMsg := fmt.Sprintf(`📋 確認消費資訊
-%s
-
-📝 名稱: %s
-💰 金額: %s%s%s
-📂 分類: %s
-💳 付款: %s
-
-確定要新增嗎？`, tripLine(state.Trip), exp.Name, format.Money(exp.Currency, exp.PriceDecimal()), convertedSuffix(state.Trip, exp), rateInfo,
-		format.Category(exp.Category), format.PaymentLabel(exp.Method))
-
-	keyboard := &tele.ReplyMarkup{}
-	keyboard.Inline(
-		keyboard.Row(
-			keyboard.Data("✅ 確認", "confirm", "yes"),
-			keyboard.Data("❌ 取消", "confirm", "no"),
-		),
-	)
-	return c.Send(confirmMsg, keyboard)
-}
-
-func (h *Handler) handleQuickConfirm(c tele.Context, state *ConversationState, value string) error {
-	defer h.convManager.ClearState(c.Sender().ID)
-
-	if value != "yes" {
-		_ = c.Respond(&tele.CallbackResponse{Text: "已取消"})
-		return c.Send("❌ 已取消新增")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	exp := state.ExpenseDraft
-	if err := h.expenseService.CreateExpense(ctx, state.Trip, exp); err != nil {
-		slog.Error("Failed to create expense", "error", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
-		return c.Send(writeFailure(err, "❌ 新增失敗，連線資料庫錯誤，請稍後再試"))
-	}
-
-	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
-
-	return c.Send(expenseCard("✅ 已新增消費記錄", state.Trip, exp))
 }
 
 func (h *Handler) handleEdit(c tele.Context) error {
@@ -759,7 +463,7 @@ func (h *Handler) handleEdit(c tele.Context) error {
 	}
 
 	if len(expenses) == 0 {
-		return c.Send("📭 目前沒有消費記錄可編輯")
+		return c.Send("📬 目前沒有消費記錄可編輯")
 	}
 
 	keyboard := &tele.ReplyMarkup{}
@@ -821,7 +525,6 @@ func (h *Handler) handleEditSelectCallback(c tele.Context, data string) error {
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "已選擇"})
 
-	// Show field selection keyboard
 	keyboard := &tele.ReplyMarkup{}
 	keyboard.Inline(
 		keyboard.Row(
@@ -922,8 +625,6 @@ func (h *Handler) handleEditValue(c tele.Context, state *ConversationState, text
 	return h.saveEdit(c, state, "更新失敗")
 }
 
-// saveEdit writes the expense an edit conversation has been changing and
-// reports it, so the four ways to change one end the same way.
 func (h *Handler) saveEdit(c tele.Context, state *ConversationState, failure string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1005,19 +706,46 @@ func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState
 
 	action := parts[1]
 
-	// Remove inline buttons from the original message
-	if msg := c.Message(); msg != nil {
-		_, _ = c.Bot().Edit(msg, msg.Text)
-	}
-
 	if action == "cancel" {
 		h.convManager.ClearState(c.Sender().ID)
+		if msg := c.Message(); msg != nil {
+			_, _ = c.Bot().Edit(msg, msg.Text)
+		}
 		_ = c.Respond(&tele.CallbackResponse{Text: "已取消"})
 		return c.Send("❌ 已取消操作")
 	}
 
 	if state == nil || state.ReceiptAnalysis == nil {
 		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
+	}
+
+	if action == "toggle_method" {
+		var nextMethod domain.PaymentMethod
+		switch state.ReceiptAnalysis.PaymentMethod {
+		case domain.PaymentMethodCash:
+			nextMethod = domain.PaymentMethodCreditCard
+		case domain.PaymentMethodCreditCard:
+			nextMethod = domain.PaymentMethodIcCard
+		case domain.PaymentMethodIcCard:
+			nextMethod = domain.PaymentMethodEPay
+		case domain.PaymentMethodEPay:
+			nextMethod = domain.PaymentMethodCash
+		default:
+			nextMethod = domain.PaymentMethodCash
+		}
+		state.ReceiptAnalysis.PaymentMethod = nextMethod
+		_ = c.Respond(&tele.CallbackResponse{Text: "付款方式切換為: " + format.PaymentLabel(nextMethod)})
+		msg, keyboard := h.renderReceiptMessage(state.Trip, state.ReceiptAnalysis)
+		if originalMsg := c.Message(); originalMsg != nil {
+			_, err := c.Bot().Edit(originalMsg, msg, keyboard)
+			return err
+		}
+		return c.Send(msg, keyboard)
+	}
+
+	// Remove inline buttons from the original message for final actions
+	if msg := c.Message(); msg != nil {
+		_, _ = c.Bot().Edit(msg, msg.Text)
 	}
 
 	if action == "single" {
@@ -1046,7 +774,8 @@ func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) 
 		return c.Send("❌ 無法取得用戶資訊")
 	}
 
-	if err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, receiptCommand(state.ReceiptAnalysis), state.ReceiptImage, u.BackendUserID, false); err != nil {
+	analysis := state.ReceiptAnalysis
+	if err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, receiptCommand(analysis), state.ReceiptImage, u.BackendUserID, false); err != nil {
 		slog.Error("Failed to create expense from receipt", "error", err)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
 		return c.Send(writeFailure(err, "❌ 新增失敗，請稍後再試"))
@@ -1054,13 +783,12 @@ func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) 
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
-	analysis := state.ReceiptAnalysis
 	return c.Send(expenseCard("✅ 已新增消費記錄", state.Trip, &domain.Expense{
 		Name:     analysis.Summary,
 		Price:    analysis.Total,
 		Currency: analysis.Currency,
-		Category: domain.CategoryFood,
-		Method:   domain.PaymentMethodCash,
+		Category: analysis.Category,
+		Method:   analysis.PaymentMethod,
 	}))
 }
 
@@ -1094,6 +822,7 @@ func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) e
 		fmt.Fprintf(&sb, "%d. %s %s %s\n",
 			i+1, format.CategoryEmoji(item.Category), format.ReceiptName(item), format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
 	}
+	fmt.Fprintf(&sb, "\n💳 付款方式: %s", format.PaymentLabel(analysis.PaymentMethod))
 	return c.Send(sb.String())
 }
 
@@ -1115,7 +844,7 @@ func (h *Handler) handleToday(c tele.Context) error {
 
 	tzNotice := fmt.Sprintf("（%s）", loc.String())
 	if len(summary.Items) == 0 {
-		return c.Send(fmt.Sprintf("📅 %s %s消費統計\n%s\n\n📭 今日尚無消費記錄", summary.Date.Format("2006/01/02"), tzNotice, tripLine(current)))
+		return c.Send(fmt.Sprintf("📅 %s %s消費統計\n%s\n\n📬 今日尚無消費記錄", summary.Date.Format("2006/01/02"), tzNotice, tripLine(current)))
 	}
 
 	var sb strings.Builder
@@ -1145,7 +874,6 @@ func makeCategoryKeyboard(actionPrefix string) *tele.ReplyMarkup {
 		)
 		currentRow = append(currentRow, btn)
 
-		// 3 buttons per row, or last row
 		if len(currentRow) == 3 || i == len(categories)-1 {
 			rows = append(rows, keyboard.Row(currentRow...))
 			currentRow = []tele.Btn{}
@@ -1169,7 +897,6 @@ func makePaymentMethodKeyboard(actionPrefix string) *tele.ReplyMarkup {
 		)
 		currentRow = append(currentRow, btn)
 
-		// 2 buttons per row for payment methods
 		if len(currentRow) == 2 || i == len(methods)-1 {
 			rows = append(rows, keyboard.Row(currentRow...))
 			currentRow = []tele.Btn{}
@@ -1248,26 +975,27 @@ func (h *Handler) handleTimezoneCallback(c tele.Context, data string) error {
 	if err := c.Respond(&tele.CallbackResponse{Text: "已更新時區為 " + newLoc.String()}); err != nil {
 		slog.Warn("Failed to respond callback", "error", err)
 	}
-	return c.Send(fmt.Sprintf("✅ 已將統計時區設定為：%s (%s)", newLoc.String(), tzOffsetString(newLoc)))
+	return c.Send(fmt.Sprintf("✅ 已將時區更新為：%s (%s)", newLoc.String(), tzOffsetString(newLoc)))
 }
 
 func parseTimezone(input string) (*time.Location, error) {
-	norm := strings.ToLower(strings.TrimSpace(input))
-	switch norm {
-	case "tw", "taiwan", "taipei", "asia/taipei", "utc+8", "gmt+8":
+	cleaned := strings.TrimSpace(input)
+	switch strings.ToLower(cleaned) {
+	case "taipei", "taiwan", "asia/taipei", "utc+8", "+8", "gmt+8":
 		return time.LoadLocation("Asia/Taipei")
-	case "jp", "japan", "tokyo", "asia/tokyo", "utc+9", "gmt+9":
+	case "tokyo", "japan", "asia/tokyo", "utc+9", "+9", "gmt+9":
 		return time.LoadLocation("Asia/Tokyo")
 	default:
-		return time.LoadLocation(strings.TrimSpace(input))
+		return time.LoadLocation(cleaned)
 	}
 }
 
 func tzOffsetString(loc *time.Location) string {
-	_, offsetSec := time.Now().In(loc).Zone()
-	hours := offsetSec / 3600
-	if hours >= 0 {
-		return fmt.Sprintf("UTC+%d", hours)
+	_, offset := time.Now().In(loc).Zone()
+	hours := offset / 3600
+	mins := (offset % 3600) / 60
+	if mins != 0 {
+		return fmt.Sprintf("UTC%+d:%02d", hours, mins)
 	}
-	return fmt.Sprintf("UTC%d", hours)
+	return fmt.Sprintf("UTC%+d", hours)
 }

@@ -22,6 +22,7 @@ type stubAccountingRepo struct {
 	expenses   []domain.Expense
 	members    []domain.Member
 	created    []*domain.Expense
+	deleted    []string
 	settlement *domain.Settlement
 }
 
@@ -51,7 +52,8 @@ func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, _ *
 	return nil
 }
 
-func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, _ string) error {
+func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, id string) error {
+	m.deleted = append(m.deleted, id)
 	return nil
 }
 

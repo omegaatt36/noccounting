@@ -2,8 +2,10 @@ package webapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -195,6 +197,120 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		Success:     true,
 		Title:       fmt.Sprintf("%s %s", format.CategoryEmoji(category), name),
 		Description: description,
+	})
+}
+
+func (h *Handler) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
+	_, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
+	expenseID := r.URL.Query().Get("id")
+	if expenseID == "" {
+		expenseID = r.FormValue("id")
+	}
+	if expenseID == "" {
+		http.Error(w, "missing expense id", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	selected, err := h.tripFor(ctx, r)
+	if err != nil {
+		slog.Error("Failed to resolve trip for expense deletion", "error", err)
+		http.Error(w, "trip not found", http.StatusNotFound)
+		return
+	}
+
+	if err := h.expenseService.DeleteExpense(ctx, selected, expenseID); err != nil {
+		slog.Error("Failed to delete expense", "error", err, "id", expenseID)
+		http.Error(w, "failed to delete expense", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+type analyzeReceiptResponse struct {
+	Success  bool                 `json:"success"`
+	Summary  string               `json:"summary,omitempty"`
+	Currency domain.Currency      `json:"currency,omitempty"`
+	Total    uint64               `json:"total,omitempty"`
+	Category domain.Category      `json:"category,omitempty"`
+	Method   domain.PaymentMethod `json:"method,omitempty"`
+	Error    string               `json:"error,omitempty"`
+}
+
+func (h *Handler) handleAnalyzeReceipt(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if _, ok := h.requireAuth(w, r); !ok {
+		return
+	}
+
+	if !h.expenseService.HasReceiptAnalyzer() {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
+			Success: false,
+			Error:   "收據分析功能尚未啟用",
+		})
+		return
+	}
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
+			Success: false,
+			Error:   "無法讀取上傳檔案",
+		})
+		return
+	}
+
+	file, _, err := r.FormFile("receipt")
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
+			Success: false,
+			Error:   "缺少收據圖片",
+		})
+		return
+	}
+	defer file.Close()
+
+	imgBytes, err := io.ReadAll(file)
+	if err != nil || len(imgBytes) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
+			Success: false,
+			Error:   "讀取收據圖片失敗",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+	defer cancel()
+
+	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imgBytes)
+	if err != nil {
+		slog.Error("Receipt analysis failed in webapp", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
+			Success: false,
+			Error:   "收據辨識失敗，請手動輸入",
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
+		Success:  true,
+		Summary:  analysis.Summary,
+		Currency: analysis.Currency,
+		Total:    analysis.Total,
+		Category: analysis.Category,
+		Method:   analysis.PaymentMethod,
 	})
 }
 

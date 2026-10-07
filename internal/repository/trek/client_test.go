@@ -576,13 +576,11 @@ func TestClient_ConcurrentUnauthorizedOnlyReauthenticatesOnce(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, 2)
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 2 {
+		wg.Go(func() {
 			_, err := client.ListTrips(context.Background())
 			errCh <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

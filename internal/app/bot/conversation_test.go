@@ -11,7 +11,7 @@ func TestConversationManager_ExpiresStateAfterTTL(t *testing.T) {
 	mgr := bot.NewConversationManagerWithTTL(10 * time.Millisecond)
 
 	mgr.SetState(12345, &bot.ConversationState{
-		Step: bot.StepQuickName,
+		Step: bot.StepEditField,
 	})
 
 	if state := mgr.GetState(12345); state == nil {
@@ -28,8 +28,8 @@ func TestConversationManager_ExpiresStateAfterTTL(t *testing.T) {
 func TestConversationManager_CleanupRemovesExpiredStates(t *testing.T) {
 	mgr := bot.NewConversationManagerWithTTL(10 * time.Millisecond)
 
-	mgr.SetState(1, &bot.ConversationState{Step: bot.StepQuickName})
-	mgr.SetState(2, &bot.ConversationState{Step: bot.StepQuickPrice})
+	mgr.SetState(1, &bot.ConversationState{Step: bot.StepEditField})
+	mgr.SetState(2, &bot.ConversationState{Step: bot.StepEditValue})
 
 	time.Sleep(20 * time.Millisecond)
 

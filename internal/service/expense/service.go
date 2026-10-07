@@ -99,10 +99,15 @@ func (s *Service) GetTodaySummary(ctx context.Context, trip domain.Trip, loc ...
 		grandTotal = grandTotal.Add(amount)
 	}
 
-	items := make([]CategorySummary, 0, len(totals))
+	// Categories keep domain.CategoryValues order so output order is deterministic
+	var items []CategorySummary
 	for _, cat := range domain.CategoryValues() {
-		if total, ok := totals[cat]; ok && !total.IsZero() {
-			items = append(items, CategorySummary{Category: cat, Total: total})
+		total, exists := totals[cat]
+		if exists && !total.IsZero() {
+			items = append(items, CategorySummary{
+				Category: cat,
+				Total:    total,
+			})
 		}
 	}
 
@@ -146,13 +151,26 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, anal
 
 	now := time.Now()
 
+	category := analysis.Category
+	if !category.IsValid() {
+		if len(analysis.Items) > 0 && analysis.Items[0].Category.IsValid() {
+			category = analysis.Items[0].Category
+		} else {
+			category = domain.CategoryFood
+		}
+	}
+	method := analysis.PaymentMethod
+	if !method.IsValid() {
+		method = domain.PaymentMethodCash
+	}
+
 	if !splitItems {
 		expense := &domain.Expense{
 			Name:           analysis.Summary,
 			Price:          analysis.Total,
 			Currency:       analysis.Currency,
-			Category:       domain.CategoryFood,
-			Method:         domain.PaymentMethodCash,
+			Category:       category,
+			Method:         method,
 			PaidByID:       backendUserID,
 			ShoppedAt:      now,
 			ReceiptURL:     receiptURL,
@@ -167,12 +185,16 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, anal
 			slog.Debug("skipping non-positive receipt item", "name", item.Name, "price", item.Price)
 			continue
 		}
+		itemCat := item.Category
+		if !itemCat.IsValid() {
+			itemCat = category
+		}
 		expense := &domain.Expense{
 			Name:           item.Name,
 			Price:          uint64(item.Price),
 			Currency:       analysis.Currency,
-			Category:       item.Category,
-			Method:         domain.PaymentMethodCash,
+			Category:       itemCat,
+			Method:         method,
 			PaidByID:       backendUserID,
 			ShoppedAt:      now,
 			ReceiptURL:     receiptURL,

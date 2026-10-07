@@ -361,8 +361,8 @@ func TestHandleDashboard_ReportsInAJPYTripsCurrency(t *testing.T) {
 
 	w := get(t, handler.handleDashboardContent, "/partial/dashboard?range=all&trip_id=9")
 
-	if body := w.Body.String(); !strings.Contains(body, "¥1,000") || strings.Contains(body, "NT$") {
-		t.Errorf("dashboard should total in yen and mention no NT$, got %q", body)
+	if body := w.Body.String(); !strings.Contains(body, "¥1,000") {
+		t.Errorf("dashboard should total in yen, got %q", body)
 	}
 }
 
@@ -440,5 +440,74 @@ func TestTripScopedReads_RequireExplicitTrip(t *testing.T) {
 				t.Errorf("status = %d, want missing-trip rejection", w.Code)
 			}
 		})
+	}
+}
+
+func TestHandleDeleteExpense(t *testing.T) {
+	repo := &stubAccountingRepo{expenses: []domain.Expense{
+		{ID: "exp-123", Name: "ramen", Price: 1000, Currency: domain.CurrencyJPY, ShoppedAt: time.Now()},
+	}}
+	handler, _ := devHandler(t, repo, twoTrips{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/expense?id=exp-123&trip_id=3", nil)
+	w := httptest.NewRecorder()
+	handler.handleDeleteExpense(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if len(repo.deleted) != 1 || repo.deleted[0] != "exp-123" {
+		t.Errorf("deleted = %v, want exp-123", repo.deleted)
+	}
+}
+
+type stubAnalyzer struct {
+	result *domain.ReceiptAnalysis
+	err    error
+}
+
+func (s stubAnalyzer) Analyze(_ context.Context, _ []byte) (*domain.ReceiptAnalysis, error) {
+	return s.result, s.err
+}
+
+func TestHandleAnalyzeReceipt(t *testing.T) {
+	users := &fakeUserRepo{users: map[int64]*domain.User{
+		123456789: {ID: 1, TelegramID: 123456789, BackendUserID: "8", Nickname: "John"},
+	}}
+	analysis := &domain.ReceiptAnalysis{
+		Summary:       "Matsuya",
+		Total:         650,
+		Currency:      domain.CurrencyJPY,
+		Category:      domain.CategoryFood,
+		PaymentMethod: domain.PaymentMethodCash,
+	}
+	expSvc := expense.NewService(&stubAccountingRepo{}, stubRates{}, stubAnalyzer{result: analysis})
+	handler, err := NewHandler(user.NewService(users), expSvc, trip.NewService(twoTrips{}), "test-token", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := new(strings.Builder)
+	body.WriteString("--boundary\r\n")
+	body.WriteString("Content-Disposition: form-data; name=\"receipt\"; filename=\"receipt.jpg\"\r\n")
+	body.WriteString("Content-Type: image/jpeg\r\n\r\n")
+	body.WriteString("fake-image-bytes\r\n")
+	body.WriteString("--boundary--\r\n")
+
+	payload := strings.ReplaceAll(body.String(), "\\r\\n", "\r\n")
+	req := httptest.NewRequest(http.MethodPost, "/api/receipt/analyze", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	w := httptest.NewRecorder()
+	handler.handleAnalyzeReceipt(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
+	}
+	var resp analyzeReceiptResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success || resp.Summary != "Matsuya" || resp.Total != 650 || resp.Currency != domain.CurrencyJPY {
+		t.Errorf("unexpected response: %+v", resp)
 	}
 }

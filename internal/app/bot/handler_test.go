@@ -525,7 +525,7 @@ func TestHandlePhoto_AnalyzerFails_ReturnsErrorMessage(t *testing.T) {
 	// Should show error message, not crash
 	found := false
 	for _, msg := range photoCtx.sentMsgs {
-		if s, ok := msg.(string); ok && s == "❌ 無法辨識收據，請嘗試手動輸入\n/quick" {
+		if s, ok := msg.(string); ok && strings.Contains(s, "無法辨識收據") {
 			found = true
 		}
 	}
@@ -964,8 +964,8 @@ func TestHandleHelp_AdvertisesNoLedgerCommand(t *testing.T) {
 		}
 	}
 	// The control again: help that listed nothing would satisfy the loop above.
-	if !strings.Contains(help, "/add") {
-		t.Errorf("the help text no longer documents /add, so it lists nothing at all: %q", help)
+	if !strings.Contains(help, "/trip") {
+		t.Errorf("the help text no longer documents /trip, so it lists nothing at all: %q", help)
 	}
 }
 
