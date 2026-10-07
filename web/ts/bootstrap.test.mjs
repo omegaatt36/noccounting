@@ -54,8 +54,7 @@ test("successful trip load initializes form before showing app", async () => {
 
 async function tripSwitcher(switchResult) {
   const views = [];
-  const listeners = {};
-  const select = { value: "3", disabled: false, textContent: "", appendChild() {}, addEventListener(name, fn) { listeners[name] = fn; } };
+  const select = { value: "3", disabled: false, textContent: "", appendChild() {} };
   const input = { value: "" };
   const body = { dataset: {} };
   let requests = 0;
@@ -74,7 +73,7 @@ async function tripSwitcher(switchResult) {
   await module.evaluate();
   await module.namespace.loadTrips({});
   select.value = "9";
-  const pending = listeners.change();
+  const pending = select.onchange();
   await new Promise(setImmediate);
   return { select, input, body, views, pending };
 }
