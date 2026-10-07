@@ -63,7 +63,93 @@ function formatDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function selectTab(containerId: string, value: string) {
+  const trigger = document.querySelector(
+    `#${containerId} [data-tui-tabs-trigger][data-tui-tabs-value="${value}"]`,
+  ) as HTMLElement | null;
+  if (trigger) {
+    trigger.click();
+  }
+}
+
+function setupReceiptUpload(ctx: TelegramContext): void {
+  const receiptFileInput = document.getElementById(
+    "receipt-file-input",
+  ) as HTMLInputElement | null;
+  const receiptIndicator = document.getElementById(
+    "receipt-scanning-indicator",
+  );
+
+  if (!receiptFileInput) return;
+
+  receiptFileInput.addEventListener("change", async () => {
+    const file = receiptFileInput.files?.[0];
+    if (!file) return;
+
+    receiptIndicator?.classList.remove("hidden");
+    haptic(ctx, "impact", "medium");
+
+    try {
+      const formData = new FormData();
+      formData.append("receipt", file);
+      if (ctx.initData) {
+        formData.append("init_data", ctx.initData);
+      }
+
+      const res = await fetch("/api/receipt/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        alert(data.error || "收據辨識失敗，請手動輸入");
+        haptic(ctx, "notification", "error");
+        return;
+      }
+
+      if (data.summary) {
+        const nameEl = document.getElementById("name") as HTMLInputElement | null;
+        if (nameEl) nameEl.value = data.summary;
+      }
+
+      if (data.total) {
+        const priceEl = document.getElementById("price") as HTMLInputElement | null;
+        if (priceEl) {
+          priceEl.value = String(data.total);
+          const numpadDisplay = document.getElementById("numpad-display");
+          if (numpadDisplay) numpadDisplay.textContent = String(data.total);
+        }
+      }
+
+      if (data.currency) {
+        selectTab("currency-tabs", data.currency);
+      }
+
+      if (data.category) {
+        selectTab("category-tabs", data.category);
+      }
+
+      if (data.method) {
+        selectTab("method-tabs", data.method);
+      }
+
+      validateName();
+      validatePrice();
+      haptic(ctx, "notification", "success");
+    } catch (err) {
+      console.error("Receipt upload error:", err);
+      alert("上傳收據失敗，請稍後再試");
+      haptic(ctx, "notification", "error");
+    } finally {
+      receiptIndicator?.classList.add("hidden");
+      receiptFileInput.value = "";
+    }
+  });
+}
+
 export function setupEventListeners(ctx: TelegramContext): void {
+  setupReceiptUpload(ctx);
 
   const todayBtn = document.getElementById("date-today-btn");
   const yesterdayBtn = document.getElementById("date-yesterday-btn");

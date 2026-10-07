@@ -37,6 +37,7 @@ type PayerBar struct {
 
 type ExpenseItem struct {
 	ID            string
+	TripID        int64
 	Name          string
 	Date          string
 	AmountDisplay string
@@ -67,9 +68,10 @@ type SettlementView struct {
 // DashboardView is everything the dashboard shows, with the amounts already
 // written in the trip's currency.
 type DashboardView struct {
-	TripTitle     string
-	GrandTotal    string
-	ItemCount     int
+	TripTitle           string
+	GrandTotal          string
+	GrandTotalConverted string
+	ItemCount           int
 	TrendPct      int
 	DonutGradient string
 	Categories    []CategoryBar
@@ -158,9 +160,14 @@ templ DashboardContent(v DashboardView) {
 					</div>
 					<div class="flex-1 min-w-0">
 						<p class="text-xs text-muted-foreground mb-1 tracking-widest uppercase">總消費</p>
-						<p class="text-3xl font-bold text-primary leading-none mb-2 tracking-tight">
+						<p class="text-3xl font-bold text-primary leading-none mb-1 tracking-tight">
 							{ v.GrandTotal }
 						</p>
+						if v.GrandTotalConverted != "" {
+							<p class="text-xs font-semibold text-muted-foreground/80 mb-2">
+								{ v.GrandTotalConverted }
+							</p>
+						}
 						<div class="flex items-center gap-2 flex-wrap">
 							<span class="text-xs text-muted-foreground">{ fmt.Sprintf("%d 筆", v.ItemCount) }</span>
 							if v.TrendPct != 0 {
@@ -360,10 +367,21 @@ templ settlementCard(settlement *SettlementView) {
 templ CategoryDetailPartial(items []ExpenseItem, color string) {
 	<div class="border-l-2 pl-3 space-y-0.5 mb-2" style={ fmt.Sprintf("border-color: %s", color) }>
 		for _, item := range items {
-			<div class="flex items-center py-1.5 border-b border-border/50 text-sm">
+			<div class="expense-row flex items-center py-1.5 border-b border-border/50 text-sm group">
 				<span class="flex-1 text-muted-foreground truncate">{ item.Name }</span>
 				<span class="text-xs text-muted-foreground mr-3">{ item.Date }</span>
 				<span class="font-medium whitespace-nowrap">{ item.AmountDisplay }</span>
+				<button
+					type="button"
+					class="ml-2 text-muted-foreground hover:text-destructive transition-colors p-1 text-xs opacity-60 hover:opacity-100"
+					hx-delete={ fmt.Sprintf("/api/expense?id=%s&trip_id=%d", item.ID, item.TripID) }
+					hx-confirm="確定要刪除這筆消費嗎？"
+					hx-target="closest .expense-row"
+					hx-swap="outerHTML"
+					title="刪除"
+				>
+					🗑️
+				</button>
 			</div>
 		}
 	</div>

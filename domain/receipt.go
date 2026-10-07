@@ -8,8 +8,10 @@ type ReceiptItem struct {
 }
 
 type ReceiptAnalysis struct {
-	Summary  string
-	Items    []ReceiptItem
-	Currency Currency
-	Total    uint64
+	Summary       string
+	Items         []ReceiptItem
+	Currency      Currency
+	Total         uint64
+	Category      Category
+	PaymentMethod PaymentMethod
 }

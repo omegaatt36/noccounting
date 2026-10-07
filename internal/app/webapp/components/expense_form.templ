@@ -20,6 +20,18 @@ templ ExpenseForm() {
 		<input type="hidden" id="init_data" name="init_data" value=""/>
 		<input type="hidden" id="trip-id-input" name="trip_id" value=""/>
 		<h1 class="text-xl font-bold text-center py-1">📝 新增消費</h1>
+		<div class="flex items-center justify-between pb-1">
+			<label
+				for="receipt-file-input"
+				class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-all shadow-sm active:scale-95"
+			>
+				<span>📸 拍照 / 上傳收據辨識</span>
+			</label>
+			<input type="file" id="receipt-file-input" accept="image/*" class="hidden"/>
+			<span id="receipt-scanning-indicator" class="hidden text-xs text-primary font-medium animate-pulse">
+				🔍 正在分析收據...
+			</span>
+		</div>
 		<div>
 			@label.Label(label.Props{}) {
 				分類

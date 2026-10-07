@@ -35,13 +35,11 @@ var commands = []tele.Command{
 	{Text: "start", Description: "開始使用"},
 	{Text: "help", Description: "指令說明"},
 	{Text: "trip", Description: "查看並切換旅行"},
-	{Text: "add", Description: "新增一筆消費"},
-	{Text: "quick", Description: "互動式新增消費"},
 	{Text: "today", Description: "今日消費統計"},
-	{Text: "list", Description: "最近的消費記錄"},
 	{Text: "edit", Description: "編輯最近的消費"},
 	{Text: "summary", Description: "結算：誰該付給誰"},
 	{Text: "rate", Description: "目前匯率"},
+	{Text: "tz", Description: "設定時區"},
 	{Text: "cancel", Description: "取消目前的操作"},
 }
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"image"
 	"image/jpeg"
 	"io"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/omegaatt36/noccounting/domain"
 )
 
 type spyTransport struct {
@@ -20,38 +21,49 @@ type spyTransport struct {
 	content string
 }
 
-func (s *spyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if err := json.NewDecoder(r.Body).Decode(&s.request); err != nil {
+func (s *spyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := json.NewDecoder(req.Body).Decode(&s.request); err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": s.content}}}})
+	resp := chatResponse{
+		Choices: []choice{{Message: choiceMessage{Content: s.content}}},
+	}
+	raw, err := json.Marshal(resp)
 	if err != nil {
 		return nil, err
 	}
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header)}, nil
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(raw)),
+		Header:     make(http.Header),
+	}, nil
 }
 
 func TestOCRExtractsJSONAndPreservesSignedPrices(t *testing.T) {
-	transport := &spyTransport{content: "```json\n" + `{"summary":"receipt","items":[{"name":"discount","price":-20,"category":"groceries"}],"currency":"JPY","total":80}` + "\n```"}
+	transport := &spyTransport{content: "```json\n{\"summary\":\"FamilyMart\",\"currency\":\"JPY\",\"total\":420,\"items\":[{\"name\":\"Onigiri\",\"price\":150,\"category\":\"food\"},{\"name\":\"Tea\",\"price\":-50,\"category\":\"food\"},{\"name\":\"Total\",\"price\":420,\"category\":\"food\"}]}\n```"}
 	analyzer := NewAnalyzer("https://example.test", "key", "model")
 	analyzer.httpClient.Transport = transport
-	result, err := analyzer.doAnalyze(context.Background(), "image")
+
+	analysis, err := analyzer.Analyze(context.Background(), []byte("not-an-image"))
 	if err != nil {
-		t.Fatalf("doAnalyze: %v", err)
+		t.Fatal(err)
 	}
-	if len(result.Items) != 1 || result.Items[0].Price != -20 || string(result.Items[0].Category) != "groceries" {
-		t.Fatalf("signed items: %+v", result.Items)
+	if analysis.Summary != "FamilyMart" || analysis.Currency != domain.CurrencyJPY || analysis.Total != 420 {
+		t.Fatalf("analysis = %+v", analysis)
+	}
+	if len(analysis.Items) != 3 || analysis.Items[1].Price != -50 {
+		t.Fatalf("items = %+v", analysis.Items)
 	}
 }
 
 func TestOCRParseErrorWrapsSyntaxError(t *testing.T) {
-	transport := &spyTransport{content: "reasoning {broken json}"}
+	transport := &spyTransport{content: "not json at all"}
 	analyzer := NewAnalyzer("https://example.test", "key", "model")
 	analyzer.httpClient.Transport = transport
-	_, err := analyzer.doAnalyze(context.Background(), "image")
-	var syntaxError *json.SyntaxError
-	if !errors.As(err, &syntaxError) {
-		t.Fatalf("expected wrapped syntax error, got %v", err)
+
+	_, err := analyzer.Analyze(context.Background(), []byte("not-an-image"))
+	if err == nil || !strings.Contains(err.Error(), "failed to parse LLM response as receipt data") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -95,7 +107,7 @@ func TestOCRRequestCompressesImageAndDisablesReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Width != 512 || config.Height != 256 {
-		t.Errorf("dimensions = %dx%d", config.Width, config.Height)
+	if config.Width != 1024 || config.Height != 512 {
+		t.Errorf("dimensions = %dx%d, want 1024x512", config.Width, config.Height)
 	}
 }

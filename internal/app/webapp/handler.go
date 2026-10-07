@@ -115,6 +115,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/members", h.handleGetMembers)
 	mux.HandleFunc("GET /api/rates", h.handleGetRates)
 	mux.HandleFunc("POST /api/expense", h.handleCreateExpense)
+	mux.HandleFunc("DELETE /api/expense", h.handleDeleteExpense)
+	mux.HandleFunc("POST /api/receipt/analyze", h.handleAnalyzeReceipt)
 	mux.HandleFunc("GET /health", h.handleHealth)
 	mux.HandleFunc("GET /partial/form", h.handlePartialForm)
 	mux.HandleFunc("GET /partial/dashboard", h.handleDashboardContent)

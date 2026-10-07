@@ -2,7 +2,7 @@
 
 A travel expense tracker for Telegram, backed by your own self-hosted [TREK](https://github.com/mauriceboe/TREK) instance.
 
-Log expenses from a bot or a Mini App, scan receipts with an LLM, and see who owes whom. Every expense lives in a TREK trip, so there is no second database.
+Log expenses from a Mini App, scan receipts with an LLM, and see who owes whom. Every expense lives in a TREK trip, so there is no second database.
 
 ## Install
 
@@ -31,21 +31,19 @@ task run
 ```
 
 - Add the bot's TREK service account to a trip, then send `/trip` to pick it.
-- Send `/quick` to enter an expense step by step, or send a receipt photo.
+- Open the Mini App to log expenses and view dashboard, or send a receipt photo to the bot.
 - Send `/summary` to see who owes whom.
 
 ## Commands
 
 | Command | Action |
 |---|---|
-| `/add <name> <price> <currency> <category> <method> [date]` | Quick add |
-| `/quick` | Step-by-step entry |
-| `/list [method]` | Latest expenses |
-| `/summary` | Balances and transfers |
+| `/trip` | Switch trip |
 | `/today` | Today by category |
+| `/summary` | Balances and transfers |
 | `/rate` | Exchange rates |
 | `/edit` | Edit recent expenses |
-| `/trip` | Switch trip |
+| `/tz` | Set timezone |
 | *photo* | Scan a receipt |
 
 Currencies are TWD and JPY, with rates from [FinMind](https://finmindtrade.com/). Categories and payment methods follow TREK's own sets.

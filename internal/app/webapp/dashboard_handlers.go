@@ -145,14 +145,24 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	var grandTotalConverted string
+	if currency != domain.CurrencyTWD {
+		rate, err := h.expenseService.FetchExchangeRate(req.ctx, currency, domain.CurrencyTWD)
+		if err == nil && !rate.IsZero() {
+			twdAmount := dashboardData.GrandTotal.Mul(rate).Round(0)
+			grandTotalConverted = fmt.Sprintf("≈ %s", format.Money(domain.CurrencyTWD, twdAmount))
+		}
+	}
+
 	view := components.DashboardView{
-		TripTitle:     req.trip.Title,
-		GrandTotal:    format.Money(currency, dashboardData.GrandTotal),
-		ItemCount:     dashboardData.ItemCount,
-		TrendPct:      trendPct,
-		DonutGradient: BuildDonutGradient(dashboardData.ByCategory),
-		DateRange:     req.rangeStr,
-		Settlement:    h.settlementView(req.ctx, req.trip),
+		TripTitle:           req.trip.Title,
+		GrandTotal:          format.Money(currency, dashboardData.GrandTotal),
+		GrandTotalConverted: grandTotalConverted,
+		ItemCount:           dashboardData.ItemCount,
+		TrendPct:            trendPct,
+		DonutGradient:       BuildDonutGradient(dashboardData.ByCategory),
+		DateRange:           req.rangeStr,
+		Settlement:          h.settlementView(req.ctx, req.trip),
 	}
 
 	for _, stat := range dashboardData.ByCategory {
@@ -374,6 +384,7 @@ func (h *Handler) renderDetail(w http.ResponseWriter, r *http.Request, color str
 
 		items = append(items, components.ExpenseItem{
 			ID:            exp.ID,
+			TripID:        req.trip.ID,
 			Name:          exp.Name,
 			Date:          exp.ShoppedAt.Format("01/02"),
 			AmountDisplay: amount,
