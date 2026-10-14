@@ -1,8 +1,6 @@
-import type { TelegramContext } from "./telegram.js";
-
 const $ = (id: string) => document.getElementById(id);
 
-type ViewName = "loading" | "forbidden" | "trip-error" | "trip-empty" | "app";
+export type ViewName = "loading" | "forbidden" | "trip-error" | "trip-empty" | "app";
 
 function showView(view: ViewName): void {
   const ready = view === "app";
@@ -42,66 +40,4 @@ function showView(view: ViewName): void {
   }
 }
 
-async function loadUsers(
-  ctx: TelegramContext,
-  devMode: boolean,
-): Promise<void> {
-  try {
-    const url = devMode
-      ? "/api/users"
-      : `/api/users?init_data=${encodeURIComponent(ctx.initData)}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    const select = $("paid-by-select") as HTMLSelectElement | null;
-    if (!select) return;
-
-    select.textContent = "";
-
-    data.users.forEach((u: { telegram_id: number; nickname: string }) => {
-      const opt = document.createElement("option");
-      opt.value = String(u.telegram_id);
-      const isCurrent = u.telegram_id === ctx.currentUserId;
-      opt.textContent = isCurrent ? `${u.nickname} (本人)` : u.nickname;
-      if (isCurrent) opt.selected = true;
-      select.appendChild(opt);
-    });
-  } catch (e) {
-    console.error("Failed to load users:", e);
-  }
-}
-
 export { showView };
-
-export async function authenticate(
-  ctx: TelegramContext,
-  devMode: boolean,
-): Promise<boolean> {
-  showView("loading");
-
-  if (devMode) {
-    await loadUsers(ctx, devMode);
-    return true;
-  }
-
-  if (!ctx.initData) {
-    showView("forbidden");
-    return false;
-  }
-
-  try {
-    const res = await fetch(
-      `/api/auth?init_data=${encodeURIComponent(ctx.initData)}`,
-    );
-    const data = await res.json();
-    if (!data.authorized) {
-      showView("forbidden");
-      return false;
-    }
-    await loadUsers(ctx, devMode);
-    return true;
-  } catch (e) {
-    console.error("Auth error:", e);
-    showView("forbidden");
-    return false;
-  }
-}

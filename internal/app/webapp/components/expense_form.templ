@@ -1,9 +1,10 @@
 package components
 
 import (
-	"github.com/omegaatt36/noccounting/internal/app/format"
 	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/app/format"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/button"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/input"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/label"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/tabs"
@@ -19,17 +20,52 @@ templ ExpenseForm() {
 	>
 		<input type="hidden" id="init_data" name="init_data" value=""/>
 		<input type="hidden" id="trip-id-input" name="trip_id" value=""/>
-		<h1 class="text-xl font-bold text-center py-1"><span aria-hidden="true">📝</span> 新增消費</h1>
-		<div class="flex items-center justify-between pb-1">
+		<input type="hidden" id="expense-id" name="expense_id" value=""/>
+		<input type="hidden" id="receipt-url" name="receipt_url" value=""/>
+		<input type="hidden" id="receipt-items" name="receipt_items" value=""/>
+		<div id="edit-bar" class="hidden">
+			<div class="flex items-center justify-between">
+				<button
+					type="button"
+					data-action="cancel-edit"
+					class="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground transition-colors"
+				>
+					<span aria-hidden="true" class="inline-flex">@icon.ArrowLeft(icon.Props{Size: 16})
+</span>
+					返回明細
+				</button>
+				<button
+					type="button"
+					data-action="delete-expense"
+					class="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-sm text-destructive hover:bg-destructive/10 transition-colors"
+				>
+					<span aria-hidden="true" class="inline-flex">@icon.Trash2(icon.Props{Size: 16})
+</span>
+					刪除
+				</button>
+			</div>
+		</div>
+		<h1 class="flex items-center justify-center gap-2 text-xl font-bold py-1">
+			<span aria-hidden="true" class="inline-flex">@icon.SquarePen(icon.Props{Size: 22})
+</span>
+			<span id="form-title">新增消費</span>
+		</h1>
+		<div id="receipt-row" class="flex items-center justify-between pb-1">
 			<label
 				for="receipt-file-input"
 				class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-all shadow-sm active:scale-95"
 			>
-				<span><span aria-hidden="true">📸</span> 拍照 / 上傳收據辨識</span>
+				<span aria-hidden="true" class="inline-flex">@icon.Camera(icon.Props{Size: 14})
+</span>
+				<span>拍照 / 上傳收據辨識</span>
 			</label>
 			<input type="file" id="receipt-file-input" accept="image/*" class="hidden"/>
 			<span id="receipt-scanning-indicator" role="status" class="hidden text-xs text-primary font-medium animate-pulse">
-				🔍 正在分析收據...
+				<span class="inline-flex items-center gap-1.5">
+					<span aria-hidden="true" class="inline-flex">@icon.ScanLine(icon.Props{Size: 14})
+</span>
+					正在分析收據...
+				</span>
 			</span>
 		</div>
 		<div class="grid grid-cols-5 gap-3">
@@ -41,8 +77,8 @@ templ ExpenseForm() {
 					ID:          "name",
 					Name:        "name",
 					Type:        input.TypeText,
-					Placeholder: "例：拉麪",
-					Attributes:  templ.Attributes{"required": true, "aria-describedby": "name-error"},
+					Placeholder: "例：拉麵（未填預設分類）",
+					Attributes:  templ.Attributes{"aria-describedby": "name-error"},
 				})
 				<p id="name-error" role="alert" class="hidden text-xs text-destructive mt-1">請輸入消費名稱</p>
 			</div>
@@ -75,11 +111,34 @@ templ ExpenseForm() {
 			<input type="hidden" name="category" id="category-input" value={ string(domain.CategoryFood) }/>
 			@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
 				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "分類"}}) {
-					for i, category := range domain.CategoryValues() {
-						@tabs.Trigger(tabs.TriggerProps{Value: string(category), IsActive: i == 0}) {
+					for i, category := range domain.CategoryValues()[:5] {
+						@tabs.Trigger(tabs.TriggerProps{
+							Value:      string(category),
+							IsActive:   i == 0,
+							Attributes: templ.Attributes{"data-category-label": format.CategoryLabel(category)},
+						}) {
 							{ format.Category(category) }
 						}
 					}
+					<button
+						type="button"
+						id="more-categories-btn"
+						aria-expanded="false"
+						aria-controls="more-categories"
+						class="inline-flex items-center justify-center rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground border border-dashed border-border transition-colors cursor-pointer"
+					>
+						更多分類 ▾
+					</button>
+					<div id="more-categories" class="hidden col-span-3 grid grid-cols-3 gap-1.5 w-full">
+						for _, category := range domain.CategoryValues()[5:] {
+							@tabs.Trigger(tabs.TriggerProps{
+								Value:      string(category),
+								Attributes: templ.Attributes{"data-category-label": format.CategoryLabel(category)},
+							}) {
+								{ format.Category(category) }
+							}
+						}
+					</div>
 				}
 			}
 		</div>
@@ -102,9 +161,9 @@ templ ExpenseForm() {
 				<div class="flex items-center gap-2 mt-3">
 					<label for="exchange-rate-input" class="text-sm whitespace-nowrap text-muted-foreground">匯率</label>
 					@input.Input(input.Props{
-						ID:    "exchange-rate-input",
-						Name:  "exchange_rate",
-						Type:  input.TypeText,
+						ID:   "exchange-rate-input",
+						Name: "exchange_rate",
+						Type: input.TypeText,
 						Attributes: templ.Attributes{
 							"inputmode":   "decimal",
 							"placeholder": "自動",
@@ -112,15 +171,17 @@ templ ExpenseForm() {
 						Class: "flex-1",
 					})
 					@button.Button(button.Props{
-						ID:   "fetch-rate-btn",
-						Type: button.TypeButton,
-						Size: button.SizeIcon,
+						ID:         "fetch-rate-btn",
+						Type:       button.TypeButton,
+						Size:       button.SizeIcon,
 						Attributes: templ.Attributes{"aria-label": "取得即時匯率"},
 					}) {
-						<span class="fetch-text" aria-hidden="true">🔄</span>
-						<span class="fetch-loading hidden" aria-hidden="true">⏳</span>
+						<span class="fetch-text" aria-hidden="true"><span class="inline-flex">@icon.RefreshCw(icon.Props{Size: 16})
+</span></span>
+						<span class="fetch-loading hidden" aria-hidden="true"><span class="inline-flex">@icon.LoaderCircle(icon.Props{Size: 16, Class: "animate-spin"})
+</span></span>
 					}
-					<span id="rate-status" class="text-xs text-muted-foreground"></span>
+					<span id="rate-status" class="text-xs text-muted-foreground whitespace-nowrap"></span>
 				</div>
 				<p id="rate-hint" class="text-xs text-muted-foreground mt-1"></p>
 			</div>
@@ -149,8 +210,7 @@ templ ExpenseForm() {
 					name="paid_by"
 					id="paid-by-select"
 					class="w-full px-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
-				>
-				</select>
+				></select>
 			</div>
 			<div>
 				@label.Label(label.Props{For: "date-input"}) {
@@ -192,8 +252,20 @@ templ ExpenseForm() {
 			Size:      button.SizeLg,
 			Class:     "hidden",
 		}) {
-			<span class="btn-text"><span aria-hidden="true">✅</span> 新增消費</span>
-			<span class="btn-loading hidden"><span aria-hidden="true">⏳</span> 處理中...</span>
+			<span class="btn-text">
+				<span class="inline-flex items-center gap-2">
+					<span aria-hidden="true" class="inline-flex">@icon.Check(icon.Props{Size: 18})
+</span>
+					<span id="submit-label">新增消費</span>
+				</span>
+			</span>
+			<span class="btn-loading hidden">
+				<span class="inline-flex items-center gap-2">
+					<span aria-hidden="true" class="inline-flex">@icon.LoaderCircle(icon.Props{Size: 18, Class: "animate-spin"})
+</span>
+					處理中...
+				</span>
+			</span>
 		}
 		<div
 			id="numpad-backdrop"
@@ -230,15 +302,23 @@ templ ExpenseForm() {
 				@numpadKey("7")
 				@numpadKey("8")
 				@numpadKey("9")
-				@numpadKeyLabeled(".", "小數點")
+				@numpadKeyLabeled("00", "兩個零")
 				@numpadKey("0")
-				@numpadKeyIcon("backspace", "⌫", "刪除")
+				@numpadKeyIcon("backspace", "刪除")
 			</div>
-			<button
-				type="button"
-				id="numpad-confirm"
-				class="w-full bg-primary text-primary-foreground rounded-lg py-3 font-semibold text-sm hover:bg-primary/90"
-			>確認</button>
+			<div class="grid grid-cols-4 gap-2">
+				<button
+					type="button"
+					data-numpad-key="+"
+					aria-label="加"
+					class="bg-secondary hover:bg-secondary/80 active:scale-[0.93] rounded-lg py-3 font-semibold text-base text-foreground transition-all"
+				>+</button>
+				<button
+					type="button"
+					id="numpad-confirm"
+					class="col-span-3 bg-primary text-primary-foreground rounded-lg py-3 font-semibold text-sm hover:bg-primary/90"
+				>確認</button>
+			</div>
 		</div>
 	</form>
 }
@@ -260,11 +340,14 @@ templ numpadKeyLabeled(digit string, label string) {
 	>{ digit }</button>
 }
 
-templ numpadKeyIcon(key string, icon string, label string) {
+templ numpadKeyIcon(key string, label string) {
 	<button
 		type="button"
 		data-numpad-key={ key }
 		aria-label={ label }
-		class="bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-lg text-foreground transition-all"
-	>{ icon }</button>
+		class="bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 inline-flex items-center justify-center text-foreground transition-all"
+	>
+		<span aria-hidden="true" class="inline-flex">@icon.Delete(icon.Props{Size: 20})
+</span>
+	</button>
 }

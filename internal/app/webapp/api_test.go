@@ -68,6 +68,15 @@ func post(t *testing.T, serve http.HandlerFunc, target string, form url.Values) 
 	return w
 }
 
+func put(t *testing.T, serve http.HandlerFunc, target string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("PUT", target, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serve(w, req)
+	return w
+}
+
 func expenseForm(overrides map[string]string) url.Values {
 	form := url.Values{
 		"trip_id": {"3"}, "name": {"Lunch"}, "price": {"100"}, "currency": {"TWD"}, "category": {"food"}, "method": {"cash"},
@@ -78,60 +87,9 @@ func expenseForm(overrides map[string]string) url.Values {
 	return form
 }
 
-func TestHandleGetTrips_OffersEveryTripAndTheCurrentOne(t *testing.T) {
-	handler, _ := devHandler(t, &stubAccountingRepo{}, twoTrips{})
-
-	w := get(t, handler.handleGetTrips, "/api/trips")
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var got TripsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("response is not JSON: %v", err)
-	}
-	if len(got.Trips) != 2 || got.Trips[1].Currency != "JPY" || got.Trips[1].Title != "Osaka" {
-		t.Errorf("trips = %+v, want both with their currency", got.Trips)
-	}
-	if got.Current != tokyoTrip.ID {
-		t.Errorf("current = %d, want the default, the first of two undated trips", got.Current)
-	}
-}
-
-func TestHandleGetTrips_NoTripsIsAnEmptyListNotAnError(t *testing.T) {
-	handler, _ := devHandler(t, &stubAccountingRepo{}, noTrips{})
-
-	w := get(t, handler.handleGetTrips, "/api/trips")
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var got TripsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("response is not JSON: %v", err)
-	}
-	if got.Current != 0 || len(got.Trips) != 0 {
-		t.Errorf("response = %+v, want no trips and no current", got)
-	}
-}
-
 type noTrips struct{}
 
 func (noTrips) ListTrips(context.Context) ([]domain.Trip, error) { return nil, nil }
-
-func TestHandleGetTrips_RequiresAuth(t *testing.T) {
-	users := &fakeUserRepo{users: map[int64]*domain.User{}}
-	handler, err := NewHandler(user.NewService(users), expense.NewService(&stubAccountingRepo{}, nil, nil), trip.NewService(twoTrips{}), "test-token", false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	w := get(t, handler.handleGetTrips, "/api/trips")
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 without init_data", w.Code)
-	}
-}
 
 // The Mini App and the bot share one choice per person, so switching in either
 // moves the other.
@@ -283,23 +241,6 @@ func TestHandleCreateExpense_AcceptsDecimalPriceAndRoundsToWholeUnits(t *testing
 	}
 }
 
-func TestHandleGetMembers_UsesNicknamesForPeopleInTheMapping(t *testing.T) {
-	repo := &stubAccountingRepo{members: []domain.Member{{ID: "3", Name: "owner-trek"}, {ID: "8", Name: "bob"}}}
-	handler, _ := devHandler(t, repo, twoTrips{})
-
-	w := get(t, handler.handleGetMembers, "/api/members?trip_id=3")
-
-	var got MembersResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("response is not JSON: %v", err)
-	}
-	// User 8 is in the mapping as John; user 3 is not and keeps the name TREK has.
-	want := []MemberInfo{{ID: "3", Name: "owner-trek"}, {ID: "8", Name: "John"}}
-	if len(got.Members) != 2 || got.Members[0] != want[0] || got.Members[1] != want[1] {
-		t.Errorf("members = %+v, want %+v", got.Members, want)
-	}
-}
-
 func TestHandleGetRates_QuotesBothDirections(t *testing.T) {
 	handler, _ := devHandler(t, &stubAccountingRepo{}, twoTrips{})
 
@@ -318,19 +259,12 @@ func TestHandleGetRates_QuotesBothDirections(t *testing.T) {
 	}
 }
 
-func TestHandleDashboard_ShowsTheSettlementAndSpendingByPaymentMethod(t *testing.T) {
+func TestHandleDashboard_ShowsSpendingByCategoryAndPaymentMethod(t *testing.T) {
 	repo := &stubAccountingRepo{
 		expenses: []domain.Expense{
 			{ID: "1", Name: "拉麵", Price: 1200, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCash, PaidByID: "8", ShoppedAt: time.Now()},
 			{ID: "2", Name: "車票", Price: 3000, Currency: domain.CurrencyTWD, Category: domain.CategoryFlights, Method: domain.PaymentMethodCreditCard, PaidByID: "8", ShoppedAt: time.Now()},
-		},
-		settlement: &domain.Settlement{
-			Currency: domain.CurrencyTWD,
-			Balances: []domain.Balance{{UserID: "8", Name: "bob", Amount: decimal.NewFromInt(-1500)}},
-			Transfers: []domain.Transfer{
-				{FromID: "8", FromName: "bob", ToID: "3", ToName: "owner-trek", Amount: decimal.NewFromInt(1500)},
-			},
-			Unconverted: 1,
+			{ID: "3", Name: "沒標的", Price: 10, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: time.Now()},
 		},
 	}
 	handler, _ := devHandler(t, repo, twoTrips{})
@@ -340,16 +274,77 @@ func TestHandleDashboard_ShowsTheSettlementAndSpendingByPaymentMethod(t *testing
 	body := w.Body.String()
 	for _, want := range []string{
 		"2026 Tokyo",    // the trip it is about
-		"NT$4,200",      // the total, in the trip's currency
+		"NT$4,210",      // the total, in the trip's currency
 		"機票",            // a category by its label, not its slug
 		"付款方式明細", "信用卡", // spending by payment method
-		"/partial/dashboard/method?name=credit_card", // drillable
-		"💸 結算", "John → owner-trek", "NT$1,500", // the settlement, under the mapped nickname
-		"有 1 筆因為缺少匯率沒有計入",
+		`data-list-category="flights"`,   // a category opens the list filtered to it
+		`data-list-method="credit_card"`, // and so does a payment method
+		`data-range="all"`,               // in the range the statistics were drawn for
+		"未標示",                            // what records no method
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard does not contain %q", want)
 		}
+	}
+	if strings.Contains(body, "結算") {
+		t.Error("the settlement has a tab of its own and is not on the statistics")
+	}
+	if strings.Contains(body, `data-list-method=""`) {
+		t.Error("an expense that records no method has no list to open")
+	}
+}
+
+func TestHandleDashboard_PeriodRangeQueriesRepositoryOnceAndUsesCallerTimezone(t *testing.T) {
+	// 2026-10-13 17:00 UTC is 2026-10-14 01:00 in Asia/Taipei (UTC+8).
+	utcNow := time.Date(2026, 10, 13, 17, 0, 0, 0, time.UTC)
+	repo := &stubAccountingRepo{
+		expenses: []domain.Expense{
+			{ID: "1", Name: "前一天", Price: 500, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCash, PaidByID: "8", ShoppedAt: time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)},
+			{ID: "2", Name: "台北今天", Price: 1000, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCash, PaidByID: "8", ShoppedAt: time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)},
+		},
+	}
+	handler, _ := devHandler(t, repo, twoTrips{})
+	handler.now = func() time.Time { return utcNow }
+
+	w := get(t, handler.handleDashboardContent, "/partial/dashboard?range=today&trip_id=3")
+
+	if repo.queries != 1 {
+		t.Errorf("repository queries = %d, want 1 (merged current + previous period in one call)", repo.queries)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "NT$1,000") || !strings.Contains(body, "100% vs 上期") {
+		t.Errorf("dashboard for today in Asia/Taipei did not show today's NT$1,000 (+100%% vs yesterday):\n%s", body)
+	}
+}
+
+func TestHandleSettlement_ShowsWhoOwesWhomUnderTheirNicknames(t *testing.T) {
+	repo := &stubAccountingRepo{settlement: &domain.Settlement{
+		Currency: domain.CurrencyTWD,
+		Balances: []domain.Balance{{UserID: "8", Name: "bob", Amount: decimal.NewFromInt(-1500)}},
+		Transfers: []domain.Transfer{
+			{FromID: "8", FromName: "bob", ToID: "3", ToName: "owner-trek", Amount: decimal.NewFromInt(1500)},
+		},
+		Unconverted: 1,
+	}}
+	handler, _ := devHandler(t, repo, twoTrips{})
+
+	w := get(t, handler.handleSettlement, "/partial/settlement?trip_id=3")
+
+	body := w.Body.String()
+	for _, want := range []string{"2026 Tokyo", "John", "-NT$1,500", "owner-trek", "NT$1,500", "有 1 筆因為缺少匯率沒有計入"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settlement does not contain %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestHandleSettlement_NobodyOwingIsSaidSo(t *testing.T) {
+	handler, _ := devHandler(t, &stubAccountingRepo{}, twoTrips{})
+
+	body := get(t, handler.handleSettlement, "/partial/settlement?trip_id=3").Body.String()
+
+	if !strings.Contains(body, "目前沒有任何人欠款") {
+		t.Errorf("settlement = %q, want it to say nobody owes anything", body)
 	}
 }
 
@@ -363,29 +358,6 @@ func TestHandleDashboard_ReportsInAJPYTripsCurrency(t *testing.T) {
 
 	if body := w.Body.String(); !strings.Contains(body, "¥1,000") {
 		t.Errorf("dashboard should total in yen, got %q", body)
-	}
-}
-
-func TestHandleMethodDetail_ListsOnlyWhatWasPaidThatWay(t *testing.T) {
-	repo := &stubAccountingRepo{expenses: []domain.Expense{
-		{ID: "1", Name: "現金拉麵", Price: 1200, Currency: domain.CurrencyTWD, Method: domain.PaymentMethodCash, ShoppedAt: time.Now()},
-		{ID: "2", Name: "刷卡車票", Price: 3000, Currency: domain.CurrencyTWD, Method: domain.PaymentMethodCreditCard, ShoppedAt: time.Now()},
-		{ID: "3", Name: "沒標的", Price: 50, Currency: domain.CurrencyTWD, ShoppedAt: time.Now()},
-	}}
-	handler, _ := devHandler(t, repo, twoTrips{})
-
-	card := get(t, handler.handleMethodDetail, "/partial/dashboard/method?name=credit_card&range=all&trip_id=3").Body.String()
-	if !strings.Contains(card, "刷卡車票") || strings.Contains(card, "現金拉麵") || strings.Contains(card, "沒標的") {
-		t.Errorf("credit_card detail = %q, want only the card expense", card)
-	}
-
-	unlabeled := get(t, handler.handleMethodDetail, "/partial/dashboard/method?name=&range=all&trip_id=3").Body.String()
-	if !strings.Contains(unlabeled, "沒標的") || strings.Contains(unlabeled, "刷卡車票") {
-		t.Errorf("unlabeled detail = %q, want only the expense that records no method", unlabeled)
-	}
-
-	if w := get(t, handler.handleMethodDetail, "/partial/dashboard/method?name=bitcoin"); w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400 for a method that does not exist", w.Code)
 	}
 }
 
@@ -428,10 +400,9 @@ func TestTripScopedReads_RequireExplicitTrip(t *testing.T) {
 		path  string
 		serve http.HandlerFunc
 	}{
-		{"/api/members", handler.handleGetMembers},
 		{"/partial/dashboard", handler.handleDashboardContent},
-		{"/partial/dashboard/category?name=food", handler.handleCategoryDetail},
-		{"/partial/dashboard/method?name=cash", handler.handleMethodDetail},
+		{"/partial/settlement", handler.handleSettlement},
+		{"/partial/expenses", handler.handleExpenseList},
 		{"/api/export/csv", handler.handleExportCSV},
 	}
 	for _, tt := range tests {
@@ -453,14 +424,11 @@ func TestHandleDeleteExpense(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.handleDeleteExpense(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", w.Code)
 	}
 	if len(repo.deleted) != 1 || repo.deleted[0] != "exp-123" {
 		t.Errorf("deleted = %v, want exp-123", repo.deleted)
-	}
-	if w.Header().Get("HX-Trigger") != "dashboard-refresh" {
-		t.Errorf("HX-Trigger = %q, want dashboard-refresh", w.Header().Get("HX-Trigger"))
 	}
 }
 
@@ -483,14 +451,21 @@ func TestHandleAnalyzeReceipt(t *testing.T) {
 		Currency:      domain.CurrencyJPY,
 		Category:      domain.CategoryFood,
 		PaymentMethod: domain.PaymentMethodCash,
+		Items: []domain.ReceiptItem{
+			{Name: "牛めし", NameZH: "牛肉飯", Price: 450, Category: domain.CategoryFood},
+			{Name: "生野菜", NameZH: "沙拉", Price: 200, Category: domain.CategoryFood},
+		},
 	}
-	expSvc := expense.NewService(&stubAccountingRepo{}, stubRates{}, stubAnalyzer{result: analysis})
+	repo := &stubAccountingRepo{}
+	expSvc := expense.NewService(repo, stubRates{}, stubAnalyzer{result: analysis})
 	handler, err := NewHandler(user.NewService(users), expSvc, trip.NewService(twoTrips{}), "test-token", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	body := new(strings.Builder)
+	body.WriteString("--boundary\r\n")
+	body.WriteString("Content-Disposition: form-data; name=\"trip_id\"\r\n\r\n3\r\n")
 	body.WriteString("--boundary\r\n")
 	body.WriteString("Content-Disposition: form-data; name=\"receipt\"; filename=\"receipt.jpg\"\r\n")
 	body.WriteString("Content-Type: image/jpeg\r\n\r\n")
@@ -510,7 +485,22 @@ func TestHandleAnalyzeReceipt(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Success || resp.Summary != "Matsuya" || resp.Total != 650 || resp.Currency != domain.CurrencyJPY {
+	if !resp.Success || resp.Summary != "Matsuya" || resp.Total != 650 || resp.Currency != domain.CurrencyJPY || resp.ReceiptURL != "file-id" || len(resp.ReceiptItems) != 2 {
 		t.Errorf("unexpected response: %+v", resp)
+	}
+
+	itemsJSON, err := json.Marshal(resp.ReceiptItems)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post(t, handler.handleCreateExpense, "/api/expense", expenseForm(map[string]string{
+		"name":          resp.Summary,
+		"price":         "650",
+		"currency":      "JPY",
+		"receipt_url":   resp.ReceiptURL,
+		"receipt_items": string(itemsJSON),
+	}))
+	if len(repo.created) != 1 || repo.created[0].ReceiptURL != "file-id" || len(repo.created[0].ReceiptItems) != 2 {
+		t.Errorf("created expense = %+v, want receipt_url and 2 receipt_items preserved", repo.created)
 	}
 }

@@ -45,6 +45,22 @@ export function haptic(
   }
 }
 
+export function setMainButtonText(ctx: TelegramContext, text: string): void {
+  ctx.tg?.MainButton?.setText(text);
+}
+
+export function confirmAction(
+  ctx: TelegramContext,
+  message: string,
+): Promise<boolean> {
+  if (ctx.tg?.showConfirm) {
+    return new Promise((resolve) => {
+      ctx.tg!.showConfirm!(message, (confirmed) => resolve(Boolean(confirmed)));
+    });
+  }
+  return Promise.resolve(window.confirm(message));
+}
+
 export function setupMainButton(
   ctx: TelegramContext,
   onSubmit: () => void,
@@ -52,7 +68,7 @@ export function setupMainButton(
   if (!ctx.tg?.MainButton) return;
 
   const btn = ctx.tg.MainButton;
-  btn.setText("✅ 新增消費");
+  btn.setText("新增消費");
   if (appReady()) {
     btn.show();
   } else {

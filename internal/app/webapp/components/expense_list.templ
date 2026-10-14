@@ -1,0 +1,173 @@
+package components
+
+import (
+	"fmt"
+
+	"github.com/omegaatt36/noccounting/domain"
+	"github.com/omegaatt36/noccounting/internal/app/format"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
+)
+
+// ExpenseRow is one expense in the list. Edit is the JSON the form is filled
+// from when the row is picked, so editing needs no second request.
+type ExpenseRow struct {
+	Emoji  string
+	Name   string
+	Meta   string
+	Amount string
+	Edit   string
+}
+
+// ExpenseDay is the expenses of one day with what they came to.
+type ExpenseDay struct {
+	Label string
+	Total string
+	Rows  []ExpenseRow
+}
+
+// ExpenseListView is the expenses that match the filters, by day, newest first.
+// Filtered says the filters hid something the trip has, so an empty list is
+// told apart from a trip with nothing in it.
+type ExpenseListView struct {
+	Days     []ExpenseDay
+	Count    int
+	Filtered bool
+}
+
+// listRanges are the periods the list can be cut to, in the order of the chips.
+var listRanges = []struct{ Value, Label string }{
+	{"all", "全部"},
+	{"today", "今天"},
+	{"3d", "近3天"},
+	{"7d", "近7天"},
+}
+
+// ListTab is the list's frame: the filters, which load the list into #list-host.
+templ ListTab() {
+	<h1 class="flex items-center justify-center gap-2 text-xl font-bold py-1 mb-4">
+		<span aria-hidden="true" class="inline-flex">@icon.ReceiptText(icon.Props{Size: 22})
+</span>
+		明細
+	</h1>
+	<form
+		id="list-filters"
+		role="search"
+		class="space-y-3 mb-4"
+		hx-get="/partial/expenses"
+		hx-target="#list-host"
+		hx-swap="innerHTML"
+		hx-trigger="list-load, change, submit"
+		data-view-source="list"
+	>
+		<div class="relative">
+			<span aria-hidden="true" class="absolute left-3 top-1/2 -translate-y-1/2 inline-flex text-muted-foreground">@icon.Search(icon.Props{Size: 16})
+</span>
+			<input
+				type="search"
+				id="list-q"
+				name="q"
+				placeholder="搜尋消費名稱"
+				aria-label="搜尋消費名稱"
+				autocomplete="off"
+				class="w-full pl-9 pr-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
+			/>
+		</div>
+		<input type="hidden" id="list-date" name="date" value=""/>
+		<div class="grid grid-cols-3 gap-2">
+			<select
+				id="list-category"
+				name="category"
+				aria-label="分類"
+				class="w-full px-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
+			>
+				<option value="">全部分類</option>
+				for _, category := range domain.CategoryValues() {
+					<option value={ string(category) }>{ format.Category(category) }</option>
+				}
+			</select>
+			<select
+				id="list-method"
+				name="method"
+				aria-label="付款方式"
+				class="w-full px-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
+			>
+				<option value="">全部付款方式</option>
+				for _, method := range domain.PaymentMethodValues() {
+					<option value={ string(method) }>{ format.PaymentEmoji(method) } { format.PaymentLabel(method) }</option>
+				}
+			</select>
+			<select
+				id="list-payer"
+				name="paid_by"
+				aria-label="付款人"
+				class="w-full px-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
+			>
+				<option value="">全部付款人</option>
+			</select>
+		</div>
+		<div role="group" aria-label="期間" class="flex gap-2 flex-wrap">
+			for i, r := range listRanges {
+				<label class="cursor-pointer">
+					<input type="radio" name="range" value={ r.Value } checked?={ i == 0 } class="peer sr-only"/>
+					<span class="inline-block px-3 py-1.5 rounded text-sm font-medium bg-muted text-muted-foreground peer-checked:bg-primary peer-checked:text-primary-foreground peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring transition-colors">{ r.Label }</span>
+				</label>
+			}
+		</div>
+	</form>
+	@ViewError("list", "無法載入明細")
+	<div id="list-host" aria-live="polite" class="space-y-2">
+		@viewSkeleton()
+	</div>
+}
+
+templ ExpenseList(v ExpenseListView) {
+	<div id="list-content" class="space-y-4 pb-6">
+		if len(v.Days) == 0 {
+			<div class="flex flex-col items-center gap-3 py-10 text-center">
+				<span aria-hidden="true" class="inline-flex text-muted-foreground">@icon.Receipt(icon.Props{Size: 32})
+</span>
+				if v.Filtered {
+					<p class="text-sm text-muted-foreground">沒有符合條件的消費</p>
+				} else {
+					<p class="text-sm text-muted-foreground">這趟旅行還沒有消費記錄</p>
+					<button type="button" data-action="show-form" class="px-4 py-2 rounded text-sm font-medium bg-primary text-primary-foreground">
+						去記一筆
+					</button>
+				}
+			</div>
+		} else {
+			<p class="text-xs text-muted-foreground text-right">{ fmt.Sprintf("共 %d 筆", v.Count) }</p>
+			for _, day := range v.Days {
+				<section aria-label={ day.Label }>
+					<div class="flex items-baseline justify-between px-1 pb-1 text-xs text-muted-foreground">
+						<h2 class="font-semibold">{ day.Label }</h2>
+						<span class="tabular-nums">{ day.Total }</span>
+					</div>
+					<ul class="divide-y divide-border rounded-lg border border-border bg-card">
+						for _, row := range day.Rows {
+							<li>
+								<button
+									type="button"
+									data-edit={ row.Edit }
+									aria-label={ "編輯 " + row.Name }
+									class="w-full flex items-center gap-3 px-3 py-3 text-left hover:bg-muted/50 transition-colors"
+								>
+									<span class="w-7 text-center text-lg" aria-hidden="true">{ row.Emoji }</span>
+									<span class="flex-1 min-w-0">
+										<span class="block text-sm font-medium truncate">{ row.Name }</span>
+										if row.Meta != "" {
+											<span class="block text-xs text-muted-foreground truncate">{ row.Meta }</span>
+										}
+									</span>
+									<span class="text-sm font-medium tabular-nums whitespace-nowrap">{ row.Amount }</span>
+									<span aria-hidden="true" class="inline-flex text-muted-foreground">@icon.ChevronRight(icon.Props{Size: 16})
+</span>
+								</button>
+							</li>
+						}
+					</ul>
+				</section>
+			}
+		}
+	</div>
+}

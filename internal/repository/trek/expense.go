@@ -393,20 +393,21 @@ type storedRow struct {
 	customSplit bool
 }
 
-func (r *tripRepo) storedRowOf(ctx context.Context, itemID int64) (storedRow, error) {
-	var items []budgetItem
+func (r *tripRepo) budgetItems(ctx context.Context) ([]budgetItem, error) {
 	if r.budgetCache != nil {
-		cached, err := r.budgetCache.get(ctx, r.client, r.tripID)
-		if err != nil {
-			return storedRow{}, fmt.Errorf("reading the TREK budget of trip %d to keep the note of item %d: %w", r.tripID, itemID, err)
-		}
-		items = cached
-	} else {
-		var resp budgetItemsResponse
-		if err := r.client.do(ctx, http.MethodGet, tripPath(r.tripID, budgetPathSuffix), nil, &resp); err != nil {
-			return storedRow{}, fmt.Errorf("reading the TREK budget of trip %d to keep the note of item %d: %w", r.tripID, itemID, err)
-		}
-		items = resp.Items
+		return r.budgetCache.get(ctx, r.client, r.tripID)
+	}
+	var resp budgetItemsResponse
+	if err := r.client.do(ctx, http.MethodGet, tripPath(r.tripID, budgetPathSuffix), nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Items, nil
+}
+
+func (r *tripRepo) storedRowOf(ctx context.Context, itemID int64) (storedRow, error) {
+	items, err := r.budgetItems(ctx)
+	if err != nil {
+		return storedRow{}, fmt.Errorf("reading the TREK budget of trip %d to keep the note of item %d: %w", r.tripID, itemID, err)
 	}
 
 	for _, item := range items {
@@ -470,13 +471,13 @@ func (r *tripRepo) listExpenses(ctx context.Context) ([]readExpense, error) {
 		return nil, fmt.Errorf("reading the TREK budget of trip %d: %w", r.tripID, ErrUnknownTripCurrency)
 	}
 
-	var resp budgetItemsResponse
-	if err := r.client.do(ctx, http.MethodGet, tripPath(r.tripID, budgetPathSuffix), nil, &resp); err != nil {
+	items, err := r.budgetItems(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("reading the TREK budget of trip %d: %w", r.tripID, err)
 	}
 
-	read := make([]readExpense, 0, len(resp.Items))
-	for _, item := range resp.Items {
+	read := make([]readExpense, 0, len(items))
+	for _, item := range items {
 		decoded, err := r.expenseFrom(ctx, item)
 		if err != nil {
 			slog.Warn("skipping a TREK budget item that could not be read; it is missing from every total",
@@ -488,7 +489,7 @@ func (r *tripRepo) listExpenses(ctx context.Context) ([]readExpense, error) {
 	}
 
 	slog.Debug("read the TREK budget", "trip_id", r.tripID,
-		"items", len(resp.Items), "readable", len(read))
+		"items", len(items), "readable", len(read))
 	return read, nil
 }
 

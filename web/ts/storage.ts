@@ -1,3 +1,5 @@
+import { selectTab } from "./fields.js";
+
 export const STORAGE_KEYS = {
   currency: "noccounting_currency",
   category: "noccounting_category",
@@ -50,19 +52,6 @@ export function saveDefaults(): void {
   if (categoryInput) storageSet(STORAGE_KEYS.category, categoryInput.value);
   if (methodInput) storageSet(STORAGE_KEYS.method, methodInput.value);
   if (paidBySelect) storageSet(tripScopedKey(STORAGE_KEYS.paidBy), paidBySelect.value);
-}
-
-// Clicks the tab for a saved value and says whether there was one: a value saved
-// by an older version (the categories used to be 食, 住, ...) names no tab, and
-// restoring it into the hidden input anyway would post a category the server
-// refuses.
-function selectTab(tabsId: string, value: string): boolean {
-  const trigger = document.querySelector(
-    `#${tabsId} [data-tui-tabs-trigger][data-tui-tabs-value="${value}"]`,
-  ) as HTMLElement | null;
-  if (!trigger) return false;
-  trigger.click();
-  return true;
 }
 
 export async function restoreDefaults(

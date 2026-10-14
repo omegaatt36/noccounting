@@ -2,7 +2,6 @@ package webapp
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,8 +21,11 @@ type stubAccountingRepo struct {
 	expenses   []domain.Expense
 	members    []domain.Member
 	created    []*domain.Expense
+	updated    []*domain.Expense
+	updateErr  error
 	deleted    []string
 	settlement *domain.Settlement
+	queries    int
 }
 
 func (m *stubAccountingRepo) CreateExpense(_ context.Context, selected domain.Trip, expense *domain.Expense) error {
@@ -35,21 +37,33 @@ func (m *stubAccountingRepo) CreateExpense(_ context.Context, selected domain.Tr
 }
 
 func (m *stubAccountingRepo) QueryExpenses(_ context.Context, _ domain.Trip) ([]domain.Expense, error) {
+	m.queries++
 	return m.expenses, nil
 }
 
 func (m *stubAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ domain.Trip, filter expense.ExpenseFilter) ([]domain.Expense, error) {
+	m.queries++
 	var kept []domain.Expense
 	for _, exp := range m.expenses {
-		if filter.Method == nil || exp.Method == *filter.Method {
-			kept = append(kept, exp)
+		if filter.Method != nil && exp.Method != *filter.Method {
+			continue
 		}
+		if filter.PaidByID != nil && exp.PaidByID != *filter.PaidByID {
+			continue
+		}
+		if !isWithinRange(exp.ShoppedAt, filter.DateFrom, filter.DateTo) {
+			continue
+		}
+		kept = append(kept, exp)
 	}
 	return kept, nil
 }
 
-func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, _ *domain.Expense) error {
-	return nil
+func (m *stubAccountingRepo) UpdateExpense(_ context.Context, _ domain.Trip, e *domain.Expense) error {
+	if m.updateErr == nil {
+		m.updated = append(m.updated, e)
+	}
+	return m.updateErr
 }
 
 func (m *stubAccountingRepo) DeleteExpense(_ context.Context, _ domain.Trip, id string) error {
@@ -166,176 +180,6 @@ func TestHandleIndex(t *testing.T) {
 
 	if !strings.Contains(body, "<!") && !strings.Contains(body, "<html") && !strings.Contains(body, "<") {
 		t.Errorf("expected HTML content, got: %s", body[:100])
-	}
-}
-
-func TestHandleAuthMissingInitData(t *testing.T) {
-	mockRepo := &stubAccountingRepo{}
-	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	req := httptest.NewRequest("GET", "/api/auth", nil)
-	w := httptest.NewRecorder()
-
-	handler.handleAuth(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d", w.Code)
-	}
-
-	var authResp AuthResponse
-	err = json.NewDecoder(w.Body).Decode(&authResp)
-	if err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	if authResp.Authorized {
-		t.Errorf("expected Authorized to be false")
-	}
-
-	if authResp.Error != "missing init_data" {
-		t.Errorf("expected error 'missing init_data', got %q", authResp.Error)
-	}
-
-	if w.Header().Get("Content-Type") != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %s", w.Header().Get("Content-Type"))
-	}
-}
-
-func TestHandleAuthInvalidInitData(t *testing.T) {
-	mockRepo := &stubAccountingRepo{}
-	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	req := httptest.NewRequest("GET", "/api/auth?init_data=invalid_data", nil)
-	w := httptest.NewRecorder()
-
-	handler.handleAuth(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected status 403, got %d", w.Code)
-	}
-
-	var authResp AuthResponse
-	err = json.NewDecoder(w.Body).Decode(&authResp)
-	if err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	if authResp.Authorized {
-		t.Errorf("expected Authorized to be false")
-	}
-
-	if authResp.Error != "invalid authentication" {
-		t.Errorf("expected error 'invalid authentication', got %q", authResp.Error)
-	}
-}
-
-func TestHandleAuthUnauthorizedUser(t *testing.T) {
-	mockRepo := &stubAccountingRepo{}
-	fakeUserRepo := &fakeUserRepo{users: make(map[int64]*domain.User)}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), "test-token", false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	// Create valid init_data
-	botToken := "test-token"
-	params := map[string]string{
-		"query_id": "AAHdF6IQAAAAAAAA",
-		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
-	}
-	initData := buildValidTelegramInitData(botToken, params)
-
-	req := httptest.NewRequest("GET", "/api/auth?init_data="+url.QueryEscape(initData), nil)
-	w := httptest.NewRecorder()
-
-	handler.handleAuth(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected status 403, got %d", w.Code)
-	}
-
-	var authResp AuthResponse
-	err = json.NewDecoder(w.Body).Decode(&authResp)
-	if err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	if authResp.Authorized {
-		t.Errorf("expected Authorized to be false")
-	}
-
-	if authResp.Error != "unauthorized user" {
-		t.Errorf("expected error 'unauthorized user', got %q", authResp.Error)
-	}
-}
-
-func TestHandleAuthSuccess(t *testing.T) {
-	botToken := "test-token"
-	telegramID := int64(123456789)
-	mockRepo := &stubAccountingRepo{}
-	fakeUserRepo := &fakeUserRepo{
-		users: map[int64]*domain.User{
-			telegramID: {
-				ID:            1,
-				TelegramID:    telegramID,
-				BackendUserID: "123",
-				Nickname:      "John Doe",
-			},
-		},
-	}
-	userService := user.NewService(fakeUserRepo)
-	expenseService := expense.NewService(mockRepo, nil, nil)
-	handler, err := NewHandler(userService, expenseService, newTestTrips(), botToken, false)
-	if err != nil {
-		t.Fatalf("failed to create handler: %v", err)
-	}
-
-	// Create valid init_data
-	params := map[string]string{
-		"query_id": "AAHdF6IQAAAAAAAA",
-		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
-	}
-	initData := buildValidTelegramInitData(botToken, params)
-
-	req := httptest.NewRequest("GET", "/api/auth?init_data="+url.QueryEscape(initData), nil)
-	w := httptest.NewRecorder()
-
-	handler.handleAuth(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
-	}
-
-	var authResp AuthResponse
-	err = json.NewDecoder(w.Body).Decode(&authResp)
-	if err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	if !authResp.Authorized {
-		t.Errorf("expected Authorized to be true")
-	}
-
-	if authResp.Nickname != "John Doe" {
-		t.Errorf("expected nickname 'John Doe', got %q", authResp.Nickname)
-	}
-
-	if authResp.Error != "" {
-		t.Errorf("expected no error, got %q", authResp.Error)
 	}
 }
 
@@ -735,12 +579,14 @@ func TestRegisterRoutes(t *testing.T) {
 
 	routes := []string{
 		"GET /",
-		"GET /api/auth",
-		"GET /api/users",
+		"GET /api/bootstrap",
 		"POST /api/expense",
+		"PUT /api/expense",
 		"GET /health",
-		"GET /partial/form",
+		"GET /ready",
 		"GET /partial/dashboard",
+		"GET /partial/settlement",
+		"GET /partial/expenses",
 		"GET /api/export/csv",
 	}
 

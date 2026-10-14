@@ -54,6 +54,20 @@ func (s *Service) QueryExpensesWithFilter(ctx context.Context, trip domain.Trip,
 	return s.repo.QueryExpensesWithFilter(ctx, trip, filter)
 }
 
+// GetExpense is the expense of the trip with the given id, as it is stored.
+func (s *Service) GetExpense(ctx context.Context, trip domain.Trip, id string) (*domain.Expense, error) {
+	expenses, err := s.repo.QueryExpenses(ctx, trip)
+	if err != nil {
+		return nil, err
+	}
+	for i := range expenses {
+		if expenses[i].ID == id {
+			return &expenses[i], nil
+		}
+	}
+	return nil, domain.ErrExpenseNotFound
+}
+
 func (s *Service) UpdateExpense(ctx context.Context, trip domain.Trip, expense *domain.Expense) error {
 	if err := s.defaultParticipants(ctx, trip, expense); err != nil {
 		return err
@@ -120,34 +134,39 @@ func (s *Service) GetTodaySummary(ctx context.Context, trip domain.Trip, loc ...
 	}, nil
 }
 
+func (s *Service) UploadReceiptImage(ctx context.Context, trip domain.Trip, imageData []byte) string {
+	if len(imageData) == 0 {
+		return ""
+	}
+	tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
+	if err != nil {
+		slog.Warn("failed to create temp file for receipt image", "error", err)
+		return ""
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmpFile.Write(imageData); err != nil {
+		tmpFile.Close()
+		slog.Warn("failed to write temp file for receipt image", "error", err)
+		return ""
+	}
+	tmpFile.Close()
+
+	url, err := s.repo.UploadFile(ctx, trip, tmpPath)
+	if err != nil {
+		slog.Warn("failed to upload receipt image; continuing without receipt URL", "error", err)
+		return ""
+	}
+	return url
+}
+
 func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, analysis *domain.ReceiptAnalysis, imageData []byte, backendUserID string, splitItems bool) error {
-	repo := s.repo
 	defaultSplit := &domain.Expense{}
 	if err := s.defaultParticipants(ctx, trip, defaultSplit); err != nil {
 		return err
 	}
-	receiptURL := ""
-	if len(imageData) > 0 {
-		tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
-		if err != nil {
-			return err
-		}
-		tmpPath := tmpFile.Name()
-		defer os.Remove(tmpPath)
-
-		if _, err := tmpFile.Write(imageData); err != nil {
-			tmpFile.Close()
-			return err
-		}
-		tmpFile.Close()
-
-		url, err := repo.UploadFile(ctx, trip, tmpPath)
-		if err != nil {
-			slog.Warn("failed to upload receipt image; continuing without receipt URL", "error", err)
-		} else {
-			receiptURL = url
-		}
-	}
+	receiptURL := s.UploadReceiptImage(ctx, trip, imageData)
 
 	now := time.Now()
 

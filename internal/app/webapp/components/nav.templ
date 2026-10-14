@@ -1,25 +1,41 @@
 package components
 
+import "github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
+
 templ BottomNav() {
 	<nav id="bottom-nav" aria-label="主選單" class="fixed bottom-0 left-0 right-0 bg-background border-t border-border" style="padding-bottom: env(safe-area-inset-bottom);">
 		<div class="max-w-md mx-auto flex">
-			<button
-				type="button"
-				id="nav-form"
-				data-view="form"
-				aria-current="page"
-				class="flex-1 py-3 text-center text-sm font-medium text-primary border-t-2 border-primary"
-			>
-				<span aria-hidden="true">📝</span> 記帳
-			</button>
-			<button
-				type="button"
-				id="nav-dashboard"
-				data-view="dashboard"
-				class="flex-1 py-3 text-center text-sm font-medium text-muted-foreground border-t-2 border-transparent"
-			>
-				<span aria-hidden="true">📊</span> Dashboard
-			</button>
+			@navButton("form", "記帳", true) {
+				@icon.SquarePen(icon.Props{Size: 20})
+			}
+			@navButton("list", "明細", false) {
+				@icon.ReceiptText(icon.Props{Size: 20})
+			}
+			@navButton("stats", "統計", false) {
+				@icon.ChartPie(icon.Props{Size: 20})
+			}
+			@navButton("settle", "結算", false) {
+				@icon.Scale(icon.Props{Size: 20})
+			}
 		</div>
 	</nav>
+}
+
+// navButton is one tab of the bottom nav. The tab showing is marked
+// aria-current and carries the primary color; navigation.ts keeps both in step.
+templ navButton(view string, label string, current bool) {
+	<button
+		type="button"
+		id={ "nav-" + view }
+		data-view={ view }
+		if current {
+			aria-current="page"
+		}
+		class={ "flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium border-t-2", templ.KV("text-primary border-primary", current), templ.KV("text-muted-foreground border-transparent", !current) }
+	>
+		<span aria-hidden="true" class="inline-flex">
+			{ children... }
+		</span>
+		{ label }
+	</button>
 }

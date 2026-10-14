@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
-async function bootstrap(authorized, tripsReady, options = {}) {
+async function bootstrap(result, options = {}) {
   const calls = [];
   const context = vm.createContext({
     document: {
@@ -14,13 +14,13 @@ async function bootstrap(authorized, tripsReady, options = {}) {
   });
   const functions = {
     initTelegram: () => ({ initData: options.initData ?? "" }),
-    authenticate: async () => authorized,
     showView: (view) => calls.push(view),
-    loadTrips: async () => { calls.push("trips"); return await tripsReady; },
-    loadMembers: async () => calls.push("members"),
+    loadBootstrap: async () => { calls.push("bootstrap"); return await result; },
     setupEventListeners: () => calls.push("form"),
+    setupEdit: () => calls.push("edit"),
     setupNumpad: () => calls.push("numpad"),
     restoreDefaults() {}, updateExchangeRateVisibility() {}, fetchExchangeRate() {},
+    isEditing: () => options.editing ?? false,
     tripId: () => "3", tripCurrency: () => "TWD",
   };
   const module = new vm.SourceTextModule(await readFile("internal/app/webapp/static/app.js", "utf8"), { context });
@@ -32,29 +32,36 @@ async function bootstrap(authorized, tripsReady, options = {}) {
   return calls;
 }
 
-test("failed authentication never initializes trips or form", async () => {
-  const calls = await bootstrap(false, Promise.resolve("ok"));
-  assert.deepEqual(calls, []);
+const TELEGRAM = { initData: "user=a&hash=b" };
+
+test("someone the server refuses never initializes the form", async () => {
+  const calls = await bootstrap(Promise.resolve("forbidden"), TELEGRAM);
+  assert.deepEqual(calls, ["loading", "bootstrap", "forbidden"]);
 });
 
-test("trip loading keeps the form and dashboard unavailable", async () => {
-  const calls = await bootstrap(true, new Promise(() => {}));
-  assert.deepEqual(calls, ["trips"]);
+test("outside Telegram nothing is asked of the server", async () => {
+  const calls = await bootstrap(Promise.resolve("ok"));
+  assert.deepEqual(calls, ["loading", "forbidden"]);
 });
 
-test("trip load failure leaves scoped operations unavailable", async () => {
-  const calls = await bootstrap(true, Promise.resolve("error"));
-  assert.deepEqual(calls, ["trips", "trip-error"]);
+test("loading keeps the form and every view unavailable", async () => {
+  const calls = await bootstrap(new Promise(() => {}), TELEGRAM);
+  assert.deepEqual(calls, ["loading", "bootstrap"]);
+});
+
+test("a failed load leaves scoped operations unavailable", async () => {
+  const calls = await bootstrap(Promise.resolve("error"), TELEGRAM);
+  assert.deepEqual(calls, ["loading", "bootstrap", "trip-error"]);
 });
 
 test("an empty trip list is onboarding, not a failure", async () => {
-  const calls = await bootstrap(true, Promise.resolve("empty"));
-  assert.deepEqual(calls, ["trips", "trip-empty"]);
+  const calls = await bootstrap(Promise.resolve("empty"), TELEGRAM);
+  assert.deepEqual(calls, ["loading", "bootstrap", "trip-empty"]);
 });
 
-test("successful trip load initializes form before showing app", async () => {
-  const calls = await bootstrap(true, Promise.resolve("ok"));
-  assert.deepEqual(calls, ["trips", "members", "form", "numpad", "app"]);
+test("a successful load initializes the form before showing the app", async () => {
+  const calls = await bootstrap(Promise.resolve("ok"), TELEGRAM);
+  assert.deepEqual(calls, ["loading", "bootstrap", "form", "edit", "numpad", "app"]);
 });
 
 async function tripSwitcher(switchResult) {
@@ -68,7 +75,7 @@ async function tripSwitcher(switchResult) {
     document: { body, getElementById: (id) => id === "trip-select" ? select : input, createElement: () => ({}) },
     window: { location: { reload() { views.push("reload"); } } },
     console: { error() {} },
-    fetch: async () => ++requests === 1 ? { ok: true, json: async () => ({ current: 3, trips: [{ id: 3, title: "Tokyo", label: "Tokyo", currency: "TWD" }, { id: 9, title: "Osaka", label: "Osaka", currency: "JPY" }] }) } : await switchResult,
+    fetch: async () => ++requests === 1 ? { ok: true, status: 200, json: async () => ({ users: [], members: [], current: 3, trips: [{ id: 3, title: "Tokyo", label: "Tokyo", currency: "TWD" }, { id: 9, title: "Osaka", label: "Osaka", currency: "JPY" }] }) } : await switchResult,
   });
   const module = new vm.SourceTextModule(await readFile("internal/app/webapp/static/trips.js", "utf8"), { context });
   await module.link(() => new vm.SyntheticModule(["apiUrl", "showView", "showToast"], function () {
@@ -77,7 +84,7 @@ async function tripSwitcher(switchResult) {
     this.setExport("showToast", () => views.push("toast"));
   }, { context }));
   await module.evaluate();
-  await module.namespace.loadTrips({});
+  assert.equal(await module.namespace.loadBootstrap({}), "ok");
   select.value = "9";
   const pending = select.onchange();
   await new Promise(setImmediate);
@@ -182,7 +189,7 @@ test("late expense completion cannot reenable submission during switch", async (
 
 test("htmx 4 requests include encoded Telegram auth and trip scope", async () => {
   const handlers = {};
-  await bootstrap(false, Promise.resolve(false), { handlers, initData: "user=a&hash=b" });
+  await bootstrap(Promise.resolve("forbidden"), { handlers, initData: "user=a&hash=b" });
   const request = { action: "/partial/dashboard?range=all" };
   handlers["htmx:config:request"]({ detail: { ctx: { request } } });
   const url = new URL(request.action, "https://example.test");
@@ -193,10 +200,26 @@ test("htmx 4 requests include encoded Telegram auth and trip scope", async () =>
 
 test("htmx 4 dev requests preserve explicit scope without Telegram auth", async () => {
   const handlers = {};
-  await bootstrap(false, Promise.resolve(false), { handlers, devMode: true, initData: "secret" });
+  await bootstrap(Promise.resolve("forbidden"), { handlers, devMode: true, initData: "secret" });
   const request = { action: "/partial/dashboard?trip_id=9" };
   handlers["htmx:config:request"]({ detail: { ctx: { request } } });
   assert.equal(request.action, "/partial/dashboard?trip_id=9");
+});
+
+test("the expense form files a new expense, or changes the one it was opened on", async () => {
+  for (const [editing, method] of [[false, "POST"], [true, "PUT"]]) {
+    const handlers = {};
+    await bootstrap(Promise.resolve("forbidden"), { handlers, initData: "user=a&hash=b", editing });
+    const request = { action: "/api/expense", method: "POST", form: { matches: (selector) => selector === "#expense-form" } };
+    handlers["htmx:config:request"]({ detail: { ctx: { request } } });
+    assert.equal(request.method, method);
+  }
+
+  const handlers = {};
+  await bootstrap(Promise.resolve("forbidden"), { handlers, initData: "user=a&hash=b", editing: true });
+  const request = { action: "/partial/expenses", method: "GET", form: { matches: (selector) => selector === "#list-filters" } };
+  handlers["htmx:config:request"]({ detail: { ctx: { request } } });
+  assert.equal(request.method, "GET", "only the expense form is changed to a PUT");
 });
 
 test("htmx 4 completion resets successful expenses after result swap", async () => {

@@ -17,6 +17,16 @@ export function setupNumpad(ctx: TelegramContext): void {
   priceField.setAttribute("inputmode", "none");
   priceField.setAttribute("readonly", "true");
 
+  let expr = priceField.value === "0" ? "" : priceField.value;
+  let lastSyncedPrice = priceField.value;
+
+  function syncFromField(): void {
+    if (priceField!.value !== lastSyncedPrice) {
+      expr = priceField!.value === "0" ? "" : priceField!.value;
+      lastSyncedPrice = priceField!.value;
+    }
+  }
+
   // Telegram's back button closes the sheet instead of closing the whole app,
   // and the MainButton hides while typing so a stray tap cannot submit a
   // half-typed amount.
@@ -25,7 +35,9 @@ export function setupNumpad(ctx: TelegramContext): void {
   backdrop?.addEventListener("click", closeNumpad);
 
   numpadClear?.addEventListener("click", () => {
+    expr = "";
     priceField.value = "";
+    lastSyncedPrice = "";
     updateDisplay();
     haptic(ctx, "impact", "light");
   });
@@ -50,6 +62,7 @@ export function setupNumpad(ctx: TelegramContext): void {
 
   function openNumpad(): void {
     if (isOpen()) return;
+    syncFromField();
     numpad!.classList.remove("hidden");
     numpad!.classList.add("flex");
     backdrop?.classList.remove("hidden");
@@ -65,6 +78,9 @@ export function setupNumpad(ctx: TelegramContext): void {
 
   function closeNumpad(): void {
     if (!isOpen()) return;
+    expr = priceField!.value === "0" ? "" : priceField!.value;
+    lastSyncedPrice = priceField!.value;
+    updateDisplay();
     numpad!.classList.add("hidden");
     numpad!.classList.remove("flex");
     backdrop?.classList.add("hidden");
@@ -76,7 +92,15 @@ export function setupNumpad(ctx: TelegramContext): void {
 
   function updateDisplay(): void {
     const val = priceField!.value || "0";
-    if (numpadDisplay) numpadDisplay.textContent = Number(val).toLocaleString();
+    if (numpadDisplay) {
+      if (expr.includes("+")) {
+        numpadDisplay.textContent = expr.endsWith("+")
+          ? `${expr} (${Number(val).toLocaleString()})`
+          : `${expr} = ${Number(val).toLocaleString()}`;
+      } else {
+        numpadDisplay.textContent = Number(val).toLocaleString();
+      }
+    }
 
     const currencyInput = document.getElementById("currency-input") as HTMLInputElement | null;
     const currency = currencyInput?.value ?? "TWD";
@@ -116,16 +140,32 @@ export function setupNumpad(ctx: TelegramContext): void {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       haptic(ctx, "impact", "light");
+      syncFromField();
       const key = (btn as HTMLElement).dataset.numpadKey!;
-      const current = priceField!.value;
 
       if (key === "backspace") {
-        priceField!.value = current.slice(0, -1);
-      } else if (key === ".") {
-        if (!current.includes(".")) priceField!.value = current + ".";
+        expr = expr.slice(0, -1);
+      } else if (key === "+") {
+        if (expr !== "" && !expr.endsWith("+")) {
+          expr = expr + "+";
+        }
       } else {
-        priceField!.value = (current === "0" ? "" : current) + key;
+        const parts = expr.split("+");
+        const last = parts[parts.length - 1] ?? "";
+        if (key === "00" || key === "0") {
+          if (last !== "" && last !== "0") {
+            parts[parts.length - 1] = last + key;
+          }
+        } else {
+          parts[parts.length - 1] = (last === "0" ? "" : last) + key;
+        }
+        expr = parts.join("+");
       }
+
+      const terms = expr.split("+").filter((t) => t.length > 0);
+      const total = terms.reduce((sum, t) => sum + parseInt(t, 10), 0);
+      priceField!.value = total > 0 ? String(total) : "";
+      lastSyncedPrice = priceField!.value;
       updateDisplay();
     });
   });

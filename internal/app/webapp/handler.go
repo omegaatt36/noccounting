@@ -2,7 +2,6 @@ package webapp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,6 +23,7 @@ type Handler struct {
 	tripService    *trip.Service
 	botToken       string
 	devMode        bool
+	now            func() time.Time
 }
 
 func NewHandler(userService *user.Service, expenseService *expense.Service, tripService *trip.Service, botToken string, devMode bool) (*Handler, error) {
@@ -36,7 +36,32 @@ func NewHandler(userService *user.Service, expenseService *expense.Service, trip
 		tripService:    tripService,
 		botToken:       botToken,
 		devMode:        devMode,
+		now:            time.Now,
 	}, nil
+}
+
+// nowFor returns the current time in the caller's timezone (or an explicit tz
+// parameter), normalized to UTC calendar coordinates so date comparisons match
+// date-only ShoppedAt values.
+func (h *Handler) nowFor(r *http.Request, caller int64) time.Time {
+	var loc *time.Location
+	if rawTZ := r.FormValue("tz"); rawTZ != "" {
+		if parsed, err := time.LoadLocation(rawTZ); err == nil {
+			loc = parsed
+		}
+	}
+	if loc == nil && h.userService != nil {
+		loc = h.userService.Timezone(caller)
+	}
+	if loc == nil {
+		loc = user.DefaultTimezone()
+	}
+	clock := h.now
+	if clock == nil {
+		clock = time.Now
+	}
+	local := clock().In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond(), time.UTC)
 }
 
 // The ways a caller can fail to be identified.
@@ -108,20 +133,18 @@ func (h *Handler) tripFor(ctx context.Context, r *http.Request) (domain.Trip, er
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /", h.handleIndex)
-	mux.HandleFunc("GET /api/auth", h.handleAuth)
-	mux.HandleFunc("GET /api/users", h.handleGetUsers)
-	mux.HandleFunc("GET /api/trips", h.handleGetTrips)
+	mux.HandleFunc("GET /api/bootstrap", h.handleBootstrap)
 	mux.HandleFunc("POST /api/trip", h.handleSelectTrip)
-	mux.HandleFunc("GET /api/members", h.handleGetMembers)
 	mux.HandleFunc("GET /api/rates", h.handleGetRates)
 	mux.HandleFunc("POST /api/expense", h.handleCreateExpense)
+	mux.HandleFunc("PUT /api/expense", h.handleUpdateExpense)
 	mux.HandleFunc("DELETE /api/expense", h.handleDeleteExpense)
 	mux.HandleFunc("POST /api/receipt/analyze", h.handleAnalyzeReceipt)
 	mux.HandleFunc("GET /health", h.handleHealth)
-	mux.HandleFunc("GET /partial/form", h.handlePartialForm)
+	mux.HandleFunc("GET /ready", h.handleReady)
 	mux.HandleFunc("GET /partial/dashboard", h.handleDashboardContent)
-	mux.HandleFunc("GET /partial/dashboard/category", h.handleCategoryDetail)
-	mux.HandleFunc("GET /partial/dashboard/method", h.handleMethodDetail)
+	mux.HandleFunc("GET /partial/settlement", h.handleSettlement)
+	mux.HandleFunc("GET /partial/expenses", h.handleExpenseList)
 	mux.HandleFunc("GET /api/export/csv", h.handleExportCSV)
 
 	sub, _ := fs.Sub(staticFiles, "static")
@@ -142,132 +165,29 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// readyTimeout bounds the TREK check behind /ready so a hung TREK fails a probe
+// instead of stalling it.
+const readyTimeout = 5 * time.Second
+
+// handleReady says whether this instance can do its job: /health only says the
+// process is up, but with TREK unreachable every expense and dashboard request
+// fails. It is a separate route so a TREK outage marks the instance unready
+// without making a liveness probe restart it. Nothing about the failure is put
+// in the response; it is logged.
+func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
+	defer cancel()
+
+	if _, err := h.tripService.List(ctx); err != nil {
+		slog.Warn("Not ready: TREK could not be reached", "error", err)
+		http.Error(w, "trek unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	if _, err := w.Write([]byte("ok")); err != nil {
+		slog.Warn("Failed to write ready response", "error", err)
+	}
+}
+
 // InitData expiration time for validation.
 const initDataMaxAge = 24 * time.Hour
-
-type AuthResponse struct {
-	Authorized bool   `json:"authorized"`
-	Nickname   string `json:"nickname,omitempty"`
-	Error      string `json:"error,omitempty"`
-}
-
-func (h *Handler) handleAuth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if h.devMode {
-		if err := json.NewEncoder(w).Encode(AuthResponse{
-			Authorized: true,
-			Nickname:   "dev",
-		}); err != nil {
-			slog.Warn("Failed to encode auth response", "error", err)
-		}
-		return
-	}
-
-	initData := r.URL.Query().Get("init_data")
-	if initData == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(AuthResponse{
-			Authorized: false,
-			Error:      "missing init_data",
-		}); err != nil {
-			slog.Warn("Failed to encode auth response", "error", err)
-		}
-		return
-	}
-
-	telegramData, err := ValidateTelegramInitData(initData, h.botToken, initDataMaxAge)
-	if err != nil {
-		slog.Warn("Invalid Telegram initData", "error", err)
-		w.WriteHeader(http.StatusForbidden)
-		if encErr := json.NewEncoder(w).Encode(AuthResponse{
-			Authorized: false,
-			Error:      "invalid authentication",
-		}); encErr != nil {
-			slog.Warn("Failed to encode auth response", "error", encErr)
-		}
-		return
-	}
-
-	user, err := h.userService.GetUser(domain.GetUserRequest{
-		TelegramID: &telegramData.UserID,
-	})
-	if err != nil {
-		w.WriteHeader(http.StatusForbidden)
-		if encErr := json.NewEncoder(w).Encode(AuthResponse{
-			Authorized: false,
-			Error:      "unauthorized user",
-		}); encErr != nil {
-			slog.Warn("Failed to encode auth response", "error", encErr)
-		}
-		return
-	}
-	if err := json.NewEncoder(w).Encode(AuthResponse{
-		Authorized: true,
-		Nickname:   user.Nickname,
-	}); err != nil {
-		slog.Warn("Failed to encode auth response", "error", err)
-	}
-}
-
-type UserInfo struct {
-	Nickname   string `json:"nickname"`
-	TelegramID int64  `json:"telegram_id"`
-}
-
-type UsersResponse struct {
-	Users []UserInfo `json:"users"`
-}
-
-func (h *Handler) handleGetUsers(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if !h.devMode {
-		initData := r.URL.Query().Get("init_data")
-		if initData == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": "missing init_data"}); err != nil {
-				slog.Warn("Failed to encode error response", "error", err)
-			}
-			return
-		}
-
-		telegramData, err := ValidateTelegramInitData(initData, h.botToken, initDataMaxAge)
-		if err != nil {
-			slog.Warn("Invalid Telegram initData", "error", err)
-			w.WriteHeader(http.StatusForbidden)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid authentication"}); err != nil {
-				slog.Warn("Failed to encode error response", "error", err)
-			}
-			return
-		}
-
-		if !h.userService.IsAuthorized(telegramData.UserID) {
-			w.WriteHeader(http.StatusForbidden)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"}); err != nil {
-				slog.Warn("Failed to encode error response", "error", err)
-			}
-			return
-		}
-	}
-
-	allUsers, err := h.userService.GetAllUsers()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get users"}); encErr != nil {
-			slog.Warn("Failed to encode error response", "error", encErr)
-		}
-		return
-	}
-
-	users := make([]UserInfo, len(allUsers))
-	for i, u := range allUsers {
-		users[i] = UserInfo{
-			Nickname:   u.Nickname,
-			TelegramID: u.TelegramID,
-		}
-	}
-	if err := json.NewEncoder(w).Encode(UsersResponse{Users: users}); err != nil {
-		slog.Warn("Failed to encode users response", "error", err)
-	}
-}

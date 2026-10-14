@@ -52,6 +52,16 @@ func newUserRepo(mapping string) (repo *userrepo.Repo, err error) {
 }
 
 func main() {
+	// `noccounting healthcheck` is what the image's HEALTHCHECK runs; it needs
+	// none of the configuration a real start does.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if err := healthcheck(context.Background(), "http://127.0.0.1:"+env("PORT", "8080")+"/ready"); err != nil {
+			fmt.Fprintln(os.Stderr, "unhealthy:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	telegramToken, err := envRequired("TELEGRAM_BOT_TOKEN")
 	if err != nil {
 		slog.Error("failed to get TELEGRAM_BOT_TOKEN", "error", err)

@@ -698,3 +698,24 @@ func TestCreateFromAnalysis_StopsWhenRosterCannotBeRead(t *testing.T) {
 		}
 	}
 }
+
+func TestGetExpense(t *testing.T) {
+	trip := domain.Trip{ID: 3, Currency: domain.CurrencyTWD}
+	repo := &spyRepo{expenses: []domain.Expense{{ID: "1", Name: "ramen"}, {ID: "2", Name: "ticket"}}}
+	service := NewService(repo, nil, nil)
+
+	got, err := service.GetExpense(context.Background(), trip, "2")
+	if err != nil {
+		t.Fatalf("GetExpense() error = %v", err)
+	}
+	if got.Name != "ticket" {
+		t.Errorf("GetExpense() = %q, want the expense with that id", got.Name)
+	}
+	if len(repo.opened) != 1 || repo.opened[0].ID != trip.ID {
+		t.Errorf("books opened for %+v, want the trip asked about", repo.opened)
+	}
+
+	if _, err := service.GetExpense(context.Background(), trip, "9"); !errors.Is(err, domain.ErrExpenseNotFound) {
+		t.Errorf("GetExpense() of a missing id error = %v, want ErrExpenseNotFound", err)
+	}
+}

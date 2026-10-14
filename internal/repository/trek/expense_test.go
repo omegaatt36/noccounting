@@ -1681,6 +1681,40 @@ func TestUpdateExpense_ReadsTheNoteOffTheRowRatherThanOffTheCaller(t *testing.T)
 	}
 }
 
+func TestQueryAndUpdate_SharesCachedBudgetListingAndInvalidatesAfterWrite(t *testing.T) {
+	stub := newCreateStub(t)
+	stub.listing = listingOf(t, map[string]any{"id": 42, "name": "拉麵", "note": "PAYMENT:cash|加收小費"})
+	repo := stub.repo(t, domain.CurrencyTWD, nil)
+
+	if _, err := repo.QueryExpenses(context.Background()); err != nil {
+		t.Fatalf("first QueryExpenses() error = %v", err)
+	}
+	if _, err := repo.QueryExpenses(context.Background()); err != nil {
+		t.Fatalf("second QueryExpenses() error = %v", err)
+	}
+	if reads := stub.budgetReads(); len(reads) != 1 {
+		t.Fatalf("budget reads before write = %d, want 1 (cached within TTL)", len(reads))
+	}
+
+	if err := repo.UpdateExpense(context.Background(), edited(func(e *domain.Expense) { e.Name = "沾麵" })); err != nil {
+		t.Fatalf("UpdateExpense() error = %v", err)
+	}
+	if reads := stub.budgetReads(); len(reads) != 1 {
+		t.Fatalf("budget reads during UpdateExpense = %d, want 1 (storedRowOf reuses cached listing)", len(reads))
+	}
+
+	expenses, err := repo.QueryExpenses(context.Background())
+	if err != nil {
+		t.Fatalf("QueryExpenses() after update error = %v", err)
+	}
+	if reads := stub.budgetReads(); len(reads) != 2 {
+		t.Fatalf("budget reads after write = %d, want 2 (write invalidated cache)", len(reads))
+	}
+	if got := oneExpense(t, expenses).Name; got != "沾麵" {
+		t.Errorf("updated name = %q, want 沾麵", got)
+	}
+}
+
 func TestUpdateExpense_ClearingThePayerKeepsTheAmount(t *testing.T) {
 	stub := newCreateStub(t)
 	stub.listing = listingOf(t, map[string]any{

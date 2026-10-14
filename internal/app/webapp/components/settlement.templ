@@ -1,0 +1,89 @@
+package components
+
+import (
+	"fmt"
+
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
+)
+
+// BalanceRow is one person's position in the trip: Owed when they are due money.
+type BalanceRow struct {
+	Name   string
+	Amount string
+	Owed   bool
+}
+
+// TransferRow is one payment that helps settle the trip.
+type TransferRow struct {
+	From   string
+	To     string
+	Amount string
+}
+
+// SettlementView is where the trip's money stands. Unconverted counts what was
+// left out because no rate could convert it.
+type SettlementView struct {
+	TripTitle   string
+	Balances    []BalanceRow
+	Transfers   []TransferRow
+	Unconverted int
+}
+
+templ SettlementContent(v SettlementView) {
+	<div id="settlement-content" class="space-y-4 pb-6">
+		<p class="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+			<span aria-hidden="true" class="inline-flex">@icon.Luggage(icon.Props{Size: 14})
+</span>
+			{ v.TripTitle }
+		</p>
+		if len(v.Balances) == 0 {
+			<div class="flex flex-col items-center gap-2 py-10 text-center">
+				<span aria-hidden="true" class="inline-flex text-accent">@icon.PartyPopper(icon.Props{Size: 32})
+</span>
+				<p class="text-sm text-muted-foreground">目前沒有任何人欠款</p>
+			</div>
+		} else {
+			@card.Card() {
+				<div class="p-4 space-y-2">
+					<h2 class="text-sm font-semibold text-foreground">各人餘額</h2>
+					for _, balance := range v.Balances {
+						<div class="flex items-center justify-between text-sm">
+							<span>{ balance.Name }</span>
+							<span
+								class={ "font-medium tabular-nums", templ.KV("text-green-800 dark:text-green-400", balance.Owed), templ.KV("text-red-700 dark:text-red-400", !balance.Owed) }
+							>
+								{ balance.Amount }
+							</span>
+						</div>
+					}
+				</div>
+			}
+			if len(v.Transfers) > 0 {
+				@card.Card() {
+					<div class="p-4 space-y-2">
+						<h2 class="text-sm font-semibold text-foreground">建議轉帳</h2>
+						for _, transfer := range v.Transfers {
+							<div class="flex items-center justify-between text-sm">
+								<span class="flex items-center gap-1.5">
+									{ transfer.From }
+									<span aria-label="付給" class="inline-flex text-muted-foreground">@icon.ArrowRight(icon.Props{Size: 14})
+</span>
+									{ transfer.To }
+								</span>
+								<span class="font-medium tabular-nums">{ transfer.Amount }</span>
+							</div>
+						}
+					</div>
+				}
+			}
+		}
+		if v.Unconverted > 0 {
+			<p class="flex items-start gap-1.5 text-xs text-muted-foreground">
+				<span aria-hidden="true" class="inline-flex mt-0.5">@icon.TriangleAlert(icon.Props{Size: 14})
+</span>
+				{ fmt.Sprintf("有 %d 筆因為缺少匯率沒有計入", v.Unconverted) }
+			</p>
+		}
+	</div>
+}

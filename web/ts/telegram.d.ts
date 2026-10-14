@@ -67,6 +67,7 @@ interface TelegramWebApp {
   setBackgroundColor?(color: string): void;
   disableVerticalSwipes?(): void;
   enableClosingConfirmation?(): void;
+  showConfirm?(message: string, callback?: (confirmed: boolean) => void): void;
 }
 
 interface Window {

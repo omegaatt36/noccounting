@@ -338,6 +338,32 @@ func TestAggregateDashboard_CategoryBeatsAmount(t *testing.T) {
 	}
 }
 
+func TestAggregateDashboard_CrossYearDatesSortChronologically(t *testing.T) {
+	expenses := []domain.Expense{
+		{ID: "1", Name: "初二", Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{ID: "2", Name: "跨年前一天", Price: 200, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: time.Date(2026, 12, 30, 0, 0, 0, 0, time.UTC)},
+		{ID: "3", Name: "元旦", Price: 300, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{ID: "4", Name: "除夕", Price: 400, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)},
+	}
+
+	result := aggregateDashboard(expenses, nil, domain.CurrencyTWD)
+
+	gotDates := make([]string, 0, len(result.ByDate))
+	gotISO := make([]string, 0, len(result.ByDate))
+	for _, stat := range result.ByDate {
+		gotDates = append(gotDates, stat.Date)
+		gotISO = append(gotISO, stat.ISODate)
+	}
+	wantDates := []string{"12/30", "12/31", "1/1", "1/2"}
+	if !slices.Equal(gotDates, wantDates) {
+		t.Errorf("ByDate order = %v, want %v (Dec 2026 before Jan 2027)", gotDates, wantDates)
+	}
+	wantISO := []string{"2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"}
+	if !slices.Equal(gotISO, wantISO) {
+		t.Errorf("ByDate ISODate = %v, want %v", gotISO, wantISO)
+	}
+}
+
 func TestParseDateRange(t *testing.T) {
 	now := time.Date(2026, 2, 22, 15, 30, 0, 0, time.UTC)
 

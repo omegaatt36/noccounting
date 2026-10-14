@@ -57,6 +57,10 @@ type appOptions struct {
 	noTrips bool
 	// tripsDown makes the trip listing fail from the start.
 	tripsDown bool
+	// extraTrips are additional trips available to switch to.
+	extraTrips []domain.Trip
+	// analyzer is the receipt analyzer for /api/receipt/analyze.
+	analyzer expense.ReceiptAnalyzer
 }
 
 type browserApp struct {
@@ -68,8 +72,10 @@ type browserApp struct {
 	trips *inMemoryTripRepo
 
 	sdk string
-	// failPost makes the browser's POSTs to /api/expense fail on the network.
+	// failPost makes the browser's POSTs and PUTs to /api/expense fail on the network.
 	failPost atomic.Bool
+	// failRates makes the browser's GETs to /api/rates fail on the network.
+	failRates atomic.Bool
 
 	mu       sync.Mutex
 	problems []string
@@ -107,7 +113,7 @@ func newBrowserApp(t *testing.T, opts appOptions) *browserApp {
 
 	app.trips = &inMemoryTripRepo{}
 	if !opts.noTrips {
-		app.trips.trips = []domain.Trip{{ID: 10, Title: "2026 Tokyo Adventure", Currency: domain.CurrencyTWD}}
+		app.trips.trips = append([]domain.Trip{{ID: 10, Title: "2026 Tokyo Adventure", Currency: domain.CurrencyTWD}}, opts.extraTrips...)
 	}
 	if opts.tripsDown {
 		app.trips.setError(fmt.Errorf("TREK is down"))
@@ -115,7 +121,7 @@ func newBrowserApp(t *testing.T, opts appOptions) *browserApp {
 	app.repo = newInMemoryAccountingRepo()
 
 	userSvc := user.NewService(userrepo.NewRepo("12345:8:Alice,67890:9:Bob"))
-	expSvc := expense.NewService(app.repo, staticRateFetcher{}, nil)
+	expSvc := expense.NewService(app.repo, staticRateFetcher{}, opts.analyzer)
 	tripSvc := trip.NewService(app.trips)
 
 	server, err := webapp.NewServer(userSvc, expSvc, tripSvc, "0", browserBotToken, !opts.telegram)
@@ -164,6 +170,7 @@ func newBrowserApp(t *testing.T, opts appOptions) *browserApp {
 		fetch.Enable().WithPatterns([]*fetch.RequestPattern{
 			{URLPattern: "https://telegram.org/*"},
 			{URLPattern: "*/api/expense*"},
+			{URLPattern: "*/api/rates*"},
 		}),
 	)
 	return app
@@ -229,7 +236,7 @@ func telegramSDK(initData string, userID int64, scheme string) string {
     offClick() { return this; },
   };
   window.__tg = {
-    header: "", background: "", haptics: [], mainButton: button,
+    header: "", background: "", haptics: [], confirms: [], mainButton: button,
     fire(name) { handlers[name]?.(); },
   };
   window.Telegram = { WebApp: {
@@ -240,6 +247,7 @@ func telegramSDK(initData string, userID int64, scheme string) string {
     setHeaderColor(color) { window.__tg.header = color; },
     setBackgroundColor(color) { window.__tg.background = color; },
     onEvent(name, callback) { handlers[name] = callback; },
+    showConfirm(msg, callback) { window.__tg.confirms.push(msg); callback?.(true); },
     HapticFeedback: {
       impactOccurred() {}, selectionChanged() {},
       notificationOccurred(style) { window.__tg.haptics.push(style); },
@@ -289,7 +297,9 @@ func (a *browserApp) route(e *fetch.EventRequestPaused) {
 			WithResponseHeaders([]*fetch.HeaderEntry{{Name: "Content-Type", Value: "text/javascript"}}).
 			WithBody(base64.StdEncoding.EncodeToString([]byte(a.sdk))).
 			Do(exec)
-	case e.Request.Method == "POST" && a.failPost.Load():
+	case (e.Request.Method == "POST" || e.Request.Method == "PUT") && a.failPost.Load():
+		err = fetch.FailRequest(e.RequestID, network.ErrorReasonConnectionFailed).Do(exec)
+	case strings.Contains(e.Request.URL, "/api/rates") && a.failRates.Load():
 		err = fetch.FailRequest(e.RequestID, network.ErrorReasonConnectionFailed).Do(exec)
 	default:
 		err = fetch.ContinueRequest(e.RequestID).Do(exec)
@@ -375,7 +385,10 @@ func (a *browserApp) click(selector string) {
 	a.t.Helper()
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
-	if err := chromedp.Run(ctx, chromedp.Click(selector, chromedp.ByQuery, chromedp.NodeVisible)); err != nil {
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(fmt.Sprintf(`document.querySelector(%q)?.scrollIntoView({block: "center", behavior: "instant"})`, selector), nil),
+		chromedp.Click(selector, chromedp.ByQuery, chromedp.NodeVisible),
+	); err != nil {
 		a.t.Fatalf("clicking %s: %v", selector, err)
 	}
 }

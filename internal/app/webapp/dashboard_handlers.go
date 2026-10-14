@@ -18,13 +18,6 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/expense"
 )
 
-func (h *Handler) handlePartialForm(w http.ResponseWriter, r *http.Request) {
-	if err := components.ExpenseForm().Render(r.Context(), w); err != nil {
-		slog.Error("Failed to render expense form", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
-
 func isWithinRange(t time.Time, from, to *time.Time) bool {
 	if from != nil && t.Before(*from) {
 		return false
@@ -40,6 +33,7 @@ func isWithinRange(t time.Time, from, to *time.Time) bool {
 type dashboardRequest struct {
 	trip     domain.Trip
 	rangeStr string
+	now      time.Time
 	from, to *time.Time
 	filter   expense.ExpenseFilter
 	ctx      context.Context
@@ -49,7 +43,7 @@ type dashboardRequest struct {
 // openDashboardRequest identifies the caller and resolves the trip and the date
 // range. It writes the HTTP error itself and returns false when it cannot.
 func (h *Handler) openDashboardRequest(w http.ResponseWriter, r *http.Request) (*dashboardRequest, bool) {
-	_, ok := h.requireAuth(w, r)
+	caller, ok := h.requireAuth(w, r)
 	if !ok {
 		return nil, false
 	}
@@ -58,7 +52,8 @@ func (h *Handler) openDashboardRequest(w http.ResponseWriter, r *http.Request) (
 	if rangeStr == "" {
 		rangeStr = "all"
 	}
-	from, to := parseDateRange(rangeStr, time.Now())
+	now := h.nowFor(r, caller)
+	from, to := parseDateRange(rangeStr, now)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	selected, err := h.tripFor(ctx, r)
@@ -72,6 +67,7 @@ func (h *Handler) openDashboardRequest(w http.ResponseWriter, r *http.Request) (
 	return &dashboardRequest{
 		trip:     selected,
 		rangeStr: rangeStr,
+		now:      now,
 		from:     from,
 		to:       to,
 		filter:   expense.ExpenseFilter{DateFrom: from, DateTo: to},
@@ -87,13 +83,6 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	}
 	defer req.cancel()
 
-	expenses, err := h.expenseService.QueryExpensesWithFilter(req.ctx, req.trip, req.filter)
-	if err != nil {
-		slog.Error("Failed to query expenses", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
 	allUsers, err := h.userService.GetAllUsers()
 	if err != nil {
 		slog.Error("Failed to get users", "error", err)
@@ -102,27 +91,36 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	}
 
 	currency := req.trip.Currency
-	dashboardData := aggregateDashboard(expenses, allUsers, currency)
+	var (
+		dashboardData DashboardData
+		trendPct      int
+	)
 
-	// compute previous period totals for TrendPct
-	var trendPct int
-	if req.rangeStr != "all" {
-		prevFrom, prevTo := getPreviousDateRange(req.rangeStr, time.Now())
-
+	prevFrom, prevTo := getPreviousDateRange(req.rangeStr, req.now)
+	if prevFrom == nil && prevTo == nil {
+		expenses, err := h.expenseService.QueryExpensesWithFilter(req.ctx, req.trip, req.filter)
+		if err != nil {
+			slog.Error("Failed to query expenses", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		dashboardData = aggregateDashboard(expenses, allUsers, currency)
+	} else {
 		// Merge query range to cover both current and previous periods in one call
-		var mergedFilter expense.ExpenseFilter
-		if prevFrom != nil {
-			mergedFilter.DateFrom = prevFrom
-		} else {
+		mergedFilter := expense.ExpenseFilter{DateFrom: prevFrom, DateTo: req.to}
+		if mergedFilter.DateFrom == nil {
 			mergedFilter.DateFrom = req.from
 		}
-		if req.to != nil {
-			mergedFilter.DateTo = req.to
-		} else {
+		if mergedFilter.DateTo == nil {
 			mergedFilter.DateTo = prevTo
 		}
 
-		mergedExpenses, _ := h.expenseService.QueryExpensesWithFilter(req.ctx, req.trip, mergedFilter)
+		mergedExpenses, err := h.expenseService.QueryExpensesWithFilter(req.ctx, req.trip, mergedFilter)
+		if err != nil {
+			slog.Error("Failed to query expenses", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 
 		var currExpenses, prevExpenses []domain.Expense
 		for _, e := range mergedExpenses {
@@ -162,7 +160,6 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 		TrendPct:            trendPct,
 		DonutGradient:       BuildDonutGradient(dashboardData.ByCategory),
 		DateRange:           req.rangeStr,
-		Settlement:          h.settlementView(req.ctx, req.trip),
 	}
 
 	for _, stat := range dashboardData.ByCategory {
@@ -186,12 +183,14 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	for _, stat := range dashboardData.ByDate {
 		view.Dates = append(view.Dates, components.DateBar{
 			Date:       stat.Date,
+			ISODate:    stat.ISODate,
 			Amount:     format.Money(currency, stat.Amount),
 			Percentage: int(stat.Percentage),
 		})
 	}
 	for _, stat := range dashboardData.ByPayer {
 		view.Payers = append(view.Payers, components.PayerBar{
+			ID:         stat.ID,
 			Name:       stat.Name,
 			Amount:     format.Money(currency, stat.Amount),
 			Percentage: int(stat.Percentage),
@@ -204,14 +203,20 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// settlementView is where the trip's money stands, as TREK works it out. It is
-// the part of the dashboard that does not depend on the date range, and a
-// failure to read it leaves it out rather than the whole dashboard.
-func (h *Handler) settlementView(ctx context.Context, selected domain.Trip) *components.SettlementView {
-	settlement, err := h.expenseService.Settlement(ctx, selected)
+// handleSettlement is where the trip's money stands, as TREK works it out. It
+// does not depend on a date range: it is everything owed so far.
+func (h *Handler) handleSettlement(w http.ResponseWriter, r *http.Request) {
+	req, ok := h.openDashboardRequest(w, r)
+	if !ok {
+		return
+	}
+	defer req.cancel()
+
+	settlement, err := h.expenseService.Settlement(req.ctx, req.trip)
 	if err != nil {
-		slog.Warn("Failed to read the settlement for the dashboard", "error", err)
-		return nil
+		slog.Error("Failed to read the settlement", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	nicknames := h.nicknames()
@@ -222,7 +227,7 @@ func (h *Handler) settlementView(ctx context.Context, selected domain.Trip) *com
 		return fallback
 	}
 
-	view := &components.SettlementView{Unconverted: settlement.Unconverted}
+	view := components.SettlementView{TripTitle: req.trip.Title, Unconverted: settlement.Unconverted}
 	for _, balance := range settlement.Balances {
 		view.Balances = append(view.Balances, components.BalanceRow{
 			Name:   nameOf(balance.UserID, balance.Name),
@@ -237,7 +242,11 @@ func (h *Handler) settlementView(ctx context.Context, selected domain.Trip) *com
 			Amount: format.Money(settlement.Currency, transfer.Amount),
 		})
 	}
-	return view
+
+	if err := components.SettlementContent(view).Render(r.Context(), w); err != nil {
+		slog.Error("Failed to render the settlement", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
 
 // signedAmount writes a balance with its sign in front of the whole figure.
@@ -322,81 +331,5 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-	}
-}
-
-func (h *Handler) handleCategoryDetail(w http.ResponseWriter, r *http.Request) {
-	slug := r.URL.Query().Get("name")
-	h.renderDetail(w, r, components.CategoryColor(slug), func(exp domain.Expense) bool {
-		return string(exp.Category) == slug
-	}, expense.ExpenseFilter{})
-}
-
-func (h *Handler) handleMethodDetail(w http.ResponseWriter, r *http.Request) {
-	name := r.URL.Query().Get("name")
-
-	var filter expense.ExpenseFilter
-	if name != "" {
-		method, err := domain.ParsePaymentMethod(name)
-		if err != nil {
-			http.Error(w, "unknown payment method", http.StatusBadRequest)
-			return
-		}
-		filter.Method = &method
-	}
-
-	h.renderDetail(w, r, components.CategoryColor(""), func(exp domain.Expense) bool {
-		return string(exp.Method) == name
-	}, filter)
-}
-
-// renderDetail lists the expenses of the requested range that keep accepts,
-// newest first, for the drill-down under a dashboard row.
-func (h *Handler) renderDetail(w http.ResponseWriter, r *http.Request, color string, keep func(domain.Expense) bool, extra expense.ExpenseFilter) {
-	req, ok := h.openDashboardRequest(w, r)
-	if !ok {
-		return
-	}
-	defer req.cancel()
-
-	filter := req.filter
-	filter.Method = extra.Method
-
-	expenses, err := h.expenseService.QueryExpensesWithFilter(req.ctx, req.trip, filter)
-	if err != nil {
-		slog.Error("Failed to query expenses for a dashboard detail", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	currency := req.trip.Currency
-	var items []components.ExpenseItem
-	for _, exp := range expenses {
-		if !keep(exp) {
-			continue
-		}
-
-		// A foreign expense shows what was paid and what it came to.
-		amount := format.Money(currency, exp.TotalInBase(currency))
-		if exp.Currency != currency && !exp.ExchangeRate.IsZero() {
-			amount = fmt.Sprintf("%s (%s)", format.Money(exp.Currency, exp.PriceDecimal()), amount)
-		}
-
-		items = append(items, components.ExpenseItem{
-			ID:            exp.ID,
-			TripID:        req.trip.ID,
-			Name:          exp.Name,
-			Date:          exp.ShoppedAt.Format("01/02"),
-			AmountDisplay: amount,
-		})
-	}
-
-	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].Date > items[j].Date
-	})
-
-	if err := components.CategoryDetailPartial(items, color).Render(r.Context(), w); err != nil {
-		slog.Error("Failed to render a dashboard detail partial", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }

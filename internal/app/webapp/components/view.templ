@@ -1,0 +1,74 @@
+package components
+
+import (
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/alert"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/button"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
+	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/skeleton"
+)
+
+// ViewError is what a data view shows when its load failed: the page keeps what
+// it had and offers another try. It is hidden until the load fails.
+templ ViewError(view string, title string) {
+	<div id={ view + "-error" } class="hidden mb-4 space-y-3" role="alert">
+		@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+			@alert.Title() {
+				{ title }
+			}
+			@alert.Description() {
+				網路或伺服器暫時有問題，請稍後再試 
+			}
+		}
+		@button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"data-action": "retry-view", "data-view": view}}) {
+			重試
+		}
+	</div>
+}
+
+// viewSkeleton stands in for a data view until its first load arrives.
+templ viewSkeleton() {
+	@skeleton.Skeleton(skeleton.Props{Class: "h-20 w-full mb-4"})
+	@skeleton.Skeleton(skeleton.Props{Class: "h-32 w-full mb-4"})
+	@skeleton.Skeleton(skeleton.Props{Class: "h-24 w-full"})
+}
+
+// StatsTab is the statistics' frame: #stats-host is where the statistics are
+// loaded into.
+templ StatsTab() {
+	<h1 class="flex items-center justify-center gap-2 text-xl font-bold py-1 mb-4">
+		<span aria-hidden="true" class="inline-flex">@icon.ChartPie(icon.Props{Size: 22})
+</span>
+		統計
+	</h1>
+	@ViewError("stats", "無法載入統計")
+	<div
+		id="stats-host"
+		hx-get="/partial/dashboard?range=all"
+		hx-trigger="stats-load"
+		hx-swap="innerHTML"
+		data-view-source="stats"
+		aria-live="polite"
+	>
+		@viewSkeleton()
+	</div>
+}
+
+// SettlementTab is the settlement's frame: #settle-host is where it is loaded into.
+templ SettlementTab() {
+	<h1 class="flex items-center justify-center gap-2 text-xl font-bold py-1 mb-4">
+		<span aria-hidden="true" class="inline-flex">@icon.Scale(icon.Props{Size: 22})
+</span>
+		結算
+	</h1>
+	@ViewError("settle", "無法載入結算")
+	<div
+		id="settle-host"
+		hx-get="/partial/settlement"
+		hx-trigger="settle-load"
+		hx-swap="innerHTML"
+		data-view-source="settle"
+		aria-live="polite"
+	>
+		@viewSkeleton()
+	</div>
+}

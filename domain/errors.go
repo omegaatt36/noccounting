@@ -11,3 +11,7 @@ var ErrUserNotFound = errors.New("user not found")
 var ErrNotOnTrip = errors.New("not a member of the trip")
 
 var ErrUnsupportedSplit = errors.New("custom split edits are not supported")
+
+// ErrExpenseNotFound reports an expense that is not on the trip it was looked
+// for on, such as one deleted since the list it was picked from was drawn.
+var ErrExpenseNotFound = errors.New("expense not found")

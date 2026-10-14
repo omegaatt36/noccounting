@@ -73,11 +73,17 @@ func securityHeaders() middleware {
 	}
 }
 
+// isProbe is a health or readiness check: polled every few seconds, it is
+// neither worth a log line nor a share of a client's rate limit.
+func isProbe(path string) bool {
+	return path == "/health" || path == "/ready"
+}
+
 func logging() middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip logging for health checks; probes would flood the log.
-			if r.URL.Path == "/health" {
+			// Skip logging for probes; they would flood the log.
+			if isProbe(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -226,9 +232,9 @@ func getClientIP(r *http.Request) string {
 func (rl *rateLimiter) middleware() middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Health probes and the static assets (a single page load fetches a
+			// Probes and the static assets (a single page load fetches a
 			// dozen of them) are not what the limit is there to guard.
-			if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/static/") {
+			if isProbe(r.URL.Path) || strings.HasPrefix(r.URL.Path, "/static/") {
 				next.ServeHTTP(w, r)
 				return
 			}

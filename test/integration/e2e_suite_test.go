@@ -73,6 +73,20 @@ func (r *inMemoryAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ do
 		if filter.PaidByID != nil && e.PaidByID != *filter.PaidByID {
 			continue
 		}
+		if filter.DateFrom != nil {
+			from := time.Date(filter.DateFrom.Year(), filter.DateFrom.Month(), filter.DateFrom.Day(), 0, 0, 0, 0, time.UTC)
+			day := time.Date(e.ShoppedAt.Year(), e.ShoppedAt.Month(), e.ShoppedAt.Day(), 0, 0, 0, 0, time.UTC)
+			if day.Before(from) {
+				continue
+			}
+		}
+		if filter.DateTo != nil {
+			to := time.Date(filter.DateTo.Year(), filter.DateTo.Month(), filter.DateTo.Day(), 0, 0, 0, 0, time.UTC)
+			day := time.Date(e.ShoppedAt.Year(), e.ShoppedAt.Month(), e.ShoppedAt.Day(), 0, 0, 0, 0, time.UTC)
+			if day.After(to) {
+				continue
+			}
+		}
 		res = append(res, e)
 	}
 	if filter.Limit != nil && len(res) > *filter.Limit {
@@ -214,41 +228,34 @@ func (s *WebAppE2ESuite) Test01_HealthCheck() {
 	s.Assert().Equal("ok", string(body))
 }
 
-func (s *WebAppE2ESuite) Test02_TripsAndMembers() {
-	// Query trips
-	resp, err := http.Get(s.server.URL + "/api/trips")
+func (s *WebAppE2ESuite) Test02_Bootstrap() {
+	resp, err := http.Get(s.server.URL + "/api/bootstrap")
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
 	s.Assert().Equal(http.StatusOK, resp.StatusCode)
-	var tripsResp struct {
+	var got struct {
+		Users []struct {
+			Nickname   string `json:"nickname"`
+			TelegramID int64  `json:"telegram_id"`
+		} `json:"users"`
 		Trips []struct {
 			ID       int64  `json:"id"`
 			Title    string `json:"title"`
 			Currency string `json:"currency"`
 		} `json:"trips"`
 		Current int64 `json:"current"`
-	}
-	err = json.NewDecoder(resp.Body).Decode(&tripsResp)
-	s.Require().NoError(err)
-	s.Assert().Len(tripsResp.Trips, 1)
-	s.Assert().Equal(int64(10), tripsResp.Trips[0].ID)
-
-	// Query members for trip 10
-	respMem, err := http.Get(s.server.URL + "/api/members?trip_id=10")
-	s.Require().NoError(err)
-	defer respMem.Body.Close()
-
-	s.Assert().Equal(http.StatusOK, respMem.StatusCode)
-	var memResp struct {
 		Members []struct {
 			ID   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"members"`
 	}
-	err = json.NewDecoder(respMem.Body).Decode(&memResp)
-	s.Require().NoError(err)
-	s.Assert().Len(memResp.Members, 2)
+	s.Require().NoError(json.NewDecoder(resp.Body).Decode(&got))
+	s.Assert().Len(got.Trips, 1)
+	s.Assert().Equal(int64(10), got.Trips[0].ID)
+	s.Assert().Equal(int64(10), got.Current)
+	s.Assert().Len(got.Users, 2)
+	s.Assert().Len(got.Members, 2)
 }
 
 func (s *WebAppE2ESuite) Test03_CreateExpenseE2E() {
@@ -286,28 +293,64 @@ func (s *WebAppE2ESuite) Test03_CreateExpenseE2E() {
 	s.createdID = exp.ID
 }
 
-func (s *WebAppE2ESuite) Test04_DashboardAndMethodDetail() {
-	// Query partial dashboard
-	resp, err := http.Get(s.server.URL + "/partial/dashboard?trip_id=10&range=all")
+func (s *WebAppE2ESuite) Test04_UpdateExpenseE2E() {
+	s.Require().NotEmpty(s.createdID)
+
+	formData := url.Values{
+		"trip_id":       {"10"},
+		"expense_id":    {s.createdID},
+		"name":          {"東京沾麵午餐"},
+		"price":         {"1500"},
+		"currency":      {"JPY"},
+		"exchange_rate": {"0.22"},
+		"category":      {"food"},
+		"method":        {"credit_card"},
+		"paid_by":       {"67890"}, // Bob's Telegram ID
+		"participants":  {"9"},
+	}
+	req, err := http.NewRequest(http.MethodPut, s.server.URL+"/api/expense", strings.NewReader(formData.Encode()))
+	s.Require().NoError(err)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
 	s.Assert().Equal(http.StatusOK, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
-	// Verify aggregate contains category and method labels
-	s.Assert().Contains(string(body), "餐飲")
+	s.Assert().Contains(string(body), "已更新")
 
-	// Query method detail for cash with name=cash
-	respMethod, err := http.Get(s.server.URL + "/partial/dashboard/method?trip_id=10&range=all&name=cash")
-	s.Require().NoError(err)
-	defer respMethod.Body.Close()
-
-	s.Assert().Equal(http.StatusOK, respMethod.StatusCode)
-	methodBody, _ := io.ReadAll(respMethod.Body)
-	s.Assert().Contains(string(methodBody), "東京拉麵午餐")
+	s.repo.mu.Lock()
+	defer s.repo.mu.Unlock()
+	s.Require().Len(s.repo.expenses, 1, "an update changes the expense and does not add one")
+	exp := s.repo.expenses[0]
+	s.Assert().Equal(s.createdID, exp.ID)
+	s.Assert().Equal("東京沾麵午餐", exp.Name)
+	s.Assert().Equal(uint64(1500), exp.Price)
+	s.Assert().Equal(domain.PaymentMethodCreditCard, exp.Method)
+	s.Assert().Equal("9", exp.PaidByID)
+	s.Assert().Equal([]string{"9"}, exp.ParticipantIDs)
 }
 
-func (s *WebAppE2ESuite) Test05_ExportCSVE2E() {
+func (s *WebAppE2ESuite) Test05_DashboardSettlementAndList() {
+	get := func(path string) string {
+		resp, err := http.Get(s.server.URL + path)
+		s.Require().NoError(err)
+		defer resp.Body.Close()
+		s.Require().Equal(http.StatusOK, resp.StatusCode, path)
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
+	}
+
+	s.Assert().Contains(get("/partial/dashboard?trip_id=10&range=all"), "餐飲")
+	s.Assert().Contains(get("/partial/settlement?trip_id=10"), "Alice")
+
+	list := get("/partial/expenses?trip_id=10&range=all&method=credit_card")
+	s.Assert().Contains(list, "東京沾麵午餐")
+	s.Assert().Contains(get("/partial/expenses?trip_id=10&range=all&method=cash"), "沒有符合條件的消費")
+}
+
+func (s *WebAppE2ESuite) Test06_ExportCSVE2E() {
 	resp, err := http.Get(s.server.URL + "/api/export/csv?trip_id=10&range=all")
 	s.Require().NoError(err)
 	defer resp.Body.Close()
@@ -320,12 +363,12 @@ func (s *WebAppE2ESuite) Test05_ExportCSVE2E() {
 	s.Assert().True(strings.HasPrefix(csvStr, "\xef\xbb\xbf"), "should have UTF-8 BOM")
 	s.Assert().Contains(csvStr, "日期")
 	s.Assert().Contains(csvStr, "品名")
-	s.Assert().Contains(csvStr, "東京拉麵午餐")
-	s.Assert().Contains(csvStr, "現金")
-	s.Assert().Contains(csvStr, "Alice")
+	s.Assert().Contains(csvStr, "東京沾麵午餐")
+	s.Assert().Contains(csvStr, "信用卡")
+	s.Assert().Contains(csvStr, "Bob")
 }
 
-func (s *WebAppE2ESuite) Test06_DeleteExpenseE2E() {
+func (s *WebAppE2ESuite) Test07_DeleteExpenseE2E() {
 	s.Require().NotEmpty(s.createdID)
 
 	delURL := fmt.Sprintf("%s/api/expense?trip_id=10&id=%s", s.server.URL, s.createdID)
@@ -336,7 +379,7 @@ func (s *WebAppE2ESuite) Test06_DeleteExpenseE2E() {
 	s.Require().NoError(err)
 	defer resp.Body.Close()
 
-	s.Assert().Equal(http.StatusOK, resp.StatusCode)
+	s.Assert().Equal(http.StatusNoContent, resp.StatusCode)
 
 	// Verify deleted in repository
 	s.repo.mu.Lock()
@@ -344,7 +387,7 @@ func (s *WebAppE2ESuite) Test06_DeleteExpenseE2E() {
 	s.Assert().Len(s.repo.expenses, 0)
 }
 
-func (s *WebAppE2ESuite) Test07_ServerLifecycle() {
+func (s *WebAppE2ESuite) Test08_ServerLifecycle() {
 	// Verify NewServer, Start, and Shutdown lifecycle
 	srv, err := webapp.NewServer(s.userSvc, s.expSvc, s.tripSvc, "0", s.botToken, true)
 	s.Require().NoError(err)

@@ -5,11 +5,33 @@ import {
   updateExchangeRateVisibility,
   fetchExchangeRate,
 } from "./exchange-rate.js";
-import { tripCurrency, appReady } from "./api.js";
+import { tripCurrency, tripId, appReady } from "./api.js";
 import { showToast } from "./toast.js";
 import { setupChoiceGroups } from "./a11y.js";
+import {
+  clearFields,
+  formatDate,
+  isEditing,
+  selectTab,
+  setDate,
+  setMoreCategoriesExpanded,
+} from "./fields.js";
 
 const $ = (id: string) => document.getElementById(id);
+
+function activeCategoryLabel(): string {
+  const categoryInput = $("category-input") as HTMLInputElement | null;
+  const val = categoryInput?.value || "food";
+  const trigger = document.querySelector?.(
+    `#category-tabs [data-tui-tabs-trigger][data-tui-tabs-value="${val}"]`,
+  ) as HTMLElement | null;
+  if (trigger?.dataset?.categoryLabel) {
+    return trigger.dataset.categoryLabel;
+  }
+  const text = trigger?.textContent?.trim() ?? "";
+  const parts = text.split(/\s+/);
+  return parts[parts.length - 1] || "餐飲";
+}
 
 function validateField(
   fieldId: string,
@@ -47,7 +69,15 @@ function validateParticipants(): boolean {
   return ok;
 }
 
+function ensureDefaultName(): void {
+  const nameField = document.getElementById("name") as HTMLInputElement | null;
+  if (nameField && nameField.value.trim().length === 0 && !isEditing()) {
+    nameField.value = activeCategoryLabel();
+  }
+}
+
 function validateForm(): boolean {
+  ensureDefaultName();
   const nameOk = validateName();
   const priceOk = validatePrice();
   const participantsOk = validateParticipants();
@@ -66,22 +96,6 @@ function failureMessage(status: number): string {
       return "操作太頻繁，請稍候一分鐘再試";
     default:
       return "伺服器暫時有問題，內容已保留，請稍後再試";
-  }
-}
-
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function selectTab(containerId: string, value: string) {
-  const trigger = document.querySelector(
-    `#${containerId} [data-tui-tabs-trigger][data-tui-tabs-value="${value}"]`,
-  ) as HTMLElement | null;
-  if (trigger) {
-    trigger.click();
   }
 }
 
@@ -108,6 +122,10 @@ function setupReceiptUpload(ctx: TelegramContext): void {
       if (ctx.initData) {
         formData.append("init_data", ctx.initData);
       }
+      const currentTrip = tripId();
+      if (currentTrip) {
+        formData.append("trip_id", currentTrip);
+      }
 
       const res = await fetch("/api/receipt/analyze", {
         method: "POST",
@@ -116,7 +134,7 @@ function setupReceiptUpload(ctx: TelegramContext): void {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        showToast("⚠️ 辨識失敗", data.error || "收據辨識失敗，請手動輸入");
+        showToast("辨識失敗", data.error || "收據辨識失敗，請手動輸入");
         haptic(ctx, "notification", "error");
         return;
       }
@@ -133,6 +151,16 @@ function setupReceiptUpload(ctx: TelegramContext): void {
           const numpadDisplay = document.getElementById("numpad-display");
           if (numpadDisplay) numpadDisplay.textContent = String(data.total);
         }
+      }
+
+      const receiptUrlEl = document.getElementById("receipt-url") as HTMLInputElement | null;
+      if (receiptUrlEl) receiptUrlEl.value = data.receipt_url || "";
+      const receiptItemsEl = document.getElementById("receipt-items") as HTMLInputElement | null;
+      if (receiptItemsEl) {
+        receiptItemsEl.value =
+          Array.isArray(data.receipt_items) && data.receipt_items.length > 0
+            ? JSON.stringify(data.receipt_items)
+            : "";
       }
 
       if (data.currency) {
@@ -152,7 +180,7 @@ function setupReceiptUpload(ctx: TelegramContext): void {
       haptic(ctx, "notification", "success");
     } catch (err) {
       console.error("Receipt upload error:", err);
-      showToast("⚠️ 上傳失敗", "上傳收據失敗，請稍後再試");
+      showToast("上傳失敗", "上傳收據失敗，請稍後再試");
       haptic(ctx, "notification", "error");
     } finally {
       receiptIndicator?.classList.add("hidden");
@@ -171,43 +199,27 @@ export function setupEventListeners(ctx: TelegramContext): void {
     "date-input",
   ) as HTMLInputElement | null;
 
-  function setDateChip(which: "today" | "yesterday"): void {
-    const d = new Date();
-    if (which === "yesterday") d.setDate(d.getDate() - 1);
-    if (dateInput) dateInput.value = formatDate(d);
-
-    todayBtn?.setAttribute("aria-pressed", String(which === "today"));
-    yesterdayBtn?.setAttribute("aria-pressed", String(which === "yesterday"));
-
-    todayBtn?.classList.toggle("bg-primary", which === "today");
-    todayBtn?.classList.toggle("text-primary-foreground", which === "today");
-    todayBtn?.classList.toggle("bg-muted", which !== "today");
-    todayBtn?.classList.toggle("text-muted-foreground", which !== "today");
-
-    yesterdayBtn?.classList.toggle("bg-primary", which === "yesterday");
-    yesterdayBtn?.classList.toggle(
-      "text-primary-foreground",
-      which === "yesterday",
-    );
-    yesterdayBtn?.classList.toggle("bg-muted", which !== "yesterday");
-    yesterdayBtn?.classList.toggle(
-      "text-muted-foreground",
-      which !== "yesterday",
-    );
-  }
-
   todayBtn?.addEventListener("click", () => {
-    setDateChip("today");
+    setDate(formatDate(new Date()));
     haptic(ctx, "impact", "light");
   });
   yesterdayBtn?.addEventListener("click", () => {
-    setDateChip("yesterday");
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    setDate(formatDate(yesterday));
     haptic(ctx, "impact", "light");
   });
 
   if (dateInput && !dateInput.value) {
-    setDateChip("today");
+    setDate(formatDate(new Date()));
   }
+
+  const moreCategoriesBtn = document.getElementById("more-categories-btn");
+  moreCategoriesBtn?.addEventListener("click", () => {
+    const expanded = moreCategoriesBtn.getAttribute("aria-expanded") === "true";
+    setMoreCategoriesExpanded(!expanded);
+    haptic(ctx, "impact", "light");
+  });
 
   document
     .querySelectorAll("#category-tabs [data-tui-tabs-trigger]")
@@ -241,14 +253,18 @@ export function setupEventListeners(ctx: TelegramContext): void {
         haptic(ctx, "impact", "light");
         updateExchangeRateVisibility();
         // The rate shown belongs to one direction of the pair; the new currency
-        // needs its own.
-        if (value !== tripCurrency()) fetchExchangeRate(ctx);
+        // needs its own. An expense being edited keeps the rate it was filed with.
+        if (value !== tripCurrency() && !isEditing()) fetchExchangeRate(ctx);
       });
     });
 
   const nameInput = document.getElementById("name");
   if (nameInput) {
-    nameInput.addEventListener("blur", validateName);
+    nameInput.addEventListener("blur", () => {
+      if (isEditing() || (nameInput as HTMLInputElement).value.trim().length > 0) {
+        validateName();
+      }
+    });
   }
 
   const fetchRateBtn = $("fetch-rate-btn");
@@ -271,6 +287,10 @@ export function setupEventListeners(ctx: TelegramContext): void {
   });
 
   if (form && submitBtn) {
+    form.addEventListener("submit", () => {
+      ensureDefaultName();
+    }, true);
+
     form.addEventListener("htmx:before:request", (e: Event) => {
       if (!appReady() || !validateForm()) {
         e.preventDefault();
@@ -298,34 +318,20 @@ export function setupEventListeners(ctx: TelegramContext): void {
       const status = detail.ctx.response?.status ?? 0;
       if (status >= 200 && status < 300 && success) {
         haptic(ctx, "notification", "success");
-        saveDefaults();
         document.dispatchEvent(new CustomEvent("expense-saved"));
-        const nameInput = $("name") as HTMLInputElement | null;
-        const priceInput = $("price") as HTMLInputElement | null;
-        if (nameInput) nameInput.value = "";
-        if (priceInput) {
-          priceInput.value = "";
-
-          const numpadDisplay = document.getElementById("numpad-display");
-          if (numpadDisplay) numpadDisplay.textContent = "0";
-          const numpadConvert = document.getElementById("numpad-convert");
-          if (numpadConvert) numpadConvert.textContent = "";
+        if (isEditing()) {
+          document.dispatchEvent(new CustomEvent("expense-edited"));
+        } else {
+          saveDefaults();
+          clearFields();
+          $("name")?.focus();
         }
-
-        if (nameInput) nameInput.focus();
-
-        nameInput?.classList.remove("border-destructive");
-        priceInput?.classList.remove("border-destructive");
-        nameInput?.setAttribute("aria-invalid", "false");
-        priceInput?.setAttribute("aria-invalid", "false");
-        $("name-error")?.classList.add("hidden");
-        $("price-error")?.classList.add("hidden");
       } else {
         haptic(ctx, "notification", "error");
         // A 2xx answer carries its own error toast. Anything else was never
         // swapped in, so without this the form would just sit there.
         if (status < 200 || status >= 300) {
-          showToast("⚠️ 新增失敗", failureMessage(status));
+          showToast(isEditing() ? "儲存失敗" : "新增失敗", failureMessage(status));
         }
       }
 

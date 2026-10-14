@@ -44,11 +44,13 @@ type MethodStat struct {
 
 type DailyStat struct {
 	Date       string // format: "M/D" e.g. "2/21"
+	ISODate    string // format: "YYYY-MM-DD" e.g. "2026-02-21"
 	Amount     decimal.Decimal
 	Percentage float64
 }
 
 type PayerStat struct {
+	ID         string
 	Name       string
 	Amount     decimal.Decimal
 	Percentage float64
@@ -85,8 +87,9 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 
 	categoryMap := make(map[domain.Category]decimal.Decimal)
 	methodMap := make(map[domain.PaymentMethod]decimal.Decimal)
-	dateMap := make(map[string]decimal.Decimal)
+	dateMap := make(map[time.Time]decimal.Decimal)
 	payerMap := make(map[string]decimal.Decimal)
+	payerIDMap := make(map[string]string)
 
 	for _, expense := range expenses {
 		amount := expense.TotalInBase(base)
@@ -95,9 +98,9 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		categoryMap[expense.Category] = categoryMap[expense.Category].Add(amount)
 		methodMap[expense.Method] = methodMap[expense.Method].Add(amount)
 
-		// Date aggregation (format: "M/D")
-		dateStr := formatDate(expense.ShoppedAt)
-		dateMap[dateStr] = dateMap[dateStr].Add(amount)
+		// Date aggregation by full calendar day so cross-year trips sort chronologically.
+		day := time.Date(expense.ShoppedAt.Year(), expense.ShoppedAt.Month(), expense.ShoppedAt.Day(), 0, 0, 0, 0, time.UTC)
+		dateMap[day] = dateMap[day].Add(amount)
 
 		// Payer aggregation (use nickname if available, otherwise the backend user id)
 		nickname, ok := nicknameMap[expense.PaidByID]
@@ -105,6 +108,9 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 			nickname = expense.PaidByID
 		}
 		payerMap[nickname] = payerMap[nickname].Add(amount)
+		if expense.PaidByID != "" {
+			payerIDMap[nickname] = expense.PaidByID
+		}
 	}
 
 	// ByCategory follows the domain's own category order, the same order /today
@@ -146,28 +152,26 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 
 	// Build ByDate, sorted chronologically
 	type dateEntry struct {
-		date   string
-		time   time.Time
+		day    time.Time
 		amount decimal.Decimal
 	}
 	var dateEntries []dateEntry
 
-	for dateStr, amount := range dateMap {
-		t, _ := parseDateString(dateStr)
+	for day, amount := range dateMap {
 		dateEntries = append(dateEntries, dateEntry{
-			date:   dateStr,
-			time:   t,
+			day:    day,
 			amount: amount,
 		})
 	}
 
 	sort.Slice(dateEntries, func(i, j int) bool {
-		return dateEntries[i].time.Before(dateEntries[j].time)
+		return dateEntries[i].day.Before(dateEntries[j].day)
 	})
 
 	for _, entry := range dateEntries {
 		result.ByDate = append(result.ByDate, DailyStat{
-			Date:       entry.date,
+			Date:       formatDate(entry.day),
+			ISODate:    entry.day.Format(time.DateOnly),
 			Amount:     entry.amount,
 			Percentage: percentage(entry.amount, result.GrandTotal),
 		})
@@ -176,6 +180,7 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 	// Build ByPayer, sorted by amount descending
 	for payer, amount := range payerMap {
 		result.ByPayer = append(result.ByPayer, PayerStat{
+			ID:         payerIDMap[payer],
 			Name:       payer,
 			Amount:     amount,
 			Percentage: percentage(amount, result.GrandTotal),
@@ -192,10 +197,6 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 // formatDate formats time.Time to "M/D" string (e.g., "2/21")
 func formatDate(t time.Time) string {
 	return t.Format("1/2")
-}
-
-func parseDateString(dateStr string) (time.Time, error) {
-	return time.Parse("1/2", dateStr)
 }
 
 func getPreviousDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {

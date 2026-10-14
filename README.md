@@ -31,8 +31,8 @@ task run
 ```
 
 - Add the bot's TREK service account to a trip, then send `/trip` to pick it.
-- Open the Mini App to log expenses and view dashboard, or send a receipt photo to the bot.
-- Send `/summary` to see who owes whom.
+- Open the Mini App to log expenses, or send a receipt photo to the bot. Its tabs are 記帳 (log), 明細 (search, filter, edit or delete), 統計 (spending by category, method, day and payer) and 結算 (who owes whom).
+- Send `/summary` to see who owes whom in the chat.
 
 ## Commands
 
@@ -74,6 +74,15 @@ LLM_MODEL=gpt-4o
 ```
 
 The bot logs in as its own TREK account and sees only the trips it is added to. Add it when a trip starts and remove it when it ends.
+
+## Health checks
+
+| Route | Meaning |
+|---|---|
+| `/health` | The process is up. Use it for liveness. |
+| `/ready` | TREK answers. A TREK outage turns it to 503 without making a liveness probe restart the process. |
+
+The image's `HEALTHCHECK` runs `noccounting healthcheck`, which asks `/ready` on `PORT`; the image is distroless, so there is no `curl` to do it.
 
 ## Development
 

@@ -917,19 +917,22 @@ func receiptCommand(analysis *domain.ReceiptAnalysis) *domain.ReceiptAnalysis {
 }
 
 func (h *Handler) getTimezone(userID int64) *time.Location {
+	if h.userService != nil {
+		return h.userService.Timezone(userID)
+	}
 	h.tzMu.RLock()
 	defer h.tzMu.RUnlock()
 	if loc, ok := h.timezones[userID]; ok && loc != nil {
 		return loc
 	}
-	loc, err := time.LoadLocation("Asia/Taipei")
-	if err != nil {
-		return time.FixedZone("CST", 8*3600)
-	}
-	return loc
+	return user.DefaultTimezone()
 }
 
 func (h *Handler) setTimezone(userID int64, loc *time.Location) {
+	if h.userService != nil {
+		h.userService.SetTimezone(userID, loc)
+		return
+	}
 	h.tzMu.Lock()
 	defer h.tzMu.Unlock()
 	h.timezones[userID] = loc

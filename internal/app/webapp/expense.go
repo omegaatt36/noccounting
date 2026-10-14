@@ -20,13 +20,116 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/trip"
 )
 
+// resultData is the toast an expense form gets back: what was done when it
+// worked, or what failed, and why, when it did not.
 type resultData struct {
 	Success     bool
 	Title       string
 	Description string
-	Error       string
 }
 
+// errExpenseFields is how a form field that cannot be read is told to the
+// person: the message is theirs to act on, so it says what to fix.
+type errExpenseFields string
+
+func (e errExpenseFields) Error() string { return string(e) }
+
+// expenseFields is what the expense form describes, read and checked.
+type expenseFields struct {
+	name         string
+	price        uint64
+	currency     domain.Currency
+	exchangeRate decimal.Decimal
+	category     domain.Category
+	method       domain.PaymentMethod
+	participants []string
+	// shoppedAt is zero when the form names no day.
+	shoppedAt    time.Time
+	receiptURL   string
+	receiptItems []domain.ReceiptItem
+}
+
+type receiptItemWire struct {
+	Name     string          `json:"name"`
+	NameZH   string          `json:"name_zh,omitempty"`
+	Price    int64           `json:"price"`
+	Category domain.Category `json:"category,omitempty"`
+}
+
+// parseExpenseFields reads the expense form. The failure it returns is meant
+// for the person.
+func parseExpenseFields(r *http.Request, base domain.Currency) (expenseFields, error) {
+	var fields expenseFields
+
+	fields.name = strings.TrimSpace(r.PostFormValue("name"))
+	if fields.name == "" {
+		return fields, errExpenseFields("請輸入消費名稱")
+	}
+
+	priceDec, err := decimal.NewFromString(strings.TrimSpace(r.PostFormValue("price")))
+	if err != nil || !priceDec.IsPositive() {
+		return fields, errExpenseFields("請輸入有效金額")
+	}
+	priceUint := priceDec.Round(0)
+	if !priceUint.IsPositive() || !priceUint.BigInt().IsUint64() {
+		return fields, errExpenseFields("請輸入有效金額")
+	}
+	fields.price = priceUint.BigInt().Uint64()
+
+	fields.currency, err = domain.ParseCurrency(r.PostFormValue("currency"))
+	if err != nil {
+		return fields, errExpenseFields("請選擇幣別")
+	}
+
+	// Only a foreign expense carries a rate; the form still posts the one it last
+	// showed when the currency is switched back to the trip's own.
+	if fields.currency != base {
+		if raw := r.PostFormValue("exchange_rate"); raw != "" {
+			fields.exchangeRate, err = decimal.NewFromString(raw)
+			if err != nil {
+				return fields, errExpenseFields("匯率格式錯誤")
+			}
+		}
+	}
+
+	fields.category, err = domain.ParseCategory(r.PostFormValue("category"))
+	if err != nil {
+		return fields, errExpenseFields("請選擇分類")
+	}
+
+	fields.method, err = domain.ParsePaymentMethod(r.PostFormValue("method"))
+	if err != nil {
+		return fields, errExpenseFields("請選擇付款方式")
+	}
+
+	if raw := r.PostFormValue("shopped_at"); raw != "" {
+		fields.shoppedAt, err = time.Parse(time.DateOnly, raw)
+		if err != nil {
+			return fields, errExpenseFields("日期格式錯誤")
+		}
+	}
+
+	fields.participants = participantsOf(r)
+	fields.receiptURL = strings.TrimSpace(r.PostFormValue("receipt_url"))
+	if rawItems := strings.TrimSpace(r.PostFormValue("receipt_items")); rawItems != "" {
+		var wire []receiptItemWire
+		if err := json.Unmarshal([]byte(rawItems), &wire); err == nil {
+			for _, item := range wire {
+				fields.receiptItems = append(fields.receiptItems, domain.ReceiptItem{
+					Name:     item.Name,
+					NameZH:   item.NameZH,
+					Price:    item.Price,
+					Category: item.Category,
+				})
+			}
+		}
+	}
+	return fields, nil
+}
+
+// paidByFor is the backend user an expense is paid by: the person the form
+// names, or the caller when it names none. The second result is the failure to
+// tell the person.
 func (h *Handler) paidByFor(r *http.Request, caller int64) (string, string) {
 	var fallback string
 	if h.devMode {
@@ -41,7 +144,7 @@ func (h *Handler) paidByFor(r *http.Request, caller int64) (string, string) {
 		fallback = u.BackendUserID
 	}
 
-	paidByStr := r.FormValue("paid_by")
+	paidByStr := r.PostFormValue("paid_by")
 	if paidByStr == "" {
 		return fallback, ""
 	}
@@ -66,138 +169,189 @@ func (h *Handler) paidByFor(r *http.Request, caller int64) (string, string) {
 	return u.BackendUserID, ""
 }
 
-func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
+// openExpenseRequest is what filing and editing an expense both start with:
+// the form read, the caller identified and the trip it is for resolved. It
+// renders the failure itself, under title, and returns false when there is one.
+func (h *Handler) openExpenseRequest(w http.ResponseWriter, r *http.Request, title string) (caller int64, selected domain.Trip, ok bool) {
+	fail := func(message string) {
+		h.renderResult(w, r, resultData{Title: title, Description: message})
+	}
+
 	if err := r.ParseForm(); err != nil {
-		h.renderResult(w, r, resultData{Error: "無法解析表單"})
-		return
+		fail("無法解析表單")
+		return 0, domain.Trip{}, false
 	}
 
 	caller, err := h.callerID(r)
 	switch {
 	case err == nil:
 	case errors.Is(err, errMissingInitData):
-		h.renderResult(w, r, resultData{Error: "無法取得使用者資訊"})
-		return
+		fail("無法取得使用者資訊")
+		return 0, domain.Trip{}, false
 	case errors.Is(err, errInvalidInitData):
-		h.renderResult(w, r, resultData{Error: "驗證失敗"})
-		return
+		fail("驗證失敗")
+		return 0, domain.Trip{}, false
 	default:
-		h.renderResult(w, r, resultData{Error: "未授權的使用者"})
+		fail("未授權的使用者")
+		return 0, domain.Trip{}, false
+	}
+
+	selected, err = h.tripFor(r.Context(), r)
+	if err != nil {
+		if errors.Is(err, trip.ErrNoTrip) || errors.Is(err, trip.ErrTripNotFound) {
+			fail("找不到這趟旅行，請重新整理後再試")
+		} else {
+			slog.Error("Failed to resolve the trip", "error", err)
+			fail("讀取旅行失敗，請稍後再試")
+		}
+		return 0, domain.Trip{}, false
+	}
+	return caller, selected, true
+}
+
+func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
+	const failed = "新增失敗"
+	fail := func(message string) { h.renderResult(w, r, resultData{Title: failed, Description: message}) }
+
+	caller, selected, ok := h.openExpenseRequest(w, r, failed)
+	if !ok {
 		return
 	}
 
-	paidBy, failure := h.paidByFor(r, caller)
-	if failure != "" {
-		h.renderResult(w, r, resultData{Error: failure})
+	paidBy, message := h.paidByFor(r, caller)
+	if message != "" {
+		fail(message)
 		return
+	}
+
+	fields, err := parseExpenseFields(r, selected.Currency)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	if fields.shoppedAt.IsZero() {
+		now := h.nowFor(r, caller)
+		fields.shoppedAt = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	selected, err := h.tripFor(ctx, r)
-	if err != nil {
-		if errors.Is(err, trip.ErrNoTrip) || errors.Is(err, trip.ErrTripNotFound) {
-			h.renderResult(w, r, resultData{Error: "找不到這趟旅行，請重新整理後再試"})
-			return
-		}
-		slog.Error("Failed to resolve the trip", "error", err)
-		h.renderResult(w, r, resultData{Error: "讀取旅行失敗，請稍後再試"})
-		return
-	}
-
-	name := r.FormValue("name")
-	if name == "" {
-		h.renderResult(w, r, resultData{Error: "請輸入消費名稱"})
-		return
-	}
-
-	priceStr := strings.TrimSpace(r.FormValue("price"))
-	priceDec, err := decimal.NewFromString(priceStr)
-	if err != nil || !priceDec.IsPositive() {
-		h.renderResult(w, r, resultData{Error: "請輸入有效金額"})
-		return
-	}
-	priceUint := priceDec.Round(0)
-	if !priceUint.IsPositive() || !priceUint.BigInt().IsUint64() {
-		h.renderResult(w, r, resultData{Error: "請輸入有效金額"})
-		return
-	}
-	price := priceUint.BigInt().Uint64()
-
-	currency, err := domain.ParseCurrency(r.FormValue("currency"))
-	if err != nil {
-		h.renderResult(w, r, resultData{Error: "請選擇幣別"})
-		return
-	}
-
-	// Only a foreign expense carries a rate; the form still posts the one it last
-	// showed when the currency is switched back to the trip's own.
-	var exchangeRate decimal.Decimal
-	if currency != selected.Currency {
-		if exRateStr := r.FormValue("exchange_rate"); exRateStr != "" {
-			exchangeRate, err = decimal.NewFromString(exRateStr)
-			if err != nil {
-				h.renderResult(w, r, resultData{Error: "匯率格式錯誤"})
-				return
-			}
-		}
-	}
-
-	category, err := domain.ParseCategory(r.FormValue("category"))
-	if err != nil {
-		h.renderResult(w, r, resultData{Error: "請選擇分類"})
-		return
-	}
-
-	method, err := domain.ParsePaymentMethod(r.FormValue("method"))
-	if err != nil {
-		h.renderResult(w, r, resultData{Error: "請選擇付款方式"})
-		return
-	}
-
-	shoppedAt := time.Now()
-	if shoppedAtStr := r.FormValue("shopped_at"); shoppedAtStr != "" {
-		parsed, err := time.Parse("2006-01-02", shoppedAtStr)
-		if err != nil {
-			h.renderResult(w, r, resultData{Error: "日期格式錯誤"})
-			return
-		}
-		shoppedAt = parsed
-	}
-
 	expense := &domain.Expense{
-		Name:           name,
-		Price:          price,
-		Currency:       currency,
-		ExchangeRate:   exchangeRate,
-		Category:       category,
-		Method:         method,
+		Name:           fields.name,
+		Price:          fields.price,
+		Currency:       fields.currency,
+		ExchangeRate:   fields.exchangeRate,
+		Category:       fields.category,
+		Method:         fields.method,
 		PaidByID:       paidBy,
-		ParticipantIDs: participantsOf(r),
-		ShoppedAt:      shoppedAt,
+		ParticipantIDs: fields.participants,
+		ShoppedAt:      fields.shoppedAt,
+		ReceiptURL:     fields.receiptURL,
+		ReceiptItems:   fields.receiptItems,
 	}
 
 	if err := h.expenseService.CreateExpense(ctx, selected, expense); err != nil {
 		slog.Error("Failed to create expense", "error", err)
 		if errors.Is(err, domain.ErrNotOnTrip) {
-			h.renderResult(w, r, resultData{Error: "付款人或分攤的人不在這趟旅行裡"})
+			fail("付款人或分攤的人不在這趟旅行裡")
 			return
 		}
-		h.renderResult(w, r, resultData{Error: "新增失敗，請稍後再試"})
+		fail("新增失敗，請稍後再試")
 		return
-	}
-
-	description := format.Money(currency, decimal.NewFromUint64(price))
-	if currency != selected.Currency && !exchangeRate.IsZero() {
-		description += fmt.Sprintf("（≈ %s）", format.Money(selected.Currency, expense.TotalInBase(selected.Currency)))
 	}
 
 	h.renderResult(w, r, resultData{
 		Success:     true,
-		Title:       fmt.Sprintf("%s %s", format.CategoryEmoji(category), name),
-		Description: description,
+		Title:       fmt.Sprintf("%s %s", format.CategoryEmoji(fields.category), fields.name),
+		Description: amountSummary(selected.Currency, expense),
 	})
+}
+
+// handleUpdateExpense rewrites an expense with what the form says. It starts
+// from the expense as it is stored, so what the form has no field for (a
+// receipt and its lines) is kept; a form that names no payer or day keeps those
+// too.
+func (h *Handler) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
+	const failed = "儲存失敗"
+	fail := func(message string) { h.renderResult(w, r, resultData{Title: failed, Description: message}) }
+
+	caller, selected, ok := h.openExpenseRequest(w, r, failed)
+	if !ok {
+		return
+	}
+
+	fields, err := parseExpenseFields(r, selected.Currency)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+
+	paidBy := ""
+	if r.PostFormValue("paid_by") != "" {
+		var message string
+		if paidBy, message = h.paidByFor(r, caller); message != "" {
+			fail(message)
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	expense, err := h.expenseService.GetExpense(ctx, selected, r.PostFormValue("expense_id"))
+	if err != nil {
+		if errors.Is(err, domain.ErrExpenseNotFound) {
+			fail("找不到這筆消費，可能已經被刪除")
+			return
+		}
+		slog.Error("Failed to read the expense to update", "error", err)
+		fail("讀取消費失敗，請稍後再試")
+		return
+	}
+
+	expense.Name = fields.name
+	expense.Price = fields.price
+	expense.Currency = fields.currency
+	expense.ExchangeRate = fields.exchangeRate
+	expense.Category = fields.category
+	expense.Method = fields.method
+	expense.ParticipantIDs = fields.participants
+	if paidBy != "" {
+		expense.PaidByID = paidBy
+	}
+	if !fields.shoppedAt.IsZero() {
+		expense.ShoppedAt = fields.shoppedAt
+	}
+
+	if err := h.expenseService.UpdateExpense(ctx, selected, expense); err != nil {
+		slog.Error("Failed to update expense", "error", err)
+		switch {
+		case errors.Is(err, domain.ErrNotOnTrip):
+			fail("付款人或分攤的人不在這趟旅行裡")
+		case errors.Is(err, domain.ErrUnsupportedSplit):
+			fail("這筆消費使用自訂分攤，請到 TREK 修改")
+		default:
+			fail("儲存失敗，請稍後再試")
+		}
+		return
+	}
+
+	h.renderResult(w, r, resultData{
+		Success:     true,
+		Title:       "已更新 " + fields.name,
+		Description: amountSummary(selected.Currency, expense),
+	})
+}
+
+// amountSummary is what an expense came to: what was paid and, for a foreign
+// one with a rate, what that is in the trip's currency.
+func amountSummary(base domain.Currency, e *domain.Expense) string {
+	summary := format.Money(e.Currency, e.PriceDecimal())
+	if e.Currency != base && !e.ExchangeRate.IsZero() {
+		summary += fmt.Sprintf("（≈ %s）", format.Money(base, e.TotalInBase(base)))
+	}
+	return summary
 }
 
 func (h *Handler) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
@@ -231,20 +385,19 @@ func (h *Handler) handleDeleteExpense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The row swap only removes the line item; the totals, settlement, and
-	// category bars on the dashboard are now stale, so ask for a redraw.
-	w.Header().Set("HX-Trigger", "dashboard-refresh")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type analyzeReceiptResponse struct {
-	Success  bool                 `json:"success"`
-	Summary  string               `json:"summary,omitempty"`
-	Currency domain.Currency      `json:"currency,omitempty"`
-	Total    uint64               `json:"total,omitempty"`
-	Category domain.Category      `json:"category,omitempty"`
-	Method   domain.PaymentMethod `json:"method,omitempty"`
-	Error    string               `json:"error,omitempty"`
+	Success      bool                 `json:"success"`
+	Summary      string               `json:"summary,omitempty"`
+	Currency     domain.Currency      `json:"currency,omitempty"`
+	Total        uint64               `json:"total,omitempty"`
+	Category     domain.Category      `json:"category,omitempty"`
+	Method       domain.PaymentMethod `json:"method,omitempty"`
+	ReceiptURL   string               `json:"receipt_url,omitempty"`
+	ReceiptItems []receiptItemWire    `json:"receipt_items,omitempty"`
+	Error        string               `json:"error,omitempty"`
 }
 
 func (h *Handler) handleAnalyzeReceipt(w http.ResponseWriter, r *http.Request) {
@@ -307,13 +460,29 @@ func (h *Handler) handleAnalyzeReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var receiptURL string
+	if selected, err := h.tripFor(ctx, r); err == nil {
+		receiptURL = h.expenseService.UploadReceiptImage(ctx, selected, imgBytes)
+	}
+
+	var wireItems []receiptItemWire
+	for _, item := range analysis.Items {
+		wireItems = append(wireItems, receiptItemWire{
+			Name:     format.ReceiptName(item),
+			Price:    item.Price,
+			Category: item.Category,
+		})
+	}
+
 	_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
-		Success:  true,
-		Summary:  analysis.Summary,
-		Currency: analysis.Currency,
-		Total:    analysis.Total,
-		Category: analysis.Category,
-		Method:   analysis.PaymentMethod,
+		Success:      true,
+		Summary:      analysis.Summary,
+		Currency:     analysis.Currency,
+		Total:        analysis.Total,
+		Category:     analysis.Category,
+		Method:       analysis.PaymentMethod,
+		ReceiptURL:   receiptURL,
+		ReceiptItems: wireItems,
 	})
 }
 
@@ -328,7 +497,7 @@ func participantsOf(r *http.Request) []string {
 }
 
 func (h *Handler) renderResult(w http.ResponseWriter, r *http.Request, data resultData) {
-	if err := components.Result(data.Success, data.Title, data.Description, data.Error).Render(r.Context(), w); err != nil {
+	if err := components.Result(data.Success, data.Title, data.Description).Render(r.Context(), w); err != nil {
 		slog.Error("Failed to render result", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
