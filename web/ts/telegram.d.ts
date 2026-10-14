@@ -54,6 +54,8 @@ interface TelegramWebApp {
   ready(): void;
   expand(): void;
   initData: string;
+  colorScheme: "light" | "dark";
+  onEvent?(eventType: string, callback: () => void): void;
   initDataUnsafe: {
     user?: TelegramWebAppUser;
   };

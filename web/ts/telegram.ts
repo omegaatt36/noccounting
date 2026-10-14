@@ -17,12 +17,10 @@ export function initTelegram(devMode: boolean): TelegramContext {
   tg.ready();
   tg.expand();
   // A long form should not close on a stray swipe, and losing a half-filled one
-  // to closing the app deserves a confirmation. The header and background blend
-  // into the Flexoki black page instead of Telegram's default color.
+  // to closing the app deserves a confirmation. The header and background colors
+  // follow the page theme, which theme.js sets.
   tg.disableVerticalSwipes?.();
   tg.enableClosingConfirmation?.();
-  tg.setHeaderColor?.("#100F0F");
-  tg.setBackgroundColor?.("#100F0F");
 
   const initData = tg.initData || "";
   const currentUserId = tg.initDataUnsafe?.user?.id ?? null;
@@ -55,8 +53,6 @@ export function setupMainButton(
 
   const btn = ctx.tg.MainButton;
   btn.setText("✅ 新增消費");
-  btn.color = "#4385BE"; // Flexoki blue
-  btn.textColor = "#FFFFFF";
   if (appReady()) {
     btn.show();
   } else {

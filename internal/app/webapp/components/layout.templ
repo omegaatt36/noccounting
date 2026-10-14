@@ -12,15 +12,17 @@ import (
 
 templ Page(devMode bool) {
 	<!DOCTYPE html>
-	<html lang="zh-TW" class="dark">
+	<html lang="zh-TW" data-theme="dark">
 		<head>
 			<meta charset="UTF-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 			<title>旅行記帳</title>
+			<link rel="icon" href="data:,"/>
 			<meta name="htmx-config" content={ `{"noSwap":[204,304,"4xx","5xx"]}` }/>
 			<link rel="stylesheet" href={ "/static/output.css?v=" + utils.ScriptVersion }/>
 			<script src="https://telegram.org/js/telegram-web-app.js"></script>
-			<script src="https://unpkg.com/htmx.org@4.0.0/dist/htmx.min.js"></script>
+			<script src={ "/static/theme.js?v=" + utils.ScriptVersion }></script>
+			<script src={ "/static/htmx.min.js?v=" + utils.ScriptVersion }></script>
 			@tabs.Script()
 			@toast.Script()
 		</head>
@@ -52,7 +54,7 @@ templ Page(devMode bool) {
 					@alert.Title() { 無法載入旅行 }
 					@alert.Description() { 網路或伺服器暫時有問題，請稍後再試 }
 				}
-				@button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"onclick": "location.reload()"}}) {
+				@button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"data-action": "reload"}}) {
 					重試
 				}
 			</div>
@@ -63,17 +65,18 @@ templ Page(devMode bool) {
 							<span class="text-4xl">🧳</span>
 							<p class="text-lg font-semibold">還沒有可用的旅行</p>
 							<p class="text-sm text-muted-foreground">請先在 TREK 把記帳帳號加入旅行，完成後重新載入就會看到行程。</p>
-							@button.Button(button.Props{Type: button.TypeButton, Class: "mt-2", Attributes: templ.Attributes{"onclick": "location.reload()"}}) {
+							@button.Button(button.Props{Type: button.TypeButton, Class: "mt-2", Attributes: templ.Attributes{"data-action": "reload"}}) {
 								重新載入
 							}
 						</div>
 					}
 				}
 			</div>
- <div id="app" class="hidden max-w-md mx-auto px-4 py-6 pb-20">
+			<main id="app" class="hidden max-w-md mx-auto px-4 py-6 pb-20">
 				<div class="mb-3">
 					<select
 						id="trip-select"
+						aria-label="選擇旅行"
 						class="w-full px-3 py-2 rounded-md outline-none text-sm bg-input dark:bg-input/30 border border-input focus:ring-2 focus:ring-ring/50"
 					></select>
 				</div>
@@ -87,11 +90,23 @@ templ Page(devMode bool) {
 				<div id="view-dashboard" class="hidden">
 					@card.Card(card.Props{}) {
 						@card.Content(card.ContentProps{}) {
-							<h1 class="text-xl font-bold text-center py-1 mb-4">📊 Dashboard</h1>
-							<div id="dashboard-content"
+							<h1 class="text-xl font-bold text-center py-1 mb-4"><span aria-hidden="true">📊</span> Dashboard</h1>
+							<div id="dashboard-error" class="hidden mb-4 space-y-3" role="alert">
+								@alert.Alert(alert.Props{Variant: alert.VariantDestructive}) {
+									@alert.Title() { 無法載入 Dashboard }
+									@alert.Description() { 網路或伺服器暫時有問題，請稍後再試 }
+								}
+								@button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"data-action": "retry-dashboard"}}) {
+									重試
+								}
+							</div>
+							<div
+								id="dashboard-host"
+								data-dashboard-load
 								hx-get="/partial/dashboard?range=all"
-								hx-trigger="intersect once"
+								hx-trigger="intersect once, dashboard-load"
 								hx-swap="innerHTML"
+								aria-live="polite"
 							>
 								@skeleton.Skeleton(skeleton.Props{Class: "h-20 w-full mb-4"})
 								@skeleton.Skeleton(skeleton.Props{Class: "h-32 w-full mb-4"})
@@ -100,9 +115,9 @@ templ Page(devMode bool) {
 						}
 					}
 				</div>
-				<div id="result" class="fixed top-4 left-4 right-4 z-50"></div>
+				<div id="result" class="fixed top-4 left-4 right-4 z-50" role="status" aria-live="polite"></div>
 				@BottomNav()
-			</div>
+			</main>
 			@initScript(devMode)
 		</body>
 	</html>

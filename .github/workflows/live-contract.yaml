@@ -1,0 +1,30 @@
+name: Live TREK contract
+
+# Writes to, and cleans up after itself on, a real TREK trip, so it only runs
+# when started by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      trip_id:
+        description: "ID of the designated TREK test trip (TWD, the service account on it)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  live-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Round-trip against the live TREK instance
+        env:
+          T1_LIVE: "1"
+          T1_TRIP_ID: ${{ inputs.trip_id }}
+          TREK_URL: ${{ secrets.TREK_URL }}
+          TREK_EMAIL: ${{ secrets.TREK_EMAIL }}
+          TREK_PASSWORD: ${{ secrets.TREK_PASSWORD }}
+        run: go test ./internal/repository/trek -run TestLiveT1Contract -count=1 -v

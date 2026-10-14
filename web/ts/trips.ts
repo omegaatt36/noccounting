@@ -106,7 +106,8 @@ export async function loadMembers(ctx: TelegramContext, tripId: string): Promise
       const chip = document.createElement("span");
       chip.className =
         "inline-block px-3 py-1 rounded-full text-sm border border-input bg-muted text-muted-foreground " +
-        "peer-checked:bg-primary peer-checked:text-primary-foreground peer-checked:border-primary transition-colors";
+        "peer-checked:bg-primary peer-checked:text-primary-foreground peer-checked:border-primary " +
+        "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring transition-colors";
       chip.textContent = member.name;
 
       label.append(checkbox, chip);

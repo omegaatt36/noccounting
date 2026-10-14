@@ -31,22 +31,47 @@ export function setupNumpad(ctx: TelegramContext): void {
   });
 
   priceField.addEventListener("click", () => openNumpad());
+  // The field is read-only and opens a sheet, so Enter and Space must do what a
+  // click does for keyboard and switch users.
+  priceField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openNumpad();
+    }
+  });
+  // Escape closes the sheet wherever focus is; with the sheet closed it is a no-op.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeNumpad();
+  });
+
+  function isOpen(): boolean {
+    return !numpad!.classList.contains("hidden");
+  }
 
   function openNumpad(): void {
+    if (isOpen()) return;
     numpad!.classList.remove("hidden");
     numpad!.classList.add("flex");
     backdrop?.classList.remove("hidden");
+    priceField!.setAttribute("aria-expanded", "true");
     ctx.tg?.MainButton.hide();
     updateDisplay();
     backButton?.show();
+    // Focus moves into the sheet so a screen reader reads it and Tab stays there.
+    // Not before the key that opened it has finished: its keypress would land on
+    // the confirm button and close the sheet again.
+    setTimeout(() => numpadConfirm?.focus(), 0);
   }
 
   function closeNumpad(): void {
+    if (!isOpen()) return;
     numpad!.classList.add("hidden");
     numpad!.classList.remove("flex");
     backdrop?.classList.add("hidden");
+    priceField!.setAttribute("aria-expanded", "false");
     backButton?.hide();
     if (appReady()) ctx.tg?.MainButton.show();
+    priceField!.focus();
   }
 
   function updateDisplay(): void {

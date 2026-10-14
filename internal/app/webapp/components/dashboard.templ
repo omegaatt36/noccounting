@@ -3,6 +3,7 @@ package components
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/card"
 )
@@ -83,6 +84,24 @@ type DashboardView struct {
 	DateRange  string
 }
 
+// dashboardRanges are the periods the dashboard can be drawn for, in the order
+// of the chips that pick them.
+var dashboardRanges = []struct{ Value, Label string }{
+	{"today", "今天"},
+	{"3d", "近3天"},
+	{"7d", "近7天"},
+	{"all", "全部"},
+}
+
+// rangeActive says whether the chip for value is the one showing: a dashboard
+// asked for no range shows them all.
+func rangeActive(selected, value string) bool {
+	if selected == "" {
+		selected = "all"
+	}
+	return selected == value
+}
+
 // categoryColors maps a category to its hex color, in the Flexoki palette: each
 // of TREK's fourteen has a color of its own so no two read as the same on the donut.
 var categoryColors = map[domain.Category]string{
@@ -114,44 +133,26 @@ func CategoryColor(slug string) string {
 templ DashboardContent(v DashboardView) {
 	<div id="dashboard-content" class="space-y-6 pb-6">
 		<p class="text-center text-xs text-muted-foreground">🧳 { v.TripTitle }</p>
-		<div class="flex gap-2 justify-center flex-wrap">
-			<button
-				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "today"), templ.KV("bg-muted text-muted-foreground", v.DateRange != "today"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
-				hx-get="/partial/dashboard?range=today"
-				hx-target="#dashboard-content"
-				hx-swap="innerHTML"
-			>
-				今天
-			</button>
-			<button
-				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "3d"), templ.KV("bg-muted text-muted-foreground", v.DateRange != "3d"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
-				hx-get="/partial/dashboard?range=3d"
-				hx-target="#dashboard-content"
-				hx-swap="innerHTML"
-			>
-				近3天
-			</button>
-			<button
-				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "7d"), templ.KV("bg-muted text-muted-foreground", v.DateRange != "7d"), "px-3 py-1 rounded text-sm font-medium transition-colors" }
-				hx-get="/partial/dashboard?range=7d"
-				hx-target="#dashboard-content"
-				hx-swap="innerHTML"
-			>
-				近7天
-			</button>
-			<button
-				class={ templ.KV("bg-primary text-primary-foreground", v.DateRange == "all" || v.DateRange == ""), templ.KV("bg-muted text-muted-foreground", v.DateRange != "all" && v.DateRange != ""), "px-3 py-1 rounded text-sm font-medium transition-colors" }
-				hx-get="/partial/dashboard?range=all"
-				hx-target="#dashboard-content"
-				hx-swap="innerHTML"
-			>
-				全部
-			</button>
+		<div class="flex gap-2 justify-center flex-wrap" role="group" aria-label="期間">
+			for _, r := range dashboardRanges {
+				<button
+					type="button"
+					data-range={ r.Value }
+					data-dashboard-load
+					aria-pressed={ strconv.FormatBool(rangeActive(v.DateRange, r.Value)) }
+					class={ templ.KV("bg-primary text-primary-foreground", rangeActive(v.DateRange, r.Value)), templ.KV("bg-muted text-muted-foreground", !rangeActive(v.DateRange, r.Value)), "px-4 py-2 rounded text-sm font-medium transition-colors" }
+					hx-get={ "/partial/dashboard?range=" + r.Value }
+					hx-target="#dashboard-host"
+					hx-swap="innerHTML"
+				>
+					{ r.Label }
+				</button>
+			}
 		</div>
 		@card.Card() {
 			<div class="p-4">
 				<div class="flex items-center gap-4 py-2">
-					<div class="relative w-24 h-24 flex-shrink-0">
+					<div class="relative w-24 h-24 flex-shrink-0" aria-hidden="true">
 						<div
 							class="w-24 h-24 rounded-full"
 							style={ fmt.Sprintf("background: %s", v.DonutGradient) }
@@ -173,8 +174,8 @@ templ DashboardContent(v DashboardView) {
 							if v.TrendPct != 0 {
 								<span class={
 									templ.KV("text-xs font-semibold px-1.5 py-0.5 rounded", true),
-									templ.KV("bg-red-500/15 text-red-500 dark:text-red-400", v.TrendPct > 0),
-									templ.KV("bg-green-500/15 text-green-500 dark:text-green-400", v.TrendPct < 0),
+									templ.KV("bg-red-500/15 text-red-700 dark:text-red-400", v.TrendPct > 0),
+									templ.KV("bg-green-500/15 text-green-800 dark:text-green-400", v.TrendPct < 0),
 								}>
 									if v.TrendPct > 0 {
 										{ "↑" }
@@ -208,7 +209,14 @@ templ DashboardContent(v DashboardView) {
 		}
 		if len(v.Categories) == 0 {
 			<div class="text-center py-12">
-				<p class="text-lg text-muted-foreground">📊 這個期間沒有消費記錄</p>
+				<p class="text-lg text-muted-foreground"><span aria-hidden="true">📊</span> 這個期間沒有消費記錄</p>
+				<button
+					type="button"
+					data-action="show-form"
+					class="mt-4 px-4 py-2 rounded text-sm font-medium bg-primary text-primary-foreground"
+				>
+					去記一筆
+				</button>
 			</div>
 		} else {
 			<div class="space-y-3">
@@ -218,30 +226,29 @@ templ DashboardContent(v DashboardView) {
 						continue
 					}
 					<div>
-						{{
-							beforeRequest := fmt.Sprintf("const detail = document.getElementById('cat-detail-%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", cat.Slug)
-							afterRequest := "const status = event.detail.ctx.response?.status ?? 0; this.querySelector('.chevron').textContent = status >= 200 && status < 300 ? '▼' : '▶';"
-						}}
-						<div
-							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+						<button
+							type="button"
+							class="w-full text-left cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+							data-detail={ fmt.Sprintf("cat-detail-%s", cat.Slug) }
+							aria-expanded="false"
+							aria-controls={ fmt.Sprintf("cat-detail-%s", cat.Slug) }
 							hx-get={ fmt.Sprintf("/partial/dashboard/category?name=%s&range=%s", cat.Slug, v.DateRange) }
 							hx-target={ fmt.Sprintf("#cat-detail-%s", cat.Slug) }
 							hx-swap="innerHTML"
-							{ templ.Attributes{"hx-on:htmx:before:request": beforeRequest, "hx-on:htmx:finally:request": afterRequest}... }
 						>
-							<div class="w-8 text-center">{ cat.Emoji }</div>
-							<div class="w-20 text-sm text-muted-foreground">{ cat.Label }</div>
-							<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
-								<div
-									class="h-6 transition-all"
+							<span class="w-8 text-center" aria-hidden="true">{ cat.Emoji }</span>
+							<span class="w-20 text-sm text-muted-foreground">{ cat.Label }</span>
+							<span class="flex-1 bg-secondary rounded-full overflow-hidden h-6" aria-hidden="true">
+								<span
+									class="block h-6 transition-all"
 									style={ fmt.Sprintf("width: %d%%; background: %s;", cat.Percentage, CategoryColor(cat.Slug)) }
-								></div>
-							</div>
-							<div class="w-20 text-right text-sm font-medium tabular-nums">{ cat.Amount }</div>
-							<div class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", cat.Percentage) }</div>
-							<span class="chevron text-xs text-muted-foreground w-4 text-center">▶</span>
-						</div>
-						<div id={ fmt.Sprintf("cat-detail-%s", cat.Slug) } class="pl-8 mt-1 empty:hidden"></div>
+								></span>
+							</span>
+							<span class="w-20 text-right text-sm font-medium tabular-nums">{ cat.Amount }</span>
+							<span class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", cat.Percentage) }</span>
+							<span class="chevron text-xs text-muted-foreground w-4 text-center" aria-hidden="true">▶</span>
+						</button>
+						<div id={ fmt.Sprintf("cat-detail-%s", cat.Slug) } class="pl-8 mt-1 empty:hidden" role="region" aria-label={ cat.Label + "明細" }></div>
 					</div>
 				}
 			</div>
@@ -249,31 +256,29 @@ templ DashboardContent(v DashboardView) {
 				<h3 class="text-lg font-semibold text-foreground">付款方式明細</h3>
 				for _, method := range v.Methods {
 					<div>
-						{{
-							detailID := "method-detail-" + methodKey(method.Slug)
-							beforeRequest := fmt.Sprintf("const detail = document.getElementById('%s'); if (detail.children.length > 0) { detail.innerHTML = ''; this.querySelector('.chevron').textContent = '▶'; event.preventDefault(); } else { this.querySelector('.chevron').textContent = '⏳'; }", detailID)
-							afterRequest := "const status = event.detail.ctx.response?.status ?? 0; this.querySelector('.chevron').textContent = status >= 200 && status < 300 ? '▼' : '▶';"
-						}}
-						<div
-							class="cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+						<button
+							type="button"
+							class="w-full text-left cursor-pointer flex items-center gap-3 py-1 hover:bg-muted/50 rounded transition-colors"
+							data-detail={ "method-detail-" + methodKey(method.Slug) }
+							aria-expanded="false"
+							aria-controls={ "method-detail-" + methodKey(method.Slug) }
 							hx-get={ fmt.Sprintf("/partial/dashboard/method?name=%s&range=%s", method.Slug, v.DateRange) }
-							hx-target={ "#" + detailID }
+							hx-target={ "#method-detail-" + methodKey(method.Slug) }
 							hx-swap="innerHTML"
-							{ templ.Attributes{"hx-on:htmx:before:request": beforeRequest, "hx-on:htmx:finally:request": afterRequest}... }
 						>
-							<div class="w-8 text-center">{ method.Emoji }</div>
-							<div class="w-20 text-sm text-muted-foreground">{ method.Label }</div>
-							<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
-								<div
-									class="bg-accent h-6 transition-all"
+							<span class="w-8 text-center" aria-hidden="true">{ method.Emoji }</span>
+							<span class="w-20 text-sm text-muted-foreground">{ method.Label }</span>
+							<span class="flex-1 bg-secondary rounded-full overflow-hidden h-6" aria-hidden="true">
+								<span
+									class="block bg-accent h-6 transition-all"
 									style={ fmt.Sprintf("width: %d%%", method.Percentage) }
-								></div>
-							</div>
-							<div class="w-20 text-right text-sm font-medium tabular-nums">{ method.Amount }</div>
-							<div class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", method.Percentage) }</div>
-							<span class="chevron text-xs text-muted-foreground w-4 text-center">▶</span>
-						</div>
-						<div id={ "method-detail-" + methodKey(method.Slug) } class="pl-8 mt-1 empty:hidden"></div>
+								></span>
+							</span>
+							<span class="w-20 text-right text-sm font-medium tabular-nums">{ method.Amount }</span>
+							<span class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", method.Percentage) }</span>
+							<span class="chevron text-xs text-muted-foreground w-4 text-center" aria-hidden="true">▶</span>
+						</button>
+						<div id={ "method-detail-" + methodKey(method.Slug) } class="pl-8 mt-1 empty:hidden" role="region" aria-label={ method.Label + "明細" }></div>
 					</div>
 				}
 			</div>
@@ -310,7 +315,7 @@ templ DashboardContent(v DashboardView) {
 					download
 					class="px-4 py-2 rounded font-medium text-sm bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
 				>
-					📥 導出 CSV
+					<span aria-hidden="true">📥</span> 導出 CSV
 				</a>
 			</div>
 		}
@@ -338,7 +343,7 @@ templ settlementCard(settlement *SettlementView) {
 						<div class="flex items-center justify-between text-sm">
 							<span>{ balance.Name }</span>
 							<span
-								class={ "font-medium tabular-nums", templ.KV("text-green-500 dark:text-green-400", balance.Owed), templ.KV("text-red-500 dark:text-red-400", !balance.Owed) }
+								class={ "font-medium tabular-nums", templ.KV("text-green-800 dark:text-green-400", balance.Owed), templ.KV("text-red-700 dark:text-red-400", !balance.Owed) }
 							>
 								{ balance.Amount }
 							</span>
@@ -373,14 +378,14 @@ templ CategoryDetailPartial(items []ExpenseItem, color string) {
 				<span class="font-medium whitespace-nowrap">{ item.AmountDisplay }</span>
 				<button
 					type="button"
-					class="ml-2 text-muted-foreground hover:text-destructive transition-colors p-1 text-xs opacity-60 hover:opacity-100"
+					class="ml-1 inline-flex items-center justify-center size-9 text-muted-foreground hover:text-destructive transition-colors text-xs opacity-60 hover:opacity-100"
 					hx-delete={ fmt.Sprintf("/api/expense?id=%s&trip_id=%d", item.ID, item.TripID) }
 					hx-confirm="確定要刪除這筆消費嗎？"
 					hx-target="closest .expense-row"
 					hx-swap="outerHTML"
-					title="刪除"
+					aria-label={ "刪除 " + item.Name }
 				>
-					🗑️
+					<span aria-hidden="true">🗑️</span>
 				</button>
 			</div>
 		}

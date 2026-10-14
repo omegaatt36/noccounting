@@ -44,6 +44,35 @@ func recoverWrap() middleware {
 	}
 }
 
+// contentSecurityPolicy lets the page run only its own scripts plus Telegram's
+// SDK, which Telegram requires to be loaded from telegram.org and updates in
+// place, so a pinned hash would break on its next release. The few inline
+// style attributes (donut gradient, bar widths) are the only inline code
+// allowed; frame-ancestors admits the Telegram web clients that host Mini Apps
+// in an iframe.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' https://telegram.org; " +
+	"style-src 'self'; style-src-attr 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; base-uri 'none'; form-action 'self'; " +
+	"frame-ancestors 'self' https://web.telegram.org https://webk.telegram.org https://webz.telegram.org"
+
+// securityHeaders applies the browser hardening headers to every response. The
+// Mini App's init_data travels in query strings, so Referrer-Policy keeps it
+// out of any Referer header.
+func securityHeaders() middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			header := w.Header()
+			header.Set("Content-Security-Policy", contentSecurityPolicy)
+			header.Set("X-Content-Type-Options", "nosniff")
+			header.Set("Referrer-Policy", "no-referrer")
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func logging() middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,8 +226,9 @@ func getClientIP(r *http.Request) string {
 func (rl *rateLimiter) middleware() middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip rate limiting for health checks
-			if r.URL.Path == "/health" {
+			// Health probes and the static assets (a single page load fetches a
+			// dozen of them) are not what the limit is there to guard.
+			if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/static/") {
 				next.ServeHTTP(w, r)
 				return
 			}

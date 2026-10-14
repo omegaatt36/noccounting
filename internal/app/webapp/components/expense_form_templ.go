@@ -38,7 +38,7 @@ func ExpenseForm() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form id=\"expense-form\" hx-post=\"/api/expense\" hx-target=\"#result\" hx-swap=\"innerHTML\" class=\"space-y-4\"><input type=\"hidden\" id=\"init_data\" name=\"init_data\" value=\"\"> <input type=\"hidden\" id=\"trip-id-input\" name=\"trip_id\" value=\"\"><h1 class=\"text-xl font-bold text-center py-1\">📝 新增消費</h1><div class=\"flex items-center justify-between pb-1\"><label for=\"receipt-file-input\" class=\"cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-all shadow-sm active:scale-95\"><span>📸 拍照 / 上傳收據辨識</span></label> <input type=\"file\" id=\"receipt-file-input\" accept=\"image/*\" class=\"hidden\"> <span id=\"receipt-scanning-indicator\" class=\"hidden text-xs text-primary font-medium animate-pulse\">🔍 正在分析收據...</span></div><div class=\"grid grid-cols-5 gap-3\"><div class=\"col-span-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<form id=\"expense-form\" hx-post=\"/api/expense\" hx-target=\"#result\" hx-swap=\"innerHTML\" class=\"space-y-4\"><input type=\"hidden\" id=\"init_data\" name=\"init_data\" value=\"\"> <input type=\"hidden\" id=\"trip-id-input\" name=\"trip_id\" value=\"\"><h1 class=\"text-xl font-bold text-center py-1\"><span aria-hidden=\"true\">📝</span> 新增消費</h1><div class=\"flex items-center justify-between pb-1\"><label for=\"receipt-file-input\" class=\"cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-all shadow-sm active:scale-95\"><span><span aria-hidden=\"true\">📸</span> 拍照 / 上傳收據辨識</span></label> <input type=\"file\" id=\"receipt-file-input\" accept=\"image/*\" class=\"hidden\"> <span id=\"receipt-scanning-indicator\" role=\"status\" class=\"hidden text-xs text-primary font-medium animate-pulse\">🔍 正在分析收據...</span></div><div class=\"grid grid-cols-5 gap-3\"><div class=\"col-span-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -69,12 +69,12 @@ func ExpenseForm() templ.Component {
 			Name:        "name",
 			Type:        input.TypeText,
 			Placeholder: "例：拉麪",
-			Attributes:  templ.Attributes{"required": true},
+			Attributes:  templ.Attributes{"required": true, "aria-describedby": "name-error"},
 		}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p id=\"name-error\" class=\"hidden text-xs text-destructive mt-1\">請輸入消費名稱</p></div><div class=\"col-span-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p id=\"name-error\" role=\"alert\" class=\"hidden text-xs text-destructive mt-1\">請輸入消費名稱</p></div><div class=\"col-span-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -106,16 +106,19 @@ func ExpenseForm() templ.Component {
 			Type:        input.TypeText,
 			Placeholder: "0",
 			Attributes: templ.Attributes{
-				"required":  true,
-				"readonly":  true,
-				"inputmode": "none",
+				"required":         true,
+				"readonly":         true,
+				"inputmode":        "none",
+				"aria-haspopup":    "dialog",
+				"aria-expanded":    "false",
+				"aria-describedby": "price-error",
 			},
 			Class: "cursor-pointer",
 		}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<p id=\"price-error\" class=\"hidden text-xs text-destructive mt-1\">請輸入有效金額</p></div></div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<p id=\"price-error\" role=\"alert\" class=\"hidden text-xs text-destructive mt-1\">請輸入有效金額</p></div></div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -148,7 +151,7 @@ func ExpenseForm() templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(string(domain.CategoryFood))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 72, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 75, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -198,7 +201,7 @@ func ExpenseForm() templ.Component {
 						var templ_7745c5c3_Var9 string
 						templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(format.Category(category))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 77, Col: 34}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 80, Col: 34}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 						if templ_7745c5c3_Err != nil {
@@ -213,7 +216,7 @@ func ExpenseForm() templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "分類"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -327,7 +330,7 @@ func ExpenseForm() templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Class: "flex gap-2 w-full"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Class: "flex gap-2 w-full", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "幣別"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -337,7 +340,7 @@ func ExpenseForm() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div id=\"exchange-rate-section\" class=\"overflow-hidden transition-all duration-300 ease-in-out\" style=\"max-height: 0; opacity: 0;\"><div class=\"flex items-center gap-2 mt-3\"><label class=\"text-sm whitespace-nowrap text-muted-foreground\">匯率</label>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div id=\"exchange-rate-section\" class=\"overflow-hidden transition-all duration-300 ease-in-out\" style=\"max-height: 0; opacity: 0;\"><div class=\"flex items-center gap-2 mt-3\"><label for=\"exchange-rate-input\" class=\"text-sm whitespace-nowrap text-muted-foreground\">匯率</label>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -366,16 +369,17 @@ func ExpenseForm() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<span class=\"fetch-text\">🔄</span> <span class=\"fetch-loading hidden\">⏳</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<span class=\"fetch-text\" aria-hidden=\"true\">🔄</span> <span class=\"fetch-loading hidden\" aria-hidden=\"true\">⏳</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
 		templ_7745c5c3_Err = button.Button(button.Props{
-			ID:   "fetch-rate-btn",
-			Type: button.TypeButton,
-			Size: button.SizeIcon,
+			ID:         "fetch-rate-btn",
+			Type:       button.TypeButton,
+			Size:       button.SizeIcon,
+			Attributes: templ.Attributes{"aria-label": "取得即時匯率"},
 		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -413,7 +417,7 @@ func ExpenseForm() templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(string(domain.PaymentMethodCash))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 128, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 132, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -463,7 +467,7 @@ func ExpenseForm() templ.Component {
 						var templ_7745c5c3_Var21 string
 						templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(format.PaymentEmoji(method))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 133, Col: 36}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 137, Col: 36}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 						if templ_7745c5c3_Err != nil {
@@ -476,7 +480,7 @@ func ExpenseForm() templ.Component {
 						var templ_7745c5c3_Var22 string
 						templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(format.PaymentLabel(method))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 133, Col: 68}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 137, Col: 68}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 						if templ_7745c5c3_Err != nil {
@@ -491,7 +495,7 @@ func ExpenseForm() templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "付款方式"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var19), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -553,7 +557,7 @@ func ExpenseForm() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"flex gap-1.5 mb-1.5 mt-1\"><button type=\"button\" id=\"date-today-btn\" class=\"flex-1 text-xs rounded-md border border-input bg-primary text-primary-foreground py-1 transition-colors\">今天</button> <button type=\"button\" id=\"date-yesterday-btn\" class=\"flex-1 text-xs rounded-md border border-input bg-muted text-muted-foreground py-1 transition-colors\">昨天</button></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"flex gap-1.5 mb-1.5 mt-1\"><button type=\"button\" id=\"date-today-btn\" aria-pressed=\"true\" class=\"flex-1 text-xs rounded-md border border-input bg-primary text-primary-foreground py-1 transition-colors\">今天</button> <button type=\"button\" id=\"date-yesterday-btn\" aria-pressed=\"false\" class=\"flex-1 text-xs rounded-md border border-input bg-muted text-muted-foreground py-1 transition-colors\">昨天</button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -591,7 +595,7 @@ func ExpenseForm() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div id=\"participants\" class=\"flex flex-wrap gap-1.5 mt-1\"></div><p id=\"participants-error\" class=\"hidden text-xs text-destructive mt-1\">至少要有一位分攤的人</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div id=\"participants\" role=\"group\" aria-label=\"分攤的人\" aria-describedby=\"participants-error\" class=\"flex flex-wrap gap-1.5 mt-1\"></div><p id=\"participants-error\" role=\"alert\" class=\"hidden text-xs text-destructive mt-1\">至少要有一位分攤的人</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -607,7 +611,7 @@ func ExpenseForm() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span class=\"btn-text\">✅ 新增消費</span> <span class=\"btn-loading hidden\">⏳ 處理中...</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span class=\"btn-text\"><span aria-hidden=\"true\">✅</span> 新增消費</span> <span class=\"btn-loading hidden\"><span aria-hidden=\"true\">⏳</span> 處理中...</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -624,7 +628,7 @@ func ExpenseForm() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div id=\"numpad-backdrop\" class=\"hidden fixed inset-0 bg-black/60 z-40\"></div><div id=\"numpad-sheet\" class=\"hidden fixed bottom-0 left-0 right-0 flex-col bg-background border-t border-border rounded-t-2xl p-3 pb-8 z-50 shadow-2xl\"><div class=\"flex items-baseline justify-between px-1 mb-3\"><div class=\"flex items-baseline gap-2\"><span id=\"numpad-display\" class=\"text-3xl font-bold tracking-tight\">0</span> <span class=\"text-sm text-muted-foreground\" id=\"numpad-currency-label\">JPY</span></div><div class=\"flex items-center gap-2\"><span id=\"numpad-convert\" class=\"text-sm text-cyan-500\"></span> <button type=\"button\" id=\"numpad-clear\" class=\"text-sm text-muted-foreground hover:text-foreground px-2 py-1 transition-colors\">清除</button></div></div><div class=\"grid grid-cols-3 gap-2 mb-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div id=\"numpad-backdrop\" class=\"hidden fixed inset-0 bg-black/60 z-40\"></div><div id=\"numpad-sheet\" role=\"dialog\" aria-modal=\"true\" aria-label=\"輸入金額\" class=\"hidden fixed bottom-0 left-0 right-0 flex-col bg-background border-t border-border rounded-t-2xl p-3 pb-8 z-50 shadow-2xl\"><div class=\"flex items-baseline justify-between px-1 mb-3\"><div class=\"flex items-baseline gap-2\"><span id=\"numpad-display\" aria-live=\"polite\" class=\"text-3xl font-bold tracking-tight\">0</span> <span class=\"text-sm text-muted-foreground\" id=\"numpad-currency-label\">JPY</span></div><div class=\"flex items-center gap-2\"><span id=\"numpad-convert\" aria-live=\"polite\" class=\"text-sm text-cyan-700 dark:text-cyan-400\"></span> <button type=\"button\" id=\"numpad-clear\" class=\"text-sm text-muted-foreground hover:text-foreground px-2 py-1 transition-colors\">清除</button></div></div><div class=\"grid grid-cols-3 gap-2 mb-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -664,7 +668,7 @@ func ExpenseForm() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = numpadKey(".").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = numpadKeyLabeled(".", "小數點").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -672,7 +676,7 @@ func ExpenseForm() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = numpadKeyIcon("backspace", "⌫").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = numpadKeyIcon("backspace", "⌫", "刪除").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -712,7 +716,7 @@ func numpadKey(digit string) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(digit)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 240, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 249, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 		if templ_7745c5c3_Err != nil {
@@ -725,7 +729,7 @@ func numpadKey(digit string) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(digit)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 242, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 251, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 		if templ_7745c5c3_Err != nil {
@@ -739,7 +743,7 @@ func numpadKey(digit string) templ.Component {
 	})
 }
 
-func numpadKeyIcon(key string, icon string) templ.Component {
+func numpadKeyLabeled(digit string, label string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -765,28 +769,109 @@ func numpadKeyIcon(key string, icon string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var31 string
-		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(key)
+		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue(digit)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 248, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 257, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "\" class=\"bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-lg text-foreground transition-all\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "\" aria-label=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var32 string
-		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(icon)
+		templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 250, Col: 8}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 258, Col: 20}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</button>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" class=\"bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-base font-medium text-foreground transition-all\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var33 string
+		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(digit)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 260, Col: 9}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</button>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+func numpadKeyIcon(key string, icon string, label string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var34 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var34 == nil {
+			templ_7745c5c3_Var34 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<button type=\"button\" data-numpad-key=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var35 string
+		templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(key)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 266, Col: 23}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\" aria-label=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var36 string
+		templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(label)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 267, Col: 20}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" class=\"bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-lg text-foreground transition-all\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var37 string
+		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(icon)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/expense_form.templ`, Line: 269, Col: 8}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</button>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

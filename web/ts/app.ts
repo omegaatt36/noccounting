@@ -7,6 +7,7 @@ import { setupNumpad } from "./numpad.js";
 import { loadTrips, loadMembers } from "./trips.js";
 import { tripId } from "./api.js";
 import "./navigation.js";
+import "./dashboard.js";
 
 const DEV_MODE = !!document.getElementById("dev-mode-flag");
 const ctx = initTelegram(DEV_MODE);
@@ -54,16 +55,11 @@ document.body.addEventListener("htmx:config:request", (evt) => {
   });
 }
 
-{
-  // A delete response names this event. htmx fires it after the swap, when the
-  // delete button is already off the page, so it lands on `document`; the active
-  // range chip re-issues the dashboard fetch that redraws every card in place.
-  document.addEventListener("dashboard-refresh", () => {
-    document
-      .querySelector<HTMLButtonElement>("#dashboard-content button.bg-primary")
-      ?.click();
-  });
-}
+document.addEventListener("click", (e) => {
+  if ((e.target as HTMLElement).closest('[data-action="reload"]')) {
+    window.location.reload();
+  }
+});
 
 authenticate(ctx, DEV_MODE).then(async (authorized) => {
   if (!authorized) return;

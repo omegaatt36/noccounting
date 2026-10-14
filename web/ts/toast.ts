@@ -1,11 +1,15 @@
 // Mirrors the markup of the server-rendered toast (components/ui/toast) for
-// errors that never go through HTMX, so a failed trip switch can say so without
+// messages that never go through HTMX, so a failed request can say so without
 // leaving the app.
 const $ = (id: string) => document.getElementById(id);
 
 const DURATION_MS = 5000;
 
-export function showToast(title: string, description: string): void {
+export function showToast(
+  title: string,
+  description: string,
+  variant: "error" | "success" = "error",
+): void {
   const host = $("result");
   if (!host) return;
 
@@ -13,7 +17,7 @@ export function showToast(title: string, description: string): void {
   toast.setAttribute("data-tui-toast", "");
   toast.setAttribute("data-tui-toast-duration", String(DURATION_MS));
   toast.setAttribute("data-position", "top-center");
-  toast.setAttribute("data-variant", "error");
+  toast.setAttribute("data-variant", variant);
   toast.className =
     "z-50 fixed pointer-events-auto p-4 w-full md:max-w-[420px] top-0 left-1/2 -translate-x-1/2";
 

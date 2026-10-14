@@ -38,6 +38,16 @@ tasks:
     cmds:
       - go test ./... -race -v
 
+  e2e:
+    desc: Browser end-to-end tests alone (needs Chrome, and the generated assets from `task generate`)
+    cmds:
+      - go test ./test/integration -run TestBrowser -v
+
+  htmx:
+    desc: Re-download the vendored htmx (bump the version here, never load it from a CDN)
+    cmds:
+      - curl -sSfL https://unpkg.com/htmx.org@4.0.0/dist/htmx.min.js -o internal/app/webapp/static/htmx.min.js
+
   build:
     deps: [generate]
     cmds:

@@ -28,19 +28,22 @@ func NewServer(userService *user.Service, expenseService *expense.Service, tripS
 	return &Server{
 		handler: handler,
 		port:    port,
+		limiter: newRateLimiter(60, time.Minute),
 	}, nil
+}
+
+// Handler is the routes behind the middleware every request goes through.
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	s.handler.RegisterRoutes(mux)
+	return chainMiddleware(recoverWrap(), logging(), securityHeaders(), s.limiter.middleware())(mux)
 }
 
 // Start starts the HTTP server in a goroutine.
 func (s *Server) Start() error {
-	mux := http.NewServeMux()
-	s.handler.RegisterRoutes(mux)
-
-	s.limiter = newRateLimiter(60, time.Minute)
-
 	s.server = &http.Server{
 		Addr:         ":" + s.port,
-		Handler:      chainMiddleware(recoverWrap(), logging(), s.limiter.middleware())(mux),
+		Handler:      s.Handler(),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -60,9 +63,7 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	slog.Info("Shutting down web server...")
 
-	if s.limiter != nil {
-		s.limiter.Stop()
-	}
+	s.limiter.Stop()
 
 	if s.server == nil {
 		return nil

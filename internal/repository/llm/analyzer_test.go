@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/repository/llm"
@@ -84,6 +85,7 @@ func TestAnalyzer_Analyze_APIError(t *testing.T) {
 	defer server.Close()
 
 	analyzer := llm.NewAnalyzer(server.URL, "test-key", "test-model")
+	analyzer.SetRetryBase(time.Millisecond)
 	_, err := analyzer.Analyze(context.Background(), []byte("fake-image-data"))
 	if err == nil {
 		t.Fatal("expected error for API error")
@@ -103,6 +105,7 @@ func TestAnalyzer_Analyze_EmptyChoices(t *testing.T) {
 	defer server.Close()
 
 	analyzer := llm.NewAnalyzer(server.URL, "test-key", "test-model")
+	analyzer.SetRetryBase(time.Millisecond)
 	_, err := analyzer.Analyze(context.Background(), []byte("fake-image-data"))
 	if err == nil {
 		t.Fatal("expected error for empty choices")

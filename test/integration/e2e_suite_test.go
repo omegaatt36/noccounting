@@ -29,6 +29,8 @@ type inMemoryAccountingRepo struct {
 	mu       sync.Mutex
 	expenses []domain.Expense
 	nextID   int
+	// queryErr, when set, fails every read, as an unreachable TREK would.
+	queryErr error
 }
 
 func newInMemoryAccountingRepo() *inMemoryAccountingRepo {
@@ -49,6 +51,9 @@ func (r *inMemoryAccountingRepo) CreateExpense(_ context.Context, _ domain.Trip,
 func (r *inMemoryAccountingRepo) QueryExpenses(_ context.Context, _ domain.Trip) ([]domain.Expense, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.queryErr != nil {
+		return nil, r.queryErr
+	}
 	copied := make([]domain.Expense, len(r.expenses))
 	copy(copied, r.expenses)
 	return copied, nil
@@ -57,6 +62,9 @@ func (r *inMemoryAccountingRepo) QueryExpenses(_ context.Context, _ domain.Trip)
 func (r *inMemoryAccountingRepo) QueryExpensesWithFilter(_ context.Context, _ domain.Trip, filter expense.ExpenseFilter) ([]domain.Expense, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.queryErr != nil {
+		return nil, r.queryErr
+	}
 	var res []domain.Expense
 	for _, e := range r.expenses {
 		if filter.Method != nil && e.Method != *filter.Method {
@@ -121,11 +129,25 @@ func (r *inMemoryAccountingRepo) UploadFile(_ context.Context, _ domain.Trip, _ 
 }
 
 type inMemoryTripRepo struct {
+	mu    sync.Mutex
 	trips []domain.Trip
+	// err, when set, fails the listing, as an unreachable TREK would.
+	err error
 }
 
 func (r *inMemoryTripRepo) ListTrips(_ context.Context) ([]domain.Trip, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return nil, r.err
+	}
 	return r.trips, nil
+}
+
+func (r *inMemoryTripRepo) setError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.err = err
 }
 
 type staticRateFetcher struct{}

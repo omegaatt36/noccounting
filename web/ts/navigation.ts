@@ -1,26 +1,52 @@
+import { appReady } from "./api.js";
+import { refreshDashboard } from "./dashboard.js";
+
 const $ = (id: string) => document.getElementById(id);
 
 type View = "form" | "dashboard";
 
+const NAV_BASE = "flex-1 py-3 text-center text-sm font-medium border-t-2 ";
+const NAV_ACTIVE = NAV_BASE + "text-primary border-primary";
+const NAV_INACTIVE = NAV_BASE + "text-muted-foreground border-transparent";
+
+// An expense filed after the dashboard was drawn makes it stale; it is redrawn
+// when next opened rather than on every visit.
+let dashboardStale = false;
+document.addEventListener("expense-saved", () => {
+  dashboardStale = true;
+});
+
 export function switchView(view: View): void {
   const formView = $("view-form");
   const dashboardView = $("view-dashboard");
-  const navForm = $("nav-form");
-  const navDashboard = $("nav-dashboard");
+  if (!formView || !dashboardView) return;
 
-  if (!formView || !dashboardView || !navForm || !navDashboard) return;
+  formView.classList.toggle("hidden", view !== "form");
+  dashboardView.classList.toggle("hidden", view !== "dashboard");
 
-  if (view === "form") {
-    formView.classList.remove("hidden");
-    dashboardView.classList.add("hidden");
-    navForm.className = "flex-1 py-3 text-center text-sm font-medium text-primary border-t-2 border-primary";
-    navDashboard.className = "flex-1 py-3 text-center text-sm font-medium text-muted-foreground border-t-2 border-transparent";
-  } else {
-    formView.classList.add("hidden");
-    dashboardView.classList.remove("hidden");
-    navForm.className = "flex-1 py-3 text-center text-sm font-medium text-muted-foreground border-t-2 border-transparent";
-    navDashboard.className = "flex-1 py-3 text-center text-sm font-medium text-primary border-t-2 border-primary";
+  for (const button of document.querySelectorAll<HTMLElement>("#bottom-nav [data-view]")) {
+    const current = button.dataset.view === view;
+    button.className = current ? NAV_ACTIVE : NAV_INACTIVE;
+    if (current) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+
+  // The MainButton files the form, which is not on screen in the dashboard.
+  const mainButton = window.Telegram?.WebApp?.MainButton;
+  if (view === "form" && appReady()) mainButton?.show();
+  else mainButton?.hide();
+
+  window.scrollTo(0, 0);
+
+  if (view === "dashboard" && dashboardStale) {
+    dashboardStale = false;
+    refreshDashboard();
   }
 }
 
-(window as any).switchView = switchView;
+document.addEventListener("click", (evt) => {
+  const target = evt.target instanceof Element ? evt.target : null;
+  const view = target?.closest<HTMLElement>("[data-view]")?.dataset.view;
+  if (view === "form" || view === "dashboard") switchView(view);
+  else if (target?.closest('[data-action="show-form"]')) switchView("form");
+});

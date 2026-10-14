@@ -6,6 +6,8 @@ import {
   fetchExchangeRate,
 } from "./exchange-rate.js";
 import { tripCurrency, appReady } from "./api.js";
+import { showToast } from "./toast.js";
+import { setupChoiceGroups } from "./a11y.js";
 
 const $ = (id: string) => document.getElementById(id);
 
@@ -19,13 +21,9 @@ function validateField(
   if (!field) return true;
 
   const isValid = check(field.value);
-  if (isValid) {
-    field.classList.remove("border-destructive");
-    if (errorEl) errorEl.classList.add("hidden");
-  } else {
-    field.classList.add("border-destructive");
-    if (errorEl) errorEl.classList.remove("hidden");
-  }
+  field.classList.toggle("border-destructive", !isValid);
+  field.setAttribute("aria-invalid", String(!isValid));
+  errorEl?.classList.toggle("hidden", isValid);
   return isValid;
 }
 
@@ -54,6 +52,21 @@ function validateForm(): boolean {
   const priceOk = validatePrice();
   const participantsOk = validateParticipants();
   return nameOk && priceOk && participantsOk;
+}
+
+// What to tell the user about a request that got no usable answer. The form
+// keeps what was typed, so trying again is one tap.
+function failureMessage(status: number): string {
+  switch (status) {
+    case 0:
+      return "網路連線有問題，內容已保留，請稍後再試";
+    case 403:
+      return "驗證失敗，請關閉後重新開啟";
+    case 429:
+      return "操作太頻繁，請稍候一分鐘再試";
+    default:
+      return "伺服器暫時有問題，內容已保留，請稍後再試";
+  }
 }
 
 function formatDate(d: Date): string {
@@ -103,7 +116,7 @@ function setupReceiptUpload(ctx: TelegramContext): void {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || "收據辨識失敗，請手動輸入");
+        showToast("⚠️ 辨識失敗", data.error || "收據辨識失敗，請手動輸入");
         haptic(ctx, "notification", "error");
         return;
       }
@@ -139,7 +152,7 @@ function setupReceiptUpload(ctx: TelegramContext): void {
       haptic(ctx, "notification", "success");
     } catch (err) {
       console.error("Receipt upload error:", err);
-      alert("上傳收據失敗，請稍後再試");
+      showToast("⚠️ 上傳失敗", "上傳收據失敗，請稍後再試");
       haptic(ctx, "notification", "error");
     } finally {
       receiptIndicator?.classList.add("hidden");
@@ -150,6 +163,7 @@ function setupReceiptUpload(ctx: TelegramContext): void {
 
 export function setupEventListeners(ctx: TelegramContext): void {
   setupReceiptUpload(ctx);
+  setupChoiceGroups();
 
   const todayBtn = document.getElementById("date-today-btn");
   const yesterdayBtn = document.getElementById("date-yesterday-btn");
@@ -161,6 +175,9 @@ export function setupEventListeners(ctx: TelegramContext): void {
     const d = new Date();
     if (which === "yesterday") d.setDate(d.getDate() - 1);
     if (dateInput) dateInput.value = formatDate(d);
+
+    todayBtn?.setAttribute("aria-pressed", String(which === "today"));
+    yesterdayBtn?.setAttribute("aria-pressed", String(which === "yesterday"));
 
     todayBtn?.classList.toggle("bg-primary", which === "today");
     todayBtn?.classList.toggle("text-primary-foreground", which === "today");
@@ -282,6 +299,7 @@ export function setupEventListeners(ctx: TelegramContext): void {
       if (status >= 200 && status < 300 && success) {
         haptic(ctx, "notification", "success");
         saveDefaults();
+        document.dispatchEvent(new CustomEvent("expense-saved"));
         const nameInput = $("name") as HTMLInputElement | null;
         const priceInput = $("price") as HTMLInputElement | null;
         if (nameInput) nameInput.value = "";
@@ -298,10 +316,17 @@ export function setupEventListeners(ctx: TelegramContext): void {
 
         nameInput?.classList.remove("border-destructive");
         priceInput?.classList.remove("border-destructive");
+        nameInput?.setAttribute("aria-invalid", "false");
+        priceInput?.setAttribute("aria-invalid", "false");
         $("name-error")?.classList.add("hidden");
         $("price-error")?.classList.add("hidden");
       } else {
         haptic(ctx, "notification", "error");
+        // A 2xx answer carries its own error toast. Anything else was never
+        // swapped in, so without this the form would just sit there.
+        if (status < 200 || status >= 300) {
+          showToast("⚠️ 新增失敗", failureMessage(status));
+        }
       }
 
       document.querySelectorAll("#result [data-tui-toast]").forEach((el) => {

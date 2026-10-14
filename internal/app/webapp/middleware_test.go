@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -159,6 +160,52 @@ func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("second health check should return 200, got %d", w.Code)
+	}
+}
+
+func TestRateLimitMiddlewareSkipsStaticAssets(t *testing.T) {
+	handler := rateLimit(1, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for range 5 {
+		req := httptest.NewRequest("GET", "/static/app.js", nil)
+		req.RemoteAddr = "192.168.1.1"
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("static asset should never be limited, got %d", w.Code)
+		}
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	handler := securityHeaders()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+
+	csp := w.Header().Get("Content-Security-Policy")
+	for _, directive := range []string{
+		"default-src 'self'",
+		"script-src 'self' https://telegram.org",
+		"object-src 'none'",
+		"frame-ancestors 'self' https://web.telegram.org",
+	} {
+		if !strings.Contains(csp, directive) {
+			t.Errorf("CSP %q lacks %q", csp, directive)
+		}
+	}
+	if strings.Contains(csp, "unsafe-eval") || strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Errorf("CSP %q must not allow inline or eval'd scripts", csp)
+	}
+	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q", got)
+	}
+	if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Errorf("Referrer-Policy = %q", got)
 	}
 }
 

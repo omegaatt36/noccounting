@@ -25,6 +25,8 @@ type Analyzer struct {
 	baseURL    string
 	apiKey     string
 	model      string
+	// retryBase is the first backoff; each further retry doubles it.
+	retryBase time.Duration
 }
 
 var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
@@ -35,6 +37,7 @@ func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
 		model:      model,
+		retryBase:  time.Second,
 	}
 }
 
@@ -85,7 +88,7 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			sleepDuration := time.Duration(1<<attempt) * time.Second
+			sleepDuration := a.retryBase << attempt
 			slog.Info("Retrying LLM request", "attempt", attempt, "sleep", sleepDuration)
 			select {
 			case <-time.After(sleepDuration):

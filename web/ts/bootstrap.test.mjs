@@ -107,8 +107,8 @@ async function nativeForm(success = false) {
   let callback;
   const button = { active: true, visible: false, setText() {}, onClick(fn) { callback = fn; }, show() { this.visible = true; }, hide() { this.visible = false; }, enable() { this.active = true; }, disable() { this.active = false; }, showProgress() {}, hideProgress() {} };
   let saved = 0;
-  const name = { value: "Lunch", classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, focus() {} };
-  const price = { value: "100", classList: name.classList };
+  const name = { value: "Lunch", classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, setAttribute() {}, focus() {} };
+  const price = { value: "100", classList: name.classList, setAttribute() {} };
   const form = { addEventListener(name, fn) { handlers[name] = fn; }, requestSubmit() { submitted++; } };
   const submit = { disabled: false, querySelector: () => null };
   const body = { dataset: { tripId: "3" } };
@@ -122,8 +122,8 @@ async function nativeForm(success = false) {
       if (id === "toast-trigger") return { dataset: { success: String(success) } };
       if (["app", "loading", "trip-error", "forbidden"].includes(id)) return { classList: name.classList };
       return null;
-    }, querySelectorAll: () => [] },
-    window: { Telegram: { WebApp: ctx.tg } }, console,
+    }, querySelectorAll: () => [], dispatchEvent() {} },
+    window: { Telegram: { WebApp: ctx.tg } }, console, CustomEvent,
   });
   const cache = new Map();
   async function load(name) {

@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
-/* Native form controls (select, date input) and scrollbars render dark with the page. */
-html {
+/* `dark:` follows the page theme (Telegram's colorScheme, set by theme.js), not the OS. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Native form controls (select, date input) and scrollbars render in the page theme. */
+html[data-theme="dark"] {
   color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
 }
 
 @theme {
@@ -41,7 +48,8 @@ html {
   --color-secondary: #343331;
   --color-secondary-foreground: #CECDC3;
   --color-muted: #282726;
-  --color-muted-foreground: #878580;
+  /* flexoki-400, not 500: muted text on the muted fill is 5.6:1, where 500 is 4.1:1 */
+  --color-muted-foreground: #9F9D96;
   --color-accent: #3AA99F;
   --color-accent-foreground: #100F0F;
   --color-destructive: #D14D41;
@@ -49,4 +57,52 @@ html {
   --color-border: #403E3C;
   --color-input: #403E3C;
   --color-ring: #4385BE;
+}
+
+/* Flexoki Light: the same roles on paper, with the 600 accents for text contrast. */
+html[data-theme="light"] {
+  --color-background: #FFFCF0;
+  --color-foreground: #100F0F;
+  --color-card: #F2F0E5;
+  --color-card-foreground: #100F0F;
+  --color-popover: #F2F0E5;
+  --color-popover-foreground: #100F0F;
+  --color-primary: #205EA6;
+  --color-primary-foreground: #FFFCF0;
+  --color-secondary: #E6E4D9;
+  --color-secondary-foreground: #100F0F;
+  --color-muted: #E6E4D9;
+  --color-muted-foreground: #575653;
+  --color-accent: #24837B;
+  --color-accent-foreground: #FFFCF0;
+  --color-destructive: #AF3029;
+  --color-destructive-foreground: #FFFCF0;
+  --color-border: #DAD8CE;
+  --color-input: #DAD8CE;
+  --color-ring: #205EA6;
+}
+
+/* Keyboard users get a visible focus ring on the custom buttons too. */
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* iOS zooms the page when a focused field's text is under 16px. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

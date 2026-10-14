@@ -60,6 +60,7 @@ func TestOCRParseErrorWrapsSyntaxError(t *testing.T) {
 	transport := &spyTransport{content: "not json at all"}
 	analyzer := NewAnalyzer("https://example.test", "key", "model")
 	analyzer.httpClient.Transport = transport
+	analyzer.retryBase = time.Millisecond
 
 	_, err := analyzer.Analyze(context.Background(), []byte("not-an-image"))
 	if err == nil || !strings.Contains(err.Error(), "failed to parse LLM response as receipt data") {

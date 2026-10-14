@@ -19,16 +19,16 @@ templ ExpenseForm() {
 	>
 		<input type="hidden" id="init_data" name="init_data" value=""/>
 		<input type="hidden" id="trip-id-input" name="trip_id" value=""/>
-		<h1 class="text-xl font-bold text-center py-1">📝 新增消費</h1>
+		<h1 class="text-xl font-bold text-center py-1"><span aria-hidden="true">📝</span> 新增消費</h1>
 		<div class="flex items-center justify-between pb-1">
 			<label
 				for="receipt-file-input"
 				class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-card hover:bg-muted text-foreground transition-all shadow-sm active:scale-95"
 			>
-				<span>📸 拍照 / 上傳收據辨識</span>
+				<span><span aria-hidden="true">📸</span> 拍照 / 上傳收據辨識</span>
 			</label>
 			<input type="file" id="receipt-file-input" accept="image/*" class="hidden"/>
-			<span id="receipt-scanning-indicator" class="hidden text-xs text-primary font-medium animate-pulse">
+			<span id="receipt-scanning-indicator" role="status" class="hidden text-xs text-primary font-medium animate-pulse">
 				🔍 正在分析收據...
 			</span>
 		</div>
@@ -42,9 +42,9 @@ templ ExpenseForm() {
 					Name:        "name",
 					Type:        input.TypeText,
 					Placeholder: "例：拉麪",
-					Attributes:  templ.Attributes{"required": true},
+					Attributes:  templ.Attributes{"required": true, "aria-describedby": "name-error"},
 				})
-				<p id="name-error" class="hidden text-xs text-destructive mt-1">請輸入消費名稱</p>
+				<p id="name-error" role="alert" class="hidden text-xs text-destructive mt-1">請輸入消費名稱</p>
 			</div>
 			<div class="col-span-2">
 				@label.Label(label.Props{For: "price"}) {
@@ -56,13 +56,16 @@ templ ExpenseForm() {
 					Type:        input.TypeText,
 					Placeholder: "0",
 					Attributes: templ.Attributes{
-						"required":  true,
-						"readonly":  true,
-						"inputmode": "none",
+						"required":         true,
+						"readonly":         true,
+						"inputmode":        "none",
+						"aria-haspopup":    "dialog",
+						"aria-expanded":    "false",
+						"aria-describedby": "price-error",
 					},
 					Class: "cursor-pointer",
 				})
-				<p id="price-error" class="hidden text-xs text-destructive mt-1">請輸入有效金額</p>
+				<p id="price-error" role="alert" class="hidden text-xs text-destructive mt-1">請輸入有效金額</p>
 			</div>
 		</div>
 		<div>
@@ -71,7 +74,7 @@ templ ExpenseForm() {
 			}
 			<input type="hidden" name="category" id="category-input" value={ string(domain.CategoryFood) }/>
 			@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto"}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "分類"}}) {
 					for i, category := range domain.CategoryValues() {
 						@tabs.Trigger(tabs.TriggerProps{Value: string(category), IsActive: i == 0}) {
 							{ format.Category(category) }
@@ -86,7 +89,7 @@ templ ExpenseForm() {
 			}
 			<input type="hidden" name="currency" id="currency-input" value="JPY"/>
 			@tabs.Tabs(tabs.Props{ID: "currency-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "flex gap-2 w-full"}) {
+				@tabs.List(tabs.ListProps{Class: "flex gap-2 w-full", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "幣別"}}) {
 					@tabs.Trigger(tabs.TriggerProps{Value: "JPY", IsActive: true, Class: "flex-1"}) {
 						🇯🇵 JPY
 					}
@@ -97,7 +100,7 @@ templ ExpenseForm() {
 			}
 			<div id="exchange-rate-section" class="overflow-hidden transition-all duration-300 ease-in-out" style="max-height: 0; opacity: 0;">
 				<div class="flex items-center gap-2 mt-3">
-					<label class="text-sm whitespace-nowrap text-muted-foreground">匯率</label>
+					<label for="exchange-rate-input" class="text-sm whitespace-nowrap text-muted-foreground">匯率</label>
 					@input.Input(input.Props{
 						ID:    "exchange-rate-input",
 						Name:  "exchange_rate",
@@ -112,9 +115,10 @@ templ ExpenseForm() {
 						ID:   "fetch-rate-btn",
 						Type: button.TypeButton,
 						Size: button.SizeIcon,
+						Attributes: templ.Attributes{"aria-label": "取得即時匯率"},
 					}) {
-						<span class="fetch-text">🔄</span>
-						<span class="fetch-loading hidden">⏳</span>
+						<span class="fetch-text" aria-hidden="true">🔄</span>
+						<span class="fetch-loading hidden" aria-hidden="true">⏳</span>
 					}
 					<span id="rate-status" class="text-xs text-muted-foreground"></span>
 				</div>
@@ -127,7 +131,7 @@ templ ExpenseForm() {
 			}
 			<input type="hidden" name="method" id="method-input" value={ string(domain.PaymentMethodCash) }/>
 			@tabs.Tabs(tabs.Props{ID: "method-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto"}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "付款方式"}}) {
 					for i, method := range domain.PaymentMethodValues() {
 						@tabs.Trigger(tabs.TriggerProps{Value: string(method), IsActive: i == 0}) {
 							{ format.PaymentEmoji(method) } { format.PaymentLabel(method) }
@@ -156,11 +160,13 @@ templ ExpenseForm() {
 					<button
 						type="button"
 						id="date-today-btn"
+						aria-pressed="true"
 						class="flex-1 text-xs rounded-md border border-input bg-primary text-primary-foreground py-1 transition-colors"
 					>今天</button>
 					<button
 						type="button"
 						id="date-yesterday-btn"
+						aria-pressed="false"
 						class="flex-1 text-xs rounded-md border border-input bg-muted text-muted-foreground py-1 transition-colors"
 					>昨天</button>
 				</div>
@@ -175,8 +181,8 @@ templ ExpenseForm() {
 			@label.Label(label.Props{}) {
 				分攤（平均分給勾選的人）
 			}
-			<div id="participants" class="flex flex-wrap gap-1.5 mt-1"></div>
-			<p id="participants-error" class="hidden text-xs text-destructive mt-1">至少要有一位分攤的人</p>
+			<div id="participants" role="group" aria-label="分攤的人" aria-describedby="participants-error" class="flex flex-wrap gap-1.5 mt-1"></div>
+			<p id="participants-error" role="alert" class="hidden text-xs text-destructive mt-1">至少要有一位分攤的人</p>
 		</div>
 		@button.Button(button.Props{
 			ID:        "submit-btn",
@@ -186,8 +192,8 @@ templ ExpenseForm() {
 			Size:      button.SizeLg,
 			Class:     "hidden",
 		}) {
-			<span class="btn-text">✅ 新增消費</span>
-			<span class="btn-loading hidden">⏳ 處理中...</span>
+			<span class="btn-text"><span aria-hidden="true">✅</span> 新增消費</span>
+			<span class="btn-loading hidden"><span aria-hidden="true">⏳</span> 處理中...</span>
 		}
 		<div
 			id="numpad-backdrop"
@@ -195,15 +201,18 @@ templ ExpenseForm() {
 		></div>
 		<div
 			id="numpad-sheet"
+			role="dialog"
+			aria-modal="true"
+			aria-label="輸入金額"
 			class="hidden fixed bottom-0 left-0 right-0 flex-col bg-background border-t border-border rounded-t-2xl p-3 pb-8 z-50 shadow-2xl"
 		>
 			<div class="flex items-baseline justify-between px-1 mb-3">
 				<div class="flex items-baseline gap-2">
-					<span id="numpad-display" class="text-3xl font-bold tracking-tight">0</span>
+					<span id="numpad-display" aria-live="polite" class="text-3xl font-bold tracking-tight">0</span>
 					<span class="text-sm text-muted-foreground" id="numpad-currency-label">JPY</span>
 				</div>
 				<div class="flex items-center gap-2">
-					<span id="numpad-convert" class="text-sm text-cyan-500"></span>
+					<span id="numpad-convert" aria-live="polite" class="text-sm text-cyan-700 dark:text-cyan-400"></span>
 					<button
 						type="button"
 						id="numpad-clear"
@@ -221,9 +230,9 @@ templ ExpenseForm() {
 				@numpadKey("7")
 				@numpadKey("8")
 				@numpadKey("9")
-				@numpadKey(".")
+				@numpadKeyLabeled(".", "小數點")
 				@numpadKey("0")
-				@numpadKeyIcon("backspace", "⌫")
+				@numpadKeyIcon("backspace", "⌫", "刪除")
 			</div>
 			<button
 				type="button"
@@ -242,10 +251,20 @@ templ numpadKey(digit string) {
 	>{ digit }</button>
 }
 
-templ numpadKeyIcon(key string, icon string) {
+templ numpadKeyLabeled(digit string, label string) {
+	<button
+		type="button"
+		data-numpad-key={ digit }
+		aria-label={ label }
+		class="bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-base font-medium text-foreground transition-all"
+	>{ digit }</button>
+}
+
+templ numpadKeyIcon(key string, icon string, label string) {
 	<button
 		type="button"
 		data-numpad-key={ key }
+		aria-label={ label }
 		class="bg-muted hover:bg-muted/70 active:scale-[0.93] rounded-lg h-12 text-lg text-foreground transition-all"
 	>{ icon }</button>
 }

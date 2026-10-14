@@ -29,7 +29,7 @@ func BottomNav() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<nav id=\"bottom-nav\" class=\"fixed bottom-0 left-0 right-0 bg-background border-t border-border\" style=\"padding-bottom: env(safe-area-inset-bottom);\"><div class=\"max-w-md mx-auto flex\"><button id=\"nav-form\" class=\"flex-1 py-3 text-center text-sm font-medium text-primary border-t-2 border-primary\" onclick=\"switchView('form')\">📝 記帳</button> <button id=\"nav-dashboard\" class=\"flex-1 py-3 text-center text-sm font-medium text-muted-foreground border-t-2 border-transparent\" onclick=\"switchView('dashboard')\">📊 Dashboard</button></div></nav>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<nav id=\"bottom-nav\" aria-label=\"主選單\" class=\"fixed bottom-0 left-0 right-0 bg-background border-t border-border\" style=\"padding-bottom: env(safe-area-inset-bottom);\"><div class=\"max-w-md mx-auto flex\"><button type=\"button\" id=\"nav-form\" data-view=\"form\" aria-current=\"page\" class=\"flex-1 py-3 text-center text-sm font-medium text-primary border-t-2 border-primary\"><span aria-hidden=\"true\">📝</span> 記帳</button> <button type=\"button\" id=\"nav-dashboard\" data-view=\"dashboard\" class=\"flex-1 py-3 text-center text-sm font-medium text-muted-foreground border-t-2 border-transparent\"><span aria-hidden=\"true\">📊</span> Dashboard</button></div></nav>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

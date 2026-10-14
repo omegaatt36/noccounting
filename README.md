@@ -75,6 +75,15 @@ LLM_MODEL=gpt-4o
 
 The bot logs in as its own TREK account and sees only the trips it is added to. Add it when a trip starts and remove it when it ends.
 
+## Development
+
+```sh
+task test    # unit tests, plus browser end-to-end tests that need Chrome (skipped without it)
+task e2e     # the browser tests alone
+```
+
+The Mini App is served under a strict Content-Security-Policy: no inline scripts, and only `telegram.org`'s SDK from outside. htmx is vendored in `static/` (`task htmx` re-downloads it) rather than loaded from a CDN. The page follows Telegram's light or dark theme.
+
 ## License
 
 [MIT](LICENSE)
