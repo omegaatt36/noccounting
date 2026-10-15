@@ -69,7 +69,7 @@ templ Toast(props ...Props) {
 		data-variant={ string(p.Variant) }
 		class={ utils.TwMerge(
 			// Base styles
-			"z-50 fixed pointer-events-auto p-4 w-full md:max-w-[420px]",
+			"z-50 fixed pointer-events-none p-4 w-full md:max-w-[420px]",
 			// Animation
 			"animate-in fade-in slide-in-from-bottom-4 duration-300",
 			// Position-based styles using data attributes
@@ -130,6 +130,7 @@ templ Toast(props ...Props) {
 			// Dismiss button
 			if p.Dismissible {
 				@button.Button(button.Props{
+					Class:   "pointer-events-auto",
 					Size:    button.SizeIcon,
 					Variant: button.VariantGhost,
 					Attributes: templ.Attributes{

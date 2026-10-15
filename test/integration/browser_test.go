@@ -117,6 +117,49 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	app.requireNoProblems()
 }
 
+func TestBrowserToastsKeepEditorActionsClickable(t *testing.T) {
+	app := newBrowserApp(t, appOptions{})
+	app.open()
+	app.waitReady()
+	// Keep notifications on screen so this checks overlap, not timer speed.
+	app.run(chromedp.Evaluate(`(() => {
+		const schedule = window.setTimeout;
+		window.setTimeout = (fn, delay, ...args) => schedule(fn, delay >= 3000 ? 60000 : delay, ...args);
+	})()`, nil))
+	app.fillExpense("通知遮擋測試", "100")
+	app.click("#submit-btn")
+	app.waitFor("the saved toast", toastSaying("通知遮擋測試"))
+	app.click("#nav-list")
+	app.waitFor("the expense", app.visible(`#list-content [data-edit]`))
+	app.click(`#list-content [data-edit]`)
+	app.waitFor("the editor", app.visible("#edit-bar"))
+
+	assertActionsReachable := func() {
+		t.Helper()
+		app.run(chromedp.Evaluate(`window.scrollTo(0, 0)`, nil))
+		// Check inside the upper half: font metrics change whether the toast
+		// also covers the center of these buttons on a particular platform.
+		for _, action := range []string{"cancel-edit", "delete-expense"} {
+			require.True(t, app.flag(fmt.Sprintf(`(() => {
+				const button = document.querySelector('[data-action="%s"]');
+				const r = button.getBoundingClientRect();
+				return button.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 4));
+			})()`, action)), "%s must receive clicks while a toast is visible", action)
+		}
+	}
+	assertActionsReachable()
+	// The server toast still has a working close button.
+	app.click("[data-tui-toast-dismiss]")
+	app.waitFor("the toast to close", `!document.querySelector("#result [data-tui-toast]")`)
+	// Client-side notifications use the same click-through behavior.
+	app.run(chromedp.Evaluate(`import("/static/toast.js").then(m => m.showToast("已刪除", "通知遮擋測試", "success"))`, nil))
+	app.waitFor("the client toast", toastSaying("已刪除"))
+	assertActionsReachable()
+	app.click(`[data-action="cancel-edit"]`)
+	app.waitFor("the list", app.visible("#view-list"))
+	app.requireNoProblems()
+}
+
 func TestBrowserEditFailureKeepsTheEditor(t *testing.T) {
 	app := newBrowserApp(t, appOptions{})
 	app.repo.expenses = []domain.Expense{{
