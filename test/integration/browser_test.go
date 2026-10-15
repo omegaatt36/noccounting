@@ -53,13 +53,13 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	assert.Equal(t, "food", app.text(`document.getElementById("list-category").value`), "the list is narrowed to the category")
 
 	// Searching narrows it further.
-	app.run(chromedp.SendKeys("#list-q", "沒有這個", chromedp.ByQuery))
+	app.run(chromedp.SendKeys(chromedp.CSS("#list-q"), "沒有這個"))
 	app.waitFor("the empty search", `document.getElementById("list-content")?.innerText.includes("沒有符合條件的消費")`)
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const q = document.getElementById("list-q");
 		q.value = "";
 		q.dispatchEvent(new Event("input", { bubbles: true }));
-	})()`, nil))
+	})()`))
 	app.waitFor("the list again", `document.getElementById("list-content")?.innerText.includes("東京拉麵")`)
 
 	// The settlement is a tab of its own.
@@ -76,7 +76,7 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	assert.Equal(t, "儲存變更", strings.TrimSpace(app.text(`document.getElementById("submit-label").textContent`)))
 	assert.False(t, app.flag(app.visible("#receipt-row")), "scanning a receipt is for new expenses")
 
-	app.run(chromedp.SetValue("#name", "東京沾麵", chromedp.ByQuery))
+	app.run(chromedp.SetValue(chromedp.CSS("#name"), "東京沾麵"))
 	app.click("#price")
 	app.waitFor("the numpad", app.visible("#numpad-sheet"))
 	app.click("#numpad-clear")
@@ -122,10 +122,10 @@ func TestBrowserToastsKeepEditorActionsClickable(t *testing.T) {
 	app.open()
 	app.waitReady()
 	// Keep notifications on screen so this checks overlap, not timer speed.
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const schedule = window.setTimeout;
 		window.setTimeout = (fn, delay, ...args) => schedule(fn, delay >= 3000 ? 60000 : delay, ...args);
-	})()`, nil))
+	})()`))
 	app.fillExpense("通知遮擋測試", "100")
 	app.click("#submit-btn")
 	app.waitFor("the saved toast", toastSaying("通知遮擋測試"))
@@ -136,7 +136,7 @@ func TestBrowserToastsKeepEditorActionsClickable(t *testing.T) {
 
 	assertActionsReachable := func() {
 		t.Helper()
-		app.run(chromedp.Evaluate(`window.scrollTo(0, 0)`, nil))
+		app.run(chromedp.Evaluate[chromedp.Void](`window.scrollTo(0, 0)`))
 		// Check inside the upper half: font metrics change whether the toast
 		// also covers the center of these buttons on a particular platform.
 		for _, action := range []string{"cancel-edit", "delete-expense"} {
@@ -152,7 +152,7 @@ func TestBrowserToastsKeepEditorActionsClickable(t *testing.T) {
 	app.click("[data-tui-toast-dismiss]")
 	app.waitFor("the toast to close", `!document.querySelector("#result [data-tui-toast]")`)
 	// Client-side notifications use the same click-through behavior.
-	app.run(chromedp.Evaluate(`import("/static/toast.js").then(m => m.showToast("已刪除", "通知遮擋測試", "success"))`, nil))
+	app.run(chromedp.Evaluate[chromedp.Void](`import("/static/toast.js").then(m => m.showToast("已刪除", "通知遮擋測試", "success"))`))
 	app.waitFor("the client toast", toastSaying("已刪除"))
 	assertActionsReachable()
 	app.click(`[data-action="cancel-edit"]`)
@@ -218,14 +218,37 @@ func TestBrowserEnforcesContentSecurityPolicy(t *testing.T) {
 	csp := app.text(`fetch("/").then((response) => response.headers.get("content-security-policy"))`)
 	assert.Contains(t, csp, "script-src 'self' https://telegram.org")
 
-	injected := false
-	app.eval(`(() => {
+	injected := evalBrowser[bool](app, `(() => {
 		const script = document.createElement("script");
 		script.textContent = "window.__injected = true";
 		document.head.appendChild(script);
 		return window.__injected === true;
-	})()`, &injected)
+	})()`)
 	assert.False(t, injected, "an inline script must be refused")
+	require.Eventually(t, func() bool {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+		return strings.Contains(strings.Join(app.problems, "\n"), "security:")
+	}, 5*time.Second, 20*time.Millisecond, "CSP violations must reach the page log observer")
+}
+
+func TestBrowserReportsPageProblems(t *testing.T) {
+	app := newBrowserApp(t, appOptions{})
+	app.open()
+	app.waitReady()
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
+		console.error("browser-observer-console");
+		setTimeout(() => { throw new Error("browser-observer-exception"); }, 0);
+	})()`))
+	require.Eventually(t, func() bool {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+		problems := strings.Join(app.problems, "\n")
+		return strings.Contains(problems, "console.error:") &&
+			strings.Contains(problems, "browser-observer-console") &&
+			strings.Contains(problems, "exception:") &&
+			strings.Contains(problems, "browser-observer-exception")
+	}, 5*time.Second, 20*time.Millisecond, "console errors and uncaught exceptions must reach the page observers")
 }
 
 func TestBrowserSubmitFailureKeepsTheForm(t *testing.T) {
@@ -249,10 +272,8 @@ func TestBrowserSubmitFailureKeepsTheForm(t *testing.T) {
 }
 
 func (a *browserApp) submitEnabled() bool {
-	var enabled bool
 	a.waitFor("the submit button", `document.getElementById("submit-btn").disabled === false`)
-	a.eval(`document.getElementById("submit-btn").disabled === false`, &enabled)
-	return enabled
+	return evalBrowser[bool](a, `document.getElementById("submit-btn").disabled === false`)
 }
 
 func TestBrowserTripStates(t *testing.T) {
@@ -314,13 +335,13 @@ func TestBrowserTelegramMiniApp(t *testing.T) {
 		app.click("#nav-form")
 		assert.True(t, app.flag(`window.__tg.mainButton.isVisible`))
 
-		app.run(chromedp.EvaluateAsDevTools(`window.Telegram.WebApp.colorScheme = "dark"; window.__tg.fire("themeChanged")`, nil))
+		app.run(chromedp.EvaluateAsDevTools[chromedp.Void](`window.Telegram.WebApp.colorScheme = "dark"; window.__tg.fire("themeChanged")`))
 		assert.Equal(t, "dark", app.text(`document.documentElement.dataset.theme`), "the page follows Telegram's theme change")
 		assert.Equal(t, "#100f0f", strings.ToLower(app.text(`window.__tg.header`)))
 		assert.Equal(t, "#4385be", strings.ToLower(app.text(`window.__tg.mainButton.color`)))
 
 		app.fillExpense("お土産", "3000")
-		app.run(chromedp.EvaluateAsDevTools(`window.__tg.mainButton.click()`, nil))
+		app.run(chromedp.EvaluateAsDevTools[chromedp.Void](`window.__tg.mainButton.click()`))
 		app.waitFor("the success toast", `document.querySelector("#result [data-tui-toast]")?.textContent.includes("お土産")`)
 		require.Equal(t, 1, app.expenseCount())
 		assert.Contains(t, app.text(`window.__tg.haptics.join(",")`), "success")
@@ -361,7 +382,7 @@ func TestBrowserAccessibility(t *testing.T) {
 	assert.NotContains(t, app.text(`document.querySelector('meta[name="viewport"]').content`), "user-scalable=no", "people can pinch-zoom")
 
 	t.Run("the amount sheet is a dialog the keyboard can open and leave", func(t *testing.T) {
-		app.run(chromedp.Focus("#price", chromedp.ByQuery), chromedp.KeyEvent(kb.Enter))
+		app.run(chromedp.Focus(chromedp.CSS("#price")), chromedp.KeyEvent(kb.Enter))
 		app.waitFor("the numpad", app.visible("#numpad-sheet"))
 		assert.Equal(t, "dialog", app.text(`document.getElementById("numpad-sheet").getAttribute("role")`))
 		assert.Equal(t, "true", app.text(`document.getElementById("numpad-sheet").getAttribute("aria-modal")`))
@@ -376,11 +397,10 @@ func TestBrowserAccessibility(t *testing.T) {
 		app.click("#price") // open the sheet so its keys are counted too
 		app.waitFor("the numpad", app.visible("#numpad-sheet"))
 
-		var unnamed []string
-		app.eval(`[...document.querySelectorAll("button, select, input:not([type=hidden])")]
+		unnamed := evalBrowser[[]string](app, `[...document.querySelectorAll("button, select, input:not([type=hidden])")]
 			.filter((el) => el.getClientRects().length > 0)
 			.filter((el) => !(el.getAttribute("aria-label") || el.labels?.[0]?.textContent.trim() || el.textContent.trim() || el.title))
-			.map((el) => el.outerHTML.slice(0, 80))`, &unnamed)
+			.map((el) => el.outerHTML.slice(0, 80))`)
 		assert.Empty(t, unnamed)
 
 		app.click("#numpad-confirm")
@@ -440,13 +460,13 @@ func TestBrowserReceiptScanAndSave(t *testing.T) {
 	assert.False(t, app.flag(app.visible("#more-categories")), "secondary categories start collapsed")
 
 	// Simulate picking a receipt photo in the file input.
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const input = document.getElementById("receipt-file-input");
 		const dt = new DataTransfer();
 		dt.items.add(new File(["fake-image"], "receipt.jpg", { type: "image/jpeg" }));
 		input.files = dt.files;
 		input.dispatchEvent(new Event("change", { bubbles: true }));
-	})()`, nil))
+	})()`))
 
 	app.waitFor("the scanned summary", `document.getElementById("name").value === "LAWSON 超商"`)
 	assert.Equal(t, "860", app.text(`document.getElementById("price").value`))
@@ -512,7 +532,7 @@ func TestBrowserForeignCurrencyAndNumpadMath(t *testing.T) {
 
 	// If /api/rates fails on refresh, the cached rate in localStorage is used.
 	app.failRates.Store(true)
-	app.run(chromedp.Evaluate(`document.getElementById("exchange-rate-input").value = ""`, nil))
+	app.run(chromedp.Evaluate[chromedp.Void](`document.getElementById("exchange-rate-input").value = ""`))
 	app.click("#fetch-rate-btn")
 	app.waitFor("the cached rate fallback", `document.getElementById("rate-status").textContent.includes("快取")`)
 	assert.Equal(t, "0.22", app.text(`document.getElementById("exchange-rate-input").value`))
@@ -528,20 +548,20 @@ func TestBrowserMultiTripSwitchAndScopedDefaults(t *testing.T) {
 	// On trip 10 (TWD), choose Bob (67890) as payer and TWD as currency, then file an expense.
 	assert.Equal(t, "10", app.text(`document.body.dataset.tripId`))
 	assert.Equal(t, "TWD", app.text(`document.getElementById("currency-input").value`))
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const sel = document.getElementById("paid-by-select");
 		sel.value = "67890";
-	})()`, nil))
+	})()`))
 	app.fillExpense("台北計程車", "250")
 	app.click("#submit-btn")
 	app.waitFor("the success toast", toastSaying("台北計程車"))
 
 	// Switch to trip 20 (JPY); the page reloads onto trip 20 with its own currency and default payer.
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const sel = document.getElementById("trip-select");
 		sel.value = "20";
 		sel.dispatchEvent(new Event("change", { bubbles: true }));
-	})()`, nil))
+	})()`))
 	app.waitFor("trip 20 to load", `document.body.dataset.tripId === "20" && document.body.dataset.appReady === "true"`)
 	assert.Equal(t, "JPY", app.text(`document.getElementById("currency-input").value`), "trip 20 uses its own currency")
 	assert.Equal(t, "12345", app.text(`document.getElementById("paid-by-select").value`), "trip 10's saved payer does not leak to trip 20")
@@ -557,20 +577,20 @@ func TestBrowserParticipantsValidationAndSplit(t *testing.T) {
 	app.fillExpense("個人咖啡", "150")
 
 	// Uncheck all participants: submitting must be blocked with #participants-error.
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		for (const box of document.querySelectorAll('#participants input[name="participants"]')) {
 			box.checked = false;
 		}
-	})()`, nil))
+	})()`))
 	app.click("#submit-btn")
 	app.waitFor("the participants error", app.visible("#participants-error"))
 	assert.Equal(t, 0, app.expenseCount(), "no expense is filed with zero participants")
 
 	// Check only Bob (9) and submit.
-	app.run(chromedp.Evaluate(`(() => {
+	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const bob = document.querySelector('#participants input[value="9"]');
 		if (bob) bob.checked = true;
-	})()`, nil))
+	})()`))
 	app.click("#submit-btn")
 	app.waitFor("the success toast", toastSaying("個人咖啡"))
 	assert.False(t, app.flag(app.visible("#participants-error")))

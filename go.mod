@@ -5,8 +5,6 @@ go 1.27
 require (
 	github.com/Oudwins/tailwind-merge-go v0.2.3
 	github.com/a-h/templ v0.3.1070
-	// The browser tests are written for the classic chromedp API. v0.21 replaced it
-	// with generic Action[T]; cdproto must stay at the revision v0.14.2 requires.
 	github.com/chromedp/cdproto v0.157.9
 	github.com/chromedp/chromedp v0.21.0
 	github.com/google/uuid v1.6.0

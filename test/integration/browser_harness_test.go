@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -162,15 +161,26 @@ func newBrowserApp(t *testing.T, opts appOptions) *browserApp {
 	})
 	app.ctx = ctx
 
-	chromedp.ListenTarget(ctx, app.onEvent)
+	watchBrowserEvent(app, runtime.ExceptionThrown)
+	watchBrowserEvent(app, runtime.ConsoleAPICalled)
+	watchBrowserEvent(app, log.EntryAdded)
+	watchBrowserEvent(app, page.JavascriptDialogOpening)
+	watchBrowserEvent(app, fetch.RequestPaused)
 	app.run(
 		chromedp.EmulateViewport(390, 844, chromedp.EmulateMobile),
-		page.Enable(),
-		log.Enable(),
-		fetch.Enable().WithPatterns([]*fetch.RequestPattern{
-			{URLPattern: "https://telegram.org/*"},
-			{URLPattern: "*/api/expense*"},
-			{URLPattern: "*/api/rates*"},
+		chromedp.Func(func(ctx context.Context, target *chromedp.Target) error {
+			if _, err := cdp.Call(ctx, target, page.Enable, page.EnableParams{}); err != nil {
+				return err
+			}
+			if _, err := cdp.Call(ctx, target, log.Enable, cdp.Empty{}); err != nil {
+				return err
+			}
+			_, err := cdp.Call(ctx, target, fetch.Enable, fetch.EnableParams{Patterns: []*fetch.RequestPattern{
+				{URLPattern: "https://telegram.org/*"},
+				{URLPattern: "*/api/expense*"},
+				{URLPattern: "*/api/rates*"},
+			}})
+			return err
 		}),
 	)
 	return app
@@ -257,12 +267,30 @@ func telegramSDK(initData string, userID int64, scheme string) string {
 })();`, quote(initData), userID, quote(scheme))
 }
 
+// watchBrowserEvent subscribes before returning, so setup and navigation cannot
+// race with the goroutine that consumes the events. Canceling the browser context
+// ends each subscription and its reader.
+func watchBrowserEvent[E any](a *browserApp, event cdp.Event[E]) {
+	events := chromedp.Events(a.ctx, event)
+	go func() {
+		for payload, err := range events {
+			if err != nil {
+				if a.ctx.Err() == nil {
+					a.addProblem(fmt.Sprintf("receiving %s: %v", event.Method, err))
+				}
+				return
+			}
+			a.onEvent(&payload)
+		}
+	}()
+}
+
 func (a *browserApp) onEvent(ev any) {
 	switch e := ev.(type) {
 	case *runtime.EventExceptionThrown:
-		a.addProblem("exception: " + e.ExceptionDetails.Error())
+		a.addProblem("exception: " + (&chromedp.ExceptionError{ExceptionDetails: e.ExceptionDetails}).Error())
 	case *runtime.EventConsoleAPICalled:
-		if e.Type == runtime.APITypeError {
+		if e.Type == runtime.ConsoleAPICalledTypeError {
 			parts := make([]string, 0, len(e.Args))
 			for _, arg := range e.Args {
 				if len(arg.Value) > 0 {
@@ -274,13 +302,13 @@ func (a *browserApp) onEvent(ev any) {
 			a.addProblem("console.error: " + strings.Join(parts, " "))
 		}
 	case *log.EventEntryAdded:
-		if e.Entry.Level == log.LevelError {
+		if e.Entry.Level == log.EntryLevelError {
 			a.addProblem(fmt.Sprintf("%s: %s %s", e.Entry.Source, e.Entry.Text, e.Entry.URL))
 		}
 	case *page.EventJavascriptDialogOpening:
 		// hx-confirm asks before a delete; the person says yes.
 		go func() {
-			_ = page.HandleJavaScriptDialog(true).Do(cdp.WithExecutor(a.ctx, chromedp.FromContext(a.ctx).Target))
+			_, _ = cdp.Call(a.ctx, chromedp.FromContext(a.ctx).Target, page.HandleJavaScriptDialog, page.HandleJavaScriptDialogParams{Accept: true})
 		}()
 	case *fetch.EventRequestPaused:
 		go a.route(e)
@@ -288,21 +316,27 @@ func (a *browserApp) onEvent(ev any) {
 }
 
 func (a *browserApp) route(e *fetch.EventRequestPaused) {
-	exec := cdp.WithExecutor(a.ctx, chromedp.FromContext(a.ctx).Target)
+	target := chromedp.FromContext(a.ctx).Target
 
 	var err error
 	switch {
 	case strings.HasPrefix(e.Request.URL, "https://telegram.org/"):
-		err = fetch.FulfillRequest(e.RequestID, 200).
-			WithResponseHeaders([]*fetch.HeaderEntry{{Name: "Content-Type", Value: "text/javascript"}}).
-			WithBody(base64.StdEncoding.EncodeToString([]byte(a.sdk))).
-			Do(exec)
+		_, err = cdp.Call(a.ctx, target, fetch.FulfillRequest, fetch.FulfillRequestParams{
+			RequestID:       e.RequestID,
+			ResponseCode:    200,
+			ResponseHeaders: []*fetch.HeaderEntry{{Name: "Content-Type", Value: "text/javascript"}},
+			Body:            []byte(a.sdk),
+		})
 	case (e.Request.Method == "POST" || e.Request.Method == "PUT") && a.failPost.Load():
-		err = fetch.FailRequest(e.RequestID, network.ErrorReasonConnectionFailed).Do(exec)
+		_, err = cdp.Call(a.ctx, target, fetch.FailRequest, fetch.FailRequestParams{
+			RequestID: e.RequestID, ErrorReason: network.ErrorReasonConnectionFailed,
+		})
 	case strings.Contains(e.Request.URL, "/api/rates") && a.failRates.Load():
-		err = fetch.FailRequest(e.RequestID, network.ErrorReasonConnectionFailed).Do(exec)
+		_, err = cdp.Call(a.ctx, target, fetch.FailRequest, fetch.FailRequestParams{
+			RequestID: e.RequestID, ErrorReason: network.ErrorReasonConnectionFailed,
+		})
 	default:
-		err = fetch.ContinueRequest(e.RequestID).Do(exec)
+		_, err = cdp.Call(a.ctx, target, fetch.ContinueRequest, fetch.ContinueRequestParams{RequestID: e.RequestID})
 	}
 	if err != nil && a.ctx.Err() == nil {
 		a.addProblem(fmt.Sprintf("routing %s: %v", e.Request.URL, err))
@@ -326,9 +360,9 @@ func (a *browserApp) requireNoProblems() {
 	}
 }
 
-func (a *browserApp) run(actions ...chromedp.Action) {
+func (a *browserApp) run(actions ...chromedp.Action[chromedp.Void]) {
 	a.t.Helper()
-	if err := chromedp.Run(a.ctx, actions...); err != nil {
+	if err := chromedp.Do(a.ctx, actions...); err != nil {
 		a.t.Fatal(err)
 	}
 }
@@ -338,27 +372,24 @@ func (a *browserApp) open() {
 	a.run(chromedp.Navigate(a.baseURL + "/"))
 }
 
-// eval runs a JS expression in the page, awaiting it when it is a promise, and
-// decodes its value into out.
-func (a *browserApp) eval(expression string, out any) {
+// evalBrowser awaits a JavaScript expression and decodes its result into T.
+func evalBrowser[T any](a *browserApp, expression string) T {
 	a.t.Helper()
-	a.run(chromedp.Evaluate(expression, out, func(params *runtime.EvaluateParams) *runtime.EvaluateParams {
-		return params.WithAwaitPromise(true)
-	}))
+	out, err := chromedp.Run(a.ctx, chromedp.Evaluate[T](expression, chromedp.EvalAwaitPromise))
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return out
 }
 
 func (a *browserApp) text(expression string) string {
 	a.t.Helper()
-	var out string
-	a.eval(expression, &out)
-	return out
+	return evalBrowser[string](a, expression)
 }
 
 func (a *browserApp) flag(expression string) bool {
 	a.t.Helper()
-	var out bool
-	a.eval(expression, &out)
-	return out
+	return evalBrowser[bool](a, expression)
 }
 
 // waitFor blocks until the JS expression is truthy. A navigation that replaces
@@ -368,8 +399,7 @@ func (a *browserApp) waitFor(what, expression string) {
 	deadline := time.Now().Add(15 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		var truthy bool
-		err := chromedp.Run(a.ctx, chromedp.Evaluate(`!!(`+expression+`)`, &truthy))
+		truthy, err := chromedp.Run(a.ctx, chromedp.Evaluate[bool](`!!(`+expression+`)`))
 		if err == nil && truthy {
 			return
 		}
@@ -385,9 +415,9 @@ func (a *browserApp) click(selector string) {
 	a.t.Helper()
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
-	if err := chromedp.Run(ctx,
-		chromedp.Evaluate(fmt.Sprintf(`document.querySelector(%q)?.scrollIntoView({block: "center", behavior: "instant"})`, selector), nil),
-		chromedp.Click(selector, chromedp.ByQuery, chromedp.NodeVisible),
+	if err := chromedp.Do(ctx,
+		chromedp.Evaluate[chromedp.Void](fmt.Sprintf(`document.querySelector(%q)?.scrollIntoView({block: "center", behavior: "instant"})`, selector)),
+		chromedp.Click(chromedp.CSS(selector), chromedp.NodeVisible),
 	); err != nil {
 		a.t.Fatalf("clicking %s: %v", selector, err)
 	}
@@ -423,6 +453,6 @@ func (a *browserApp) enterPrice(amount string) {
 // fillExpense fills the form in, leaving it ready to submit.
 func (a *browserApp) fillExpense(name, amount string) {
 	a.t.Helper()
-	a.run(chromedp.SendKeys("#name", name, chromedp.ByQuery))
+	a.run(chromedp.SendKeys(chromedp.CSS("#name"), name))
 	a.enterPrice(amount)
 }
