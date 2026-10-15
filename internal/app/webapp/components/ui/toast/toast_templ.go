@@ -92,7 +92,7 @@ func Toast(props ...Props) templ.Component {
 		}
 		var templ_7745c5c3_Var2 = []any{utils.TwMerge(
 			// Base styles
-			"z-50 fixed pointer-events-auto p-4 w-full md:max-w-[420px]",
+			"z-50 fixed pointer-events-none p-4 w-full md:max-w-[420px]",
 			// Animation
 			"animate-in fade-in slide-in-from-bottom-4 duration-300",
 			// Position-based styles using data attributes
@@ -343,6 +343,7 @@ func Toast(props ...Props) templ.Component {
 				return nil
 			})
 			templ_7745c5c3_Err = button.Button(button.Props{
+				Class:   "pointer-events-auto",
 				Size:    button.SizeIcon,
 				Variant: button.VariantGhost,
 				Attributes: templ.Attributes{
@@ -391,7 +392,7 @@ func Script() templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(templ.GetNonce(ctx))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/ui/toast/toast.templ`, Line: 152, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/ui/toast/toast.templ`, Line: 153, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
@@ -404,7 +405,7 @@ func Script() templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(utils.ScriptURL("/static/toast.min.js"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/ui/toast/toast.templ`, Line: 152, Col: 90}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/ui/toast/toast.templ`, Line: 153, Col: 90}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {

@@ -19,7 +19,7 @@ export function showToast(
   toast.setAttribute("data-position", "top-center");
   toast.setAttribute("data-variant", variant);
   toast.className =
-    "z-50 fixed pointer-events-auto p-4 w-full md:max-w-[420px] top-0 left-1/2 -translate-x-1/2";
+    "z-50 fixed pointer-events-none p-4 w-full md:max-w-[420px] top-0 left-1/2 -translate-x-1/2";
 
   const box = document.createElement("div");
   box.className =
