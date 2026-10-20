@@ -69,7 +69,6 @@ func TestHandleTrip_OffersEveryTripAndMarksTheCurrentOne(t *testing.T) {
 	if !strings.Contains(markup.InlineKeyboard[1][0].Text, "Osaka") {
 		t.Errorf("second button = %q, want the other trip offered", markup.InlineKeyboard[1][0].Text)
 	}
-	// Neither trip is dated, so the list is by id and the first is the current.
 	if !strings.HasPrefix(markup.InlineKeyboard[0][0].Text, "✅ ") {
 		t.Errorf("first button = %q, want the current trip marked", markup.InlineKeyboard[0][0].Text)
 	}

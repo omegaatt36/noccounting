@@ -21,15 +21,12 @@ type ConversationState struct {
 	Step      ConversationStep
 	StartedAt time.Time
 
-	// Trip is the trip the conversation was started under. A flow files its
-	// expense there even if the person switches trip halfway through it.
+	// Trip is fixed when the flow starts: it files there even if the person switches trip midway.
 	Trip domain.Trip
 
-	// For /edit flow
 	EditingExpense *domain.Expense
 	EditField      string
 
-	// For receipt scanning flow
 	ReceiptAnalysis *domain.ReceiptAnalysis
 	ReceiptImage    []byte
 	ReceiptCategory domain.Category
@@ -38,9 +35,8 @@ type ConversationState struct {
 
 const defaultConversationTTL = 15 * time.Minute
 
-// ConversationManager is conversation state per user id.
 type ConversationManager struct {
-	states sync.Map // map[int64]*ConversationState (user ID -> state)
+	states sync.Map
 	ttl    time.Duration
 }
 
@@ -76,10 +72,7 @@ func (m *ConversationManager) ClearState(userID int64) {
 	m.states.Delete(userID)
 }
 
-// Take claims a person's conversation for a step that must run once, such as
-// filing a receipt or deleting an expense: of two taps arriving together, only
-// one gets the state. It claims nothing, and leaves the state be, when ok says
-// the conversation is not the one the step belongs to.
+// Take claims a person's conversation for a step that must run once: of two simultaneous taps only one gets the state.
 func (m *ConversationManager) Take(userID int64, ok func(*ConversationState) bool) *ConversationState {
 	val, loaded := m.states.Load(userID)
 	if !loaded {

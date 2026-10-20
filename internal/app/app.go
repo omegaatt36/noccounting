@@ -9,17 +9,11 @@ import (
 	"syscall"
 )
 
-// App provides a minimal wrapper around application setup and execution,
-// including signal handling for graceful shutdown and panic recovery.
 type App struct {
-	// Main is the core function of the application, executed after setup.
 	Main func(ctx context.Context) error
 }
 
-// Run sets up signal handling, panic recovery, and executes the Main function.
-// It fatally logs any error during execution and returns an exit code.
 func (a App) Run() {
-	// Panic handling.
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("Recovered from panic", "panic", r)

@@ -56,8 +56,6 @@ func TestRepo_GetUsers(t *testing.T) {
 	}
 }
 
-// TestNewRepo_AcceptsANumericBackendUserID pins that the mapping's format is
-// unchanged: a decimal id still parses, and it is stored as written.
 func TestNewRepo_AcceptsANumericBackendUserID(t *testing.T) {
 	repo := userrepo.NewRepo("123456789:8:Alice")
 	users, err := repo.GetUsers()
@@ -78,9 +76,6 @@ func TestNewRepo_AcceptsANumericBackendUserID(t *testing.T) {
 	}
 }
 
-// TestNewRepo_RejectsANonNumericBackendUserID is the loud half of the rename: a
-// mapping left over from the retired backend refuses to start rather than being
-// stored and refused once per expense afterwards.
 func TestNewRepo_RejectsANonNumericBackendUserID(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -132,7 +127,6 @@ func TestNewRepo_RejectsANonNumericBackendUserID(t *testing.T) {
 	}
 }
 
-// panics returns what f panicked with as an error, or nil when it returned.
 func panics(f func()) (err error) {
 	defer func() {
 		recovered := recover()

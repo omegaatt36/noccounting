@@ -19,7 +19,6 @@ const (
 	defaultWebhookListen = ":8081"
 )
 
-// Config holds the Telegram bot's settings.
 type Config struct {
 	Token              string
 	WebAppURL          string
@@ -29,8 +28,7 @@ type Config struct {
 	WebhookSecretToken string
 }
 
-// commands is the menu Telegram clients show. Keep it in step with the routes in
-// Handler.RegisterHandlers.
+// commands is the menu Telegram clients show; keep it in step with Handler.RegisterHandlers.
 var commands = []tele.Command{
 	{Text: "start", Description: "開始使用"},
 	{Text: "help", Description: "指令說明"},
@@ -64,7 +62,6 @@ func registerCommandMenu(b *tele.Bot) error {
 	return b.SetCommands(commands)
 }
 
-// Bot wraps the Telegram bot and its lifecycle management.
 type Bot struct {
 	cfg     Config
 	bot     *tele.Bot
@@ -72,7 +69,6 @@ type Bot struct {
 	handler *Handler
 }
 
-// New creates and initializes a new Telegram bot.
 func New(
 	cfg Config,
 	userService *user.Service,
@@ -126,8 +122,6 @@ func New(
 	}, nil
 }
 
-// onError sends telebot's handler errors to the structured log, with the update
-// they came from, instead of telebot's plain std logger.
 func onError(err error, c tele.Context) {
 	if c == nil {
 		slog.Error("Telegram handler error", "error", err)
@@ -136,13 +130,8 @@ func onError(err error, c tele.Context) {
 	slog.Error("Telegram handler error", "update_id", c.Update().ID, "error", err)
 }
 
-// Start tells Telegram how to reach the bot and then serves updates in a
-// goroutine.
-//
-// A bot has one delivery method at a time: setWebhook turns off getUpdates and
-// the reverse. Start picks the one the config asks for on every run, so switching
-// mode or rolling back never leaves a stale webhook that makes getUpdates fail
-// with 409.
+// Start picks the delivery method on every run: setWebhook turns off getUpdates and the reverse,
+// so switching mode or rolling back never leaves a stale webhook that makes getUpdates fail with 409.
 func (b *Bot) Start() error {
 	if b.webhook != nil {
 		if err := b.bot.SetWebhook(b.webhook); err != nil {
@@ -167,7 +156,6 @@ func (b *Bot) Start() error {
 	return nil
 }
 
-// Stop gracefully stops the bot.
 func (b *Bot) Stop() {
 	slog.Info("Shutting down bot...")
 	b.bot.Stop()

@@ -1,8 +1,5 @@
-// Loaded as a classic script in <head>, right after the stylesheet, so the page
-// theme is on <html> before the body paints and the wrong one never flashes.
-// Inside Telegram the theme is Telegram's own colorScheme and follows it live;
-// anywhere else it is the OS preference. The colors come from the CSS tokens,
-// which stay the single source of truth.
+// Loaded as a classic script in <head> so the page theme is on <html> before the body paints. Inside Telegram it follows
+// Telegram's colorScheme live; elsewhere the OS preference. The colors come from the CSS tokens.
 (() => {
   const root = document.documentElement;
   const tg = window.Telegram?.WebApp;

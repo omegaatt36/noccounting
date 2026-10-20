@@ -23,7 +23,7 @@ func TestAggregateDashboard_Empty(t *testing.T) {
 	expenses := []domain.Expense{}
 	users := []domain.User{}
 
-	result := aggregateDashboard(expenses, users, domain.CurrencyTWD)
+	result := aggregateDashboard(expenses, nicknamesOf(users), domain.CurrencyTWD)
 
 	if !result.GrandTotal.Equal(decimal.NewFromInt(0)) {
 		t.Errorf("GrandTotal: expected 0, got %v", result.GrandTotal)
@@ -49,9 +49,9 @@ func TestAggregateDashboard_SingleExpense(t *testing.T) {
 		{
 			ID:           "exp-1",
 			Name:         "Lunch",
-			Price:        1000, // 1000 JPY (smallest unit)
+			Price:        1000,
 			Currency:     domain.CurrencyJPY,
-			ExchangeRate: mustDecimal("0.2"), // 1 JPY = 0.2 TWD
+			ExchangeRate: mustDecimal("0.2"),
 			Category:     domain.CategoryFood,
 			Method:       domain.PaymentMethodCash,
 			PaidByID:     "1",
@@ -67,9 +67,8 @@ func TestAggregateDashboard_SingleExpense(t *testing.T) {
 		},
 	}
 
-	result := aggregateDashboard(expenses, users, domain.CurrencyTWD)
+	result := aggregateDashboard(expenses, nicknamesOf(users), domain.CurrencyTWD)
 
-	// 1000 * 0.2 = 200 TWD
 	expectedTotal := mustDecimal("200")
 	if !result.GrandTotal.Equal(expectedTotal) {
 		t.Errorf("GrandTotal: expected %v, got %v", expectedTotal, result.GrandTotal)
@@ -79,7 +78,6 @@ func TestAggregateDashboard_SingleExpense(t *testing.T) {
 		t.Errorf("ItemCount: expected 1, got %d", result.ItemCount)
 	}
 
-	// Check ByCategory
 	if len(result.ByCategory) != 1 {
 		t.Fatalf("ByCategory: expected 1 category, got %d", len(result.ByCategory))
 	}
@@ -97,7 +95,6 @@ func TestAggregateDashboard_SingleExpense(t *testing.T) {
 		t.Errorf("Percentage: expected 100.0, got %f", cat.Percentage)
 	}
 
-	// Check ByDate
 	if len(result.ByDate) != 1 {
 		t.Fatalf("ByDate: expected 1 date, got %d", len(result.ByDate))
 	}
@@ -109,7 +106,6 @@ func TestAggregateDashboard_SingleExpense(t *testing.T) {
 		t.Errorf("Amount: expected %v, got %v", expectedTotal, date.Amount)
 	}
 
-	// Check ByPayer
 	if len(result.ByPayer) != 1 {
 		t.Fatalf("ByPayer: expected 1 payer, got %d", len(result.ByPayer))
 	}
@@ -128,7 +124,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 	date3 := time.Date(2026, 2, 22, 9, 0, 0, 0, time.UTC)
 
 	expenses := []domain.Expense{
-		// Category 食, 200 TWD
 		{
 			ID:           "exp-1",
 			Name:         "Lunch",
@@ -140,7 +135,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 			PaidByID:     "1",
 			ShoppedAt:    date1,
 		},
-		// Category 住, 500 TWD
 		{
 			ID:           "exp-2",
 			Name:         "Hotel",
@@ -152,7 +146,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 			PaidByID:     "2",
 			ShoppedAt:    date2,
 		},
-		// Category 行, 100 TWD
 		{
 			ID:           "exp-3",
 			Name:         "Train",
@@ -164,7 +157,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 			PaidByID:     "1",
 			ShoppedAt:    date3,
 		},
-		// Category 食, 150 TWD on date2
 		{
 			ID:           "exp-4",
 			Name:         "Dinner",
@@ -176,7 +168,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 			PaidByID:     "2",
 			ShoppedAt:    date2,
 		},
-		// Category 購, 300 TWD
 		{
 			ID:           "exp-5",
 			Name:         "Shopping",
@@ -196,9 +187,8 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		{ID: 3, BackendUserID: "3", Nickname: "Charlie"},
 	}
 
-	result := aggregateDashboard(expenses, users, domain.CurrencyTWD)
+	result := aggregateDashboard(expenses, nicknamesOf(users), domain.CurrencyTWD)
 
-	// Grand total: 200 + 500 + 100 + 150 + 300 = 1250 TWD
 	expectedTotal := mustDecimal("1250")
 	if !result.GrandTotal.Equal(expectedTotal) {
 		t.Errorf("GrandTotal: expected %v, got %v", expectedTotal, result.GrandTotal)
@@ -208,9 +198,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		t.Errorf("ItemCount: expected 5, got %d", result.ItemCount)
 	}
 
-	// Check ByCategory: noccounting's own category order (R7), down to the
-	// slice itself — a map would check the members and never the order both
-	// the panel and the donut render.
 	if len(result.ByCategory) != 4 {
 		t.Fatalf("ByCategory: expected 4 categories, got %d", len(result.ByCategory))
 	}
@@ -220,10 +207,10 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		amount   string
 		percent  float64
 	}{
-		{domain.CategoryFood, "350", 28.0},          // 200 + 150
-		{domain.CategoryTransport, "100", 8.0},      // 100
-		{domain.CategoryShopping, "300", 24.0},      // 300
-		{domain.CategoryAccommodation, "500", 40.0}, // 500
+		{domain.CategoryFood, "350", 28.0},
+		{domain.CategoryTransport, "100", 8.0},
+		{domain.CategoryShopping, "300", 24.0},
+		{domain.CategoryAccommodation, "500", 40.0},
 	}
 
 	// food, transport, shopping, accommodation is the domain's order, and it
@@ -239,13 +226,11 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 			t.Errorf("Category %s: expected amount %v, got %v", expected.category, expectedAmount, stat.Amount)
 		}
 
-		// Check percentage with small tolerance
 		if stat.Percentage < expected.percent-0.1 || stat.Percentage > expected.percent+0.1 {
 			t.Errorf("Category %s: expected percentage %.1f, got %.1f", expected.category, expected.percent, stat.Percentage)
 		}
 	}
 
-	// Check ByDate sorting (chronological)
 	if len(result.ByDate) != 3 {
 		t.Fatalf("ByDate: expected 3 dates, got %d", len(result.ByDate))
 	}
@@ -254,9 +239,9 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		date   string
 		amount string
 	}{
-		{"2/20", "500"}, // 200 + 300
-		{"2/21", "650"}, // 500 + 150
-		{"2/22", "100"}, // 100
+		{"2/20", "500"},
+		{"2/21", "650"},
+		{"2/22", "100"},
 	}
 
 	for i, expected := range expectedDates {
@@ -270,7 +255,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		}
 	}
 
-	// Check ByPayer sorting (descending by amount)
 	if len(result.ByPayer) != 3 {
 		t.Fatalf("ByPayer: expected 3 payers, got %d", len(result.ByPayer))
 	}
@@ -280,9 +264,9 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		amount  string
 		percent float64
 	}{
-		{"Bob", "650", 52.0},     // 500 + 150
-		{"Alice", "300", 24.0},   // 200 + 100
-		{"Charlie", "300", 24.0}, // 300
+		{"Bob", "650", 52.0},
+		{"Alice", "300", 24.0},
+		{"Charlie", "300", 24.0},
 	}
 
 	payerMap := make(map[string]PayerStat)
@@ -307,7 +291,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 		}
 	}
 
-	// Verify ByPayer is sorted by amount descending
 	for i := 1; i < len(result.ByPayer); i++ {
 		if result.ByPayer[i].Amount.GreaterThan(result.ByPayer[i-1].Amount) {
 			t.Errorf("ByPayer not sorted descending: %v > %v", result.ByPayer[i].Amount, result.ByPayer[i-1].Amount)
@@ -315,10 +298,6 @@ func TestAggregateDashboard_MultipleExpenses(t *testing.T) {
 	}
 }
 
-// TestAggregateDashboard_CategoryBeatsAmount is R7's order clause on a case
-// where following the amounts would give a different answer than following
-// the domain's category order: the biggest group is 購 last in the domain's
-// order, and it still renders there rather than first.
 func TestAggregateDashboard_CategoryBeatsAmount(t *testing.T) {
 	when := time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)
 	expenses := []domain.Expense{
@@ -554,5 +533,18 @@ func TestAggregateDashboard_EqualPayersKeepOneOrder(t *testing.T) {
 		if strings.Join(names, ",") != "1,2,3,4" {
 			t.Fatalf("payers = %v, want equal amounts in name order on every load", names)
 		}
+	}
+}
+
+func TestAggregateDashboard_PayersWithTheSameNameStayApart(t *testing.T) {
+	expenses := []domain.Expense{
+		{Price: 100, Currency: domain.CurrencyTWD, PaidByID: "1"},
+		{Price: 200, Currency: domain.CurrencyTWD, PaidByID: "2"},
+	}
+	names := map[string]string{"1": "Alex", "2": "Alex"}
+
+	payers := aggregateDashboard(expenses, names, domain.CurrencyTWD).ByPayer
+	if len(payers) != 2 || payers[0].ID != "2" || payers[1].ID != "1" {
+		t.Fatalf("payers = %+v, want two people told apart by id", payers)
 	}
 }

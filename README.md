@@ -66,11 +66,12 @@ POLLER=long                         # or "webhook", which also needs the three b
 WEBHOOK_PUBLIC_URL=...              # https URL Telegram posts to, with a random path
 WEBHOOK_SECRET_TOKEN=...            # A-Za-z0-9_-, checked on every request
 WEBHOOK_LISTEN=:8081                # where the webhook server binds
-DEV_MODE=false                      # skips Telegram auth, local only
+DEV_MODE=false                      # skips Telegram auth; listens on 127.0.0.1 only
 LOG_LEVEL=INFO
 LLM_API_KEY=...                     # OpenAI-compatible vision API, for receipts
 LLM_BASE_URL=...
 LLM_MODEL=gpt-4o
+LLM_REASONING_EFFORT=               # low | medium | high, only for a reasoning model
 ```
 
 The bot logs in as its own TREK account and sees only the trips it is added to. Add it when a trip starts and remove it when it ends.

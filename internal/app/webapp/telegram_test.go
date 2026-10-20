@@ -69,7 +69,6 @@ func TestValidateTelegramInitDataInvalidHash(t *testing.T) {
 	}
 
 	initData := buildValidTelegramInitData(botToken, params)
-	// Tamper with the hash
 	values, _ := url.ParseQuery(initData)
 	values.Set("hash", "tampered0000000000000000000000000000000000000000000000000000")
 
@@ -89,7 +88,6 @@ func TestValidateTelegramInitDataExpired(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 1 * time.Second
 
-	// Create initData with very old auth_date (15 seconds ago)
 	oldTime := time.Now().Add(-15 * time.Second).Unix()
 	params := map[string]string{
 		"query_id":  "AAHdF6IQAAAAAAAA",
@@ -113,7 +111,6 @@ func TestValidateTelegramInitDataMissingHash(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 	maxAge := 5 * time.Minute
 
-	// Create initData without hash
 	params := url.Values{}
 	params.Set("query_id", "AAHdF6IQAAAAAAAA")
 	params.Set("auth_date", strconv.FormatInt(time.Now().Unix(), 10))
@@ -175,7 +172,6 @@ func TestValidateTelegramInitDataWrongToken(t *testing.T) {
 
 	initData := buildValidTelegramInitData(botToken, params)
 
-	// Try to validate with wrong token
 	_, err := ValidateTelegramInitData(initData, wrongToken, maxAge)
 	if err == nil {
 		t.Fatalf("expected error when validating with wrong token")
@@ -189,7 +185,6 @@ func TestValidateTelegramInitDataWrongToken(t *testing.T) {
 func TestValidateTelegramInitDataNoMaxAge(t *testing.T) {
 	botToken := "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 
-	// Create initData with very old auth_date
 	oldTime := time.Now().Add(-1 * time.Hour).Unix()
 	params := map[string]string{
 		"query_id":  "AAHdF6IQAAAAAAAA",
@@ -198,7 +193,6 @@ func TestValidateTelegramInitDataNoMaxAge(t *testing.T) {
 
 	initData := buildValidTelegramInitData(botToken, params)
 
-	// With maxAge=0, expiration check should be disabled
 	result, err := ValidateTelegramInitData(initData, botToken, 0)
 	if err != nil {
 		t.Fatalf("expected no error with maxAge=0, got %v", err)
@@ -268,15 +262,12 @@ func TestParseUserJSON(t *testing.T) {
 	}
 }
 
-// buildValidTelegramInitData constructs a valid Telegram initData string with proper HMAC signature.
-// Returns the initData query string.
 func buildValidTelegramInitData(botToken string, params map[string]string) string {
 	// Create secret key: HMAC-SHA256("WebAppData", bot_token)
 	secretKeyHMAC := hmac.New(sha256.New, []byte("WebAppData"))
 	secretKeyHMAC.Write([]byte(botToken))
 	secretKey := secretKeyHMAC.Sum(nil)
 
-	// Set auth_date if not provided
 	if _, ok := params["auth_date"]; !ok {
 		params["auth_date"] = strconv.FormatInt(time.Now().Unix(), 10)
 	}
@@ -301,10 +292,8 @@ func buildValidTelegramInitData(botToken string, params map[string]string) strin
 	hashHMAC.Write([]byte(dataCheckString))
 	hash := hex.EncodeToString(hashHMAC.Sum(nil))
 
-	// Add hash to params
 	params["hash"] = hash
 
-	// Build query string
 	values := url.Values{}
 	for key, val := range params {
 		values.Set(key, val)

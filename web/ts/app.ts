@@ -24,10 +24,6 @@ const initDataInput = document.getElementById(
 ) as HTMLInputElement | null;
 if (initDataInput) initDataInput.value = ctx.initData;
 
-// Every HTMX request is about the trip the page was opened for, tells which
-// timezone the page is in, and in non-dev mode carries the init_data that says
-// who is asking. The expense form files a
-// new expense, or changes the one it was opened on.
 document.body.addEventListener("htmx:config:request", (evt) => {
   const htmxEvt = evt as CustomEvent<{
     ctx: { request: { action: string; method: string; form?: Element } };

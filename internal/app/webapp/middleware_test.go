@@ -65,7 +65,6 @@ func TestRateLimiterAllowOverLimit(t *testing.T) {
 
 	ip := "192.168.1.1"
 
-	// First two requests should be allowed
 	if !limiter.allow(ip) {
 		t.Errorf("first request should be allowed")
 	}
@@ -73,7 +72,6 @@ func TestRateLimiterAllowOverLimit(t *testing.T) {
 		t.Errorf("second request should be allowed")
 	}
 
-	// Third request should be blocked
 	if limiter.allow(ip) {
 		t.Errorf("third request should be blocked")
 	}
@@ -85,20 +83,16 @@ func TestRateLimiterResetsAfterWindow(t *testing.T) {
 
 	ip := "192.168.1.1"
 
-	// First request should be allowed
 	if !limiter.allow(ip) {
 		t.Errorf("first request should be allowed")
 	}
 
-	// Second request should be blocked (within window)
 	if limiter.allow(ip) {
 		t.Errorf("second request within window should be blocked")
 	}
 
-	// Wait for window to pass
 	time.Sleep(window + 10*time.Millisecond)
 
-	// Third request should be allowed (after window reset)
 	if !limiter.allow(ip) {
 		t.Errorf("request after window should be allowed")
 	}
@@ -110,22 +104,18 @@ func TestRateLimiterPerIP(t *testing.T) {
 	ip1 := "192.168.1.1"
 	ip2 := "192.168.1.2"
 
-	// First IP: first request allowed
 	if !limiter.allow(ip1) {
 		t.Errorf("first request for ip1 should be allowed")
 	}
 
-	// First IP: second request blocked
 	if limiter.allow(ip1) {
 		t.Errorf("second request for ip1 should be blocked")
 	}
 
-	// Second IP: first request should be allowed (separate limit)
 	if !limiter.allow(ip2) {
 		t.Errorf("first request for ip2 should be allowed")
 	}
 
-	// Second IP: second request blocked
 	if limiter.allow(ip2) {
 		t.Errorf("second request for ip2 should be blocked")
 	}
@@ -141,7 +131,6 @@ func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 
 	ip := "192.168.1.1"
 
-	// Make a health check request
 	req := httptest.NewRequest("GET", "/health", nil)
 	req.RemoteAddr = ip
 	w := httptest.NewRecorder()
@@ -151,8 +140,6 @@ func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 		t.Errorf("health check should return 200, got %d", w.Code)
 	}
 
-	// Make another health check request with same IP
-	// It should succeed even though we've "used up" the rate limit
 	req = httptest.NewRequest("GET", "/health", nil)
 	req.RemoteAddr = ip
 	w = httptest.NewRecorder()
@@ -219,7 +206,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 
 	ip := "192.168.1.1"
 
-	// First request should succeed
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	req.RemoteAddr = ip
 	w := httptest.NewRecorder()
@@ -229,7 +215,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 		t.Errorf("first request should return 200, got %d", w.Code)
 	}
 
-	// Second request should be rate limited
 	req = httptest.NewRequest("GET", "/api/test", nil)
 	req.RemoteAddr = ip
 	w = httptest.NewRecorder()
@@ -239,7 +224,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 		t.Errorf("second request should return 429, got %d", w.Code)
 	}
 
-	// Verify response format
 	var resp map[string]string
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	if err != nil {
@@ -250,7 +234,6 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 		t.Errorf("expected error message 'too many requests', got %v", resp["error"])
 	}
 
-	// Verify Retry-After header
 	if retryAfter := w.Header().Get("Retry-After"); retryAfter != "60" {
 		t.Errorf("expected Retry-After header '60', got %s", retryAfter)
 	}
@@ -261,7 +244,6 @@ func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// First request with multiple IPs in X-Forwarded-For (should use first)
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	req.RemoteAddr = "127.0.0.1:9000"
 	req.Header.Set("X-Forwarded-For", "203.0.113.1, 198.51.100.2, 192.168.1.1")
@@ -272,7 +254,6 @@ func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
 		t.Errorf("first request should return 200, got %d", w.Code)
 	}
 
-	// Second request with same first IP should be rate limited
 	req = httptest.NewRequest("GET", "/api/test", nil)
 	req.RemoteAddr = "127.0.0.1:9001"
 	req.Header.Set("X-Forwarded-For", "203.0.113.1, 198.51.100.99")
@@ -289,7 +270,6 @@ func TestRateLimitMiddlewareIgnoresInvalidXForwardedFor(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// First request with invalid X-Forwarded-For (should fall back to RemoteAddr)
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	req.RemoteAddr = "192.168.1.1:9000"
 	req.Header.Set("X-Forwarded-For", "not-an-ip")
@@ -300,7 +280,6 @@ func TestRateLimitMiddlewareIgnoresInvalidXForwardedFor(t *testing.T) {
 		t.Errorf("first request should return 200, got %d", w.Code)
 	}
 
-	// Second request with same RemoteAddr (including port) should be rate limited
 	req = httptest.NewRequest("GET", "/api/test", nil)
 	req.RemoteAddr = "192.168.1.1:9000"
 	req.Header.Set("X-Forwarded-For", "also-not-an-ip")

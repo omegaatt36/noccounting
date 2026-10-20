@@ -53,7 +53,6 @@ func TestHandleUpdateExpense_KeepsWhatTheFormHasNoFieldFor(t *testing.T) {
 	repo := &stubAccountingRepo{expenses: []domain.Expense{storedExpense()}}
 	handler, _ := devHandler(t, repo, twoTrips{})
 
-	// A payer outside the user mapping and no day: both stay as they are.
 	put(t, handler.handleUpdateExpense, "/api/expense", expenseForm(map[string]string{"expense_id": "7", "currency": "JPY", "exchange_rate": "0.22"}))
 
 	if len(repo.updated) != 1 {

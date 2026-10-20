@@ -27,7 +27,7 @@ export function updateExchangeRateVisibility(): void {
   if (label && foreign) label.textContent = `1 ${currentCurrency()} =`;
 }
 
-export function loadCachedRate(): void {
+function loadCachedRate(): void {
   const key = cacheKey();
   const cached = localStorage.getItem(key);
   const cachedDate = localStorage.getItem(`${key}_date`);

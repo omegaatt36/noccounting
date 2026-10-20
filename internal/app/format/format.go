@@ -143,32 +143,6 @@ func Money(c domain.Currency, amount decimal.Decimal) string {
 	return sign + CurrencySymbol(c) + grouped.String()
 }
 
-func ParseCategoryInput(input string) (domain.Category, error) {
-	input = strings.TrimSpace(input)
-	if category, err := domain.ParseCategory(strings.ToLower(input)); err == nil {
-		return category, nil
-	}
-	for _, category := range domain.CategoryValues() {
-		if CategoryLabel(category) == input {
-			return category, nil
-		}
-	}
-	return "", fmt.Errorf("%s is %w", input, domain.ErrInvalidCategory)
-}
-
-func ParsePaymentMethodInput(input string) (domain.PaymentMethod, error) {
-	input = strings.TrimSpace(input)
-	if method, err := domain.ParsePaymentMethod(strings.ToLower(input)); err == nil {
-		return method, nil
-	}
-	for _, method := range domain.PaymentMethodValues() {
-		if PaymentLabel(method) == input {
-			return method, nil
-		}
-	}
-	return "", fmt.Errorf("%s is %w", input, domain.ErrInvalidPaymentMethod)
-}
-
 func Trip(t domain.Trip) string {
 	if !t.HasDates() {
 		return t.Title

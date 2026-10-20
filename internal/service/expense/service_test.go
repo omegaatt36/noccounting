@@ -534,19 +534,6 @@ func TestService_CreateExpenseReachesTheRepo(t *testing.T) {
 	}
 }
 
-func TestService_QueryExpensesReachesTheRepo(t *testing.T) {
-	repo := &spyRepo{expenses: []domain.Expense{{Name: "拉麵"}}}
-	svc := NewService(repo, nil, nil)
-
-	expenses, err := svc.QueryExpenses(context.Background(), testTrip)
-	if err != nil {
-		t.Fatalf("QueryExpenses() error = %v", err)
-	}
-	if len(expenses) != 1 || expenses[0].Name != "拉麵" {
-		t.Errorf("QueryExpenses() = %+v, want the repo's expenses", expenses)
-	}
-}
-
 func TestService_PassesTheTripToEachRepositoryCall(t *testing.T) {
 	repo := &spyRepo{}
 	svc := NewService(repo, nil, nil)
@@ -554,7 +541,7 @@ func TestService_PassesTheTripToEachRepositoryCall(t *testing.T) {
 	ctx := context.Background()
 
 	_ = svc.CreateExpense(ctx, osaka, &domain.Expense{Name: "x"})
-	_, _ = svc.QueryExpenses(ctx, osaka)
+	_, _ = svc.QueryExpensesWithFilter(ctx, osaka, ExpenseFilter{})
 	_, _ = svc.Settlement(ctx, osaka)
 	_, _ = svc.Members(ctx, osaka)
 

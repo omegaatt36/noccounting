@@ -41,25 +41,17 @@ import (
 
 const browserBotToken = "browser-bot-token"
 
-// appOptions picks how the app under test is served.
 type appOptions struct {
-	// telegram serves the app as Telegram does: init_data is signed and checked,
-	// and a Telegram SDK stub stands in for telegram.org's script.
 	telegram bool
 	// scheme is the Telegram colorScheme, "dark" when empty.
 	scheme string
 	// userID is who Telegram says is opening the app, 12345 (Alice) when zero.
-	userID int64
-	// badSignature corrupts the init_data, as a forged one would be.
+	userID       int64
 	badSignature bool
-	// noTrips leaves the service account on no trip.
-	noTrips bool
-	// tripsDown makes the trip listing fail from the start.
-	tripsDown bool
-	// extraTrips are additional trips available to switch to.
-	extraTrips []domain.Trip
-	// analyzer is the receipt analyzer for /api/receipt/analyze.
-	analyzer expense.ReceiptAnalyzer
+	noTrips      bool
+	tripsDown    bool
+	extraTrips   []domain.Trip
+	analyzer     expense.ReceiptAnalyzer
 }
 
 type browserApp struct {
@@ -70,10 +62,8 @@ type browserApp struct {
 	repo  *inMemoryAccountingRepo
 	trips *inMemoryTripRepo
 
-	sdk string
-	// failPost makes the browser's POSTs and PUTs to /api/expense fail on the network.
-	failPost atomic.Bool
-	// failRates makes the browser's GETs to /api/rates fail on the network.
+	sdk       string
+	failPost  atomic.Bool
 	failRates atomic.Bool
 
 	mu       sync.Mutex
@@ -186,7 +176,6 @@ func newBrowserApp(t *testing.T, opts appOptions) *browserApp {
 	return app
 }
 
-// signedInitData is init_data as Telegram signs it for the bot token.
 func signedInitData(token string, userID int64) string {
 	values := url.Values{
 		"auth_date": {strconv.FormatInt(time.Now().Unix(), 10)},
@@ -349,8 +338,6 @@ func (a *browserApp) addProblem(problem string) {
 	a.problems = append(a.problems, problem)
 }
 
-// requireNoProblems fails the test on anything the page reported to its
-// console: script errors, failed requests, and CSP violations alike.
 func (a *browserApp) requireNoProblems() {
 	a.t.Helper()
 	a.mu.Lock()
@@ -372,7 +359,6 @@ func (a *browserApp) open() {
 	a.run(chromedp.Navigate(a.baseURL + "/"))
 }
 
-// evalBrowser awaits a JavaScript expression and decodes its result into T.
 func evalBrowser[T any](a *browserApp, expression string) T {
 	a.t.Helper()
 	out, err := chromedp.Run(a.ctx, chromedp.Evaluate[T](expression, chromedp.EvalAwaitPromise))
@@ -438,7 +424,6 @@ func (a *browserApp) expenseCount() int {
 	return len(a.repo.expenses)
 }
 
-// enterPrice types an amount on the numpad the way a thumb would.
 func (a *browserApp) enterPrice(amount string) {
 	a.t.Helper()
 	a.click("#price")
@@ -450,7 +435,6 @@ func (a *browserApp) enterPrice(amount string) {
 	a.waitFor("the numpad to close", `document.getElementById("numpad-sheet").classList.contains("hidden")`)
 }
 
-// fillExpense fills the form in, leaving it ready to submit.
 func (a *browserApp) fillExpense(name, amount string) {
 	a.t.Helper()
 	a.run(chromedp.SendKeys(chromedp.CSS("#name"), name))

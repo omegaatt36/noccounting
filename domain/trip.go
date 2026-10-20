@@ -3,9 +3,8 @@ package domain
 import "time"
 
 type Trip struct {
-	ID    int64
-	Title string
-	// Currency is the accounting base.
+	ID       int64
+	Title    string
 	Currency Currency
 	// StartDate and EndDate are the trip's days, zero for an undated trip.
 	StartDate time.Time

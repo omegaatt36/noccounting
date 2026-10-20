@@ -20,40 +20,31 @@ type TripInfo struct {
 	Currency string `json:"currency"`
 }
 
-// MemberInfo is someone an expense can be shared with.
 type MemberInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// UserInfo is someone who can be named as the payer of an expense.
 type UserInfo struct {
 	Nickname   string `json:"nickname"`
 	TelegramID int64  `json:"telegram_id"`
 }
 
-// BootstrapResponse is everything the page needs to draw itself once the caller
-// is known to be allowed in, in one answer.
 type BootstrapResponse struct {
-	// Users are the people in the user mapping, whom a payer is picked from.
 	Users []UserInfo `json:"users"`
-	// Trips are the trips the caller can file under and Current the one they are
-	// on; Current is zero, with no Trips and no Members, when there is none.
-	Trips   []TripInfo `json:"trips"`
-	Current int64      `json:"current"`
-	// Members are who is on the current trip.
+	// Current is zero, with no Trips and no Members, when there is no trip.
+	Trips   []TripInfo   `json:"trips"`
+	Current int64        `json:"current"`
 	Members []MemberInfo `json:"members"`
 }
 
-// RateInfo is what one unit of From costs in To, as a decimal string so no
-// precision is lost on the way to the page.
+// RateInfo carries rates as decimal strings so no precision is lost on the way to the page.
 type RateInfo struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Rate string `json:"rate"`
 }
 
-// RatesResponse is every quote, both directions of the pair.
 type RatesResponse struct {
 	Quotes []RateInfo `json:"quotes"`
 }
@@ -70,10 +61,6 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
-// handleBootstrap answers who may use the app and what they find in it, so the
-// page learns that, and draws its pickers, in one round trip. A caller who is
-// refused gets the 403 of requireAuth; a TREK that cannot be read gets a 500,
-// which the page offers a retry for.
 func (h *Handler) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	caller, ok := h.requireAuth(w, r)
 	if !ok {
@@ -109,7 +96,6 @@ func (h *Handler) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		response.Current = current.ID
 	case errors.Is(err, trip.ErrNoTrip):
-		// An empty list says so on its own.
 		writeJSON(w, http.StatusOK, response)
 		return
 	default:
@@ -125,8 +111,6 @@ func (h *Handler) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Someone in the user mapping goes by their nickname; anyone else by the
-	// name TREK has for them.
 	nicknames := h.nicknames()
 	for _, member := range members {
 		name := member.Name
@@ -152,8 +136,6 @@ func (h *Handler) userInfos() []UserInfo {
 	return infos
 }
 
-// handleSelectTrip makes a trip the caller's current one, the same choice the
-// bot's /trip makes, so the two stay on one trip.
 func (h *Handler) handleSelectTrip(w http.ResponseWriter, r *http.Request) {
 	caller, ok := h.requireAuth(w, r)
 	if !ok {
@@ -204,16 +186,11 @@ func (h *Handler) handleGetRates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-// nicknames maps a backend user id to the name people in the user mapping go by.
 func (h *Handler) nicknames() map[string]string {
-	names := map[string]string{}
 	users, err := h.userService.GetAllUsers()
 	if err != nil {
 		slog.Warn("Failed to read the users for their nicknames", "error", err)
-		return names
+		return map[string]string{}
 	}
-	for _, u := range users {
-		names[u.BackendUserID] = u.Nickname
-	}
-	return names
+	return nicknamesOf(users)
 }

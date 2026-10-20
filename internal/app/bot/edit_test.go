@@ -136,7 +136,6 @@ func TestHandleEdit_ShowsExpenseListAndSelectionFlow(t *testing.T) {
 	}
 	handler := newTestHandler(repo, nil)
 
-	// 1. /edit lists records
 	editCtx := &spyContext{
 		sender:  &tele.User{ID: testTelegramUserID},
 		message: &tele.Message{},
@@ -152,7 +151,6 @@ func TestHandleEdit_ShowsExpenseListAndSelectionFlow(t *testing.T) {
 		t.Fatalf("markup = %+v, want record button and cancel button", markup)
 	}
 
-	// 2. Select cancel callback
 	cancelCbCtx := &spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_select|cancel"},
@@ -164,7 +162,6 @@ func TestHandleEdit_ShowsExpenseListAndSelectionFlow(t *testing.T) {
 		t.Errorf("cancel callback sent %v, want cancellation message", cancelCbCtx.sentMsgs)
 	}
 
-	// 3. Select exp-1 callback
 	selectCbCtx := &spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_select|exp-1"},
@@ -176,7 +173,6 @@ func TestHandleEdit_ShowsExpenseListAndSelectionFlow(t *testing.T) {
 		t.Fatalf("select exp-1 sent %v, want field selection", selectCbCtx.sentMsgs)
 	}
 
-	// 4. Select field "name"
 	fieldNameCtx := &spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_field|name"},
@@ -188,7 +184,6 @@ func TestHandleEdit_ShowsExpenseListAndSelectionFlow(t *testing.T) {
 		t.Errorf("field name sent %v, want name input prompt", fieldNameCtx.sentMsgs)
 	}
 
-	// 5. Send new name text
 	textNameCtx := &spyContext{
 		sender:  &tele.User{ID: testTelegramUserID},
 		message: &tele.Message{Text: "特製叉燒拉麵"},
@@ -220,7 +215,6 @@ func TestHandleEdit_FieldPrice(t *testing.T) {
 	}
 	handler := newTestHandler(repo, nil)
 
-	// Start edit flow for exp-1
 	_ = handler.handleCallback(&spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_select|exp-1"},
@@ -230,7 +224,6 @@ func TestHandleEdit_FieldPrice(t *testing.T) {
 		callback: &tele.Callback{Data: "edit_field|price"},
 	})
 
-	// Invalid price text
 	badPriceCtx := &spyContext{
 		sender:  &tele.User{ID: testTelegramUserID},
 		message: &tele.Message{Text: "-50"},
@@ -242,7 +235,6 @@ func TestHandleEdit_FieldPrice(t *testing.T) {
 		t.Errorf("bad price sent %v, want format error", badPriceCtx.sentMsgs)
 	}
 
-	// Valid price text
 	goodPriceCtx := &spyContext{
 		sender:  &tele.User{ID: testTelegramUserID},
 		message: &tele.Message{Text: "250"},
@@ -271,7 +263,6 @@ func TestHandleEdit_FieldCategoryAndMethod(t *testing.T) {
 	}
 	handler := newTestHandler(repo, nil)
 
-	// 1. Change category
 	_ = handler.handleCallback(&spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_select|exp-1"},
@@ -287,7 +278,6 @@ func TestHandleEdit_FieldCategoryAndMethod(t *testing.T) {
 		t.Errorf("updatedExpenses = %+v, want category transport", repo.updatedExpenses)
 	}
 
-	// 2. Change method
 	_ = handler.handleCallback(&spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_select|exp-1"},
@@ -352,7 +342,6 @@ func TestHandleEdit_Delete(t *testing.T) {
 		t.Errorf("delete response = %v, want deletion confirmation", confirmCtx.sentMsgs)
 	}
 
-	// A second tap on the confirming button finds nothing left to delete.
 	again := &spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_field|delete_confirm"},

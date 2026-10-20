@@ -14,9 +14,7 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-// The Mini App sends init_data in query strings, and while it is valid it speaks
-// for the person who opened the app. Whatever the server logs about a request,
-// that must not be in it, whether the request succeeds or is refused.
+// init_data speaks for the person who opened the app while it is valid, so no log line may contain it, whether the request succeeds or is refused.
 func TestRequestsNeverLogInitData(t *testing.T) {
 	var logs bytes.Buffer
 	previous := slog.Default()

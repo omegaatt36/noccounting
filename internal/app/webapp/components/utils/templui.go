@@ -4,11 +4,9 @@ package utils
 import (
 	"crypto/rand"
 	"fmt"
-	"maps"
 	"time"
 
 	twmerge "github.com/Oudwins/tailwind-merge-go"
-	"github.com/a-h/templ"
 )
 
 // TwMerge combines Tailwind classes and resolves conflicts.
@@ -30,16 +28,6 @@ func IfElse[T any](condition bool, trueValue, falseValue T) T {
 		return trueValue
 	}
 	return falseValue
-}
-
-// MergeAttributes combines multiple Attributes into one.
-// Example: MergeAttributes(attr1, attr2) → combined attributes
-func MergeAttributes(attrs ...templ.Attributes) templ.Attributes {
-	merged := templ.Attributes{}
-	for _, attr := range attrs {
-		maps.Copy(merged, attr)
-	}
-	return merged
 }
 
 // RandomID generates a random ID string.

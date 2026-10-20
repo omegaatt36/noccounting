@@ -39,10 +39,8 @@ function setTrip(trip: Trip): void {
 // The empty result is a normal onboarding state — the bot's TREK account has
 // not been added to any trip yet — and must not read as a failure. "forbidden"
 // is someone the server does not let in.
-export type BootstrapResult = "ok" | "forbidden" | "empty" | "error";
+type BootstrapResult = "ok" | "forbidden" | "empty" | "error";
 
-// Asks the server who may use the app and what they find in it, and draws the
-// trip, payer and participant pickers from the answer.
 export async function loadBootstrap(ctx: TelegramContext): Promise<BootstrapResult> {
   try {
     const res = await fetch(apiUrl("/api/bootstrap", ctx));
@@ -102,7 +100,6 @@ function renderTrips(ctx: TelegramContext, data: Bootstrap): void {
       if (!response.ok) throw new Error(`Trip selection failed: ${response.status}`);
       window.location.reload();
     } catch (error) {
-      // A transient failure keeps the app open: revert the picker and say so.
       select.value = previousId;
       select.disabled = false;
       showView("app");

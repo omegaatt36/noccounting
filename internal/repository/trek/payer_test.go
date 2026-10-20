@@ -171,12 +171,12 @@ func TestPayerResolver_RejectsAPayerWhoIsNotOnTheTrip(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"Alice",            // who is off the trip, by the name the operator configured
-		"42",               // and the id they have to correct
-		"is not on trip 3", // which trip refused them
-		"owner-trek",       // who is on it, so the mapping can be checked against reality
+		"Alice",
+		"42",
+		"is not on trip 3",
+		"owner-trek",
 		"member-trek",
-		"USER_MAPPING", // and where to correct it
+		"USER_MAPPING",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)

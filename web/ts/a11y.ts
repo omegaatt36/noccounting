@@ -1,8 +1,5 @@
-// The category, currency and payment-method pickers are templui tabs: buttons
-// whose selected one carries data-tui-tabs-state="active", flipped by templui's
-// own script or by a programmatic click (restored defaults, a scanned receipt).
-// They behave as single-choice groups, so announce them as radios and keep
-// aria-checked in step with that state.
+// The category, currency and payment-method pickers are templui tabs whose selected one carries
+// data-tui-tabs-state="active". They are single-choice groups, so announce them as radios and keep aria-checked in step.
 const CHOICE_GROUPS = ["category-tabs", "currency-tabs", "method-tabs"];
 
 export function setupChoiceGroups(): void {

@@ -9,7 +9,6 @@ import { switchView } from "./navigation.js";
 
 const $ = (id: string) => document.getElementById(id);
 
-// An expense as the server puts it on a row of the list.
 interface EditData {
   id: string;
   name: string;
@@ -90,8 +89,6 @@ function enterEdit(ctx: TelegramContext, data: EditData): void {
   switchView("form");
 }
 
-// Back to filing a new expense: the form is emptied and set to the last-used
-// defaults, as when the app was opened.
 async function leaveEdit(ctx: TelegramContext): Promise<void> {
   const id = $("expense-id") as HTMLInputElement | null;
   if (id) id.value = "";
@@ -146,8 +143,6 @@ export function setupEdit(ctx: TelegramContext): void {
     }
   });
 
-  // The form saved the changes: it is a form for new expenses again, and the
-  // list it came from is next.
   document.addEventListener("expense-edited", () => {
     void leaveEdit(ctx).then(() => switchView("list"));
   });

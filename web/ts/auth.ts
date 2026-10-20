@@ -1,6 +1,6 @@
 const $ = (id: string) => document.getElementById(id);
 
-export type ViewName = "loading" | "forbidden" | "trip-error" | "trip-empty" | "app";
+type ViewName = "loading" | "forbidden" | "trip-error" | "trip-empty" | "app";
 
 function showView(view: ViewName): void {
   const ready = view === "app";

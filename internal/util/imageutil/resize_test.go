@@ -42,8 +42,6 @@ func TestResizeLeavesAnImageWithinTheLimitsAlone(t *testing.T) {
 	}
 }
 
-// A long receipt keeps its width: capping the longer side alone would shrink
-// this one to 256 pixels across.
 func TestResizeKeepsTheWidthOfALongReceipt(t *testing.T) {
 	if w, h := resized(t, pngOf(t, 1000, 4000), 500, 4096); w != 500 || h != 2000 {
 		t.Fatalf("dimensions %dx%d, want 500x2000", w, h)

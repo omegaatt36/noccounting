@@ -23,8 +23,6 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	app.open()
 	app.waitReady()
 
-	// The statistics are opened while nothing is spent, then an expense is filed:
-	// opening them again must show that expense, not the draw from before.
 	app.click("#nav-stats")
 	app.waitFor("the empty statistics", `document.getElementById("dashboard-content")?.innerText.includes("0 筆")`)
 	app.waitFor("the empty-state call to action", app.visible(`#view-stats [data-action="show-form"]`))
@@ -47,13 +45,11 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	app.click("#nav-stats")
 	app.waitFor("the new expense in the statistics", `document.getElementById("dashboard-content")?.innerText.includes("1 筆")`)
 
-	// A statistics row opens the list narrowed to what it sums up.
 	app.click(`button[data-list-category="food"]`)
 	app.waitFor("the list", app.visible("#view-list"))
 	app.waitFor("the expense in the list", `document.getElementById("list-content")?.innerText.includes("東京拉麵")`)
 	assert.Equal(t, "food", app.text(`document.getElementById("list-category").value`), "the list is narrowed to the category")
 
-	// Searching narrows it further.
 	app.run(chromedp.SendKeys(chromedp.CSS("#list-q"), "沒有這個"))
 	app.waitFor("the empty search", `document.getElementById("list-content")?.innerText.includes("沒有符合條件的消費")`)
 	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
@@ -63,11 +59,9 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	})()`))
 	app.waitFor("the list again", `document.getElementById("list-content")?.innerText.includes("東京拉麵")`)
 
-	// The settlement is a tab of its own.
 	app.click("#nav-settle")
 	app.waitFor("the settlement", `document.getElementById("settlement-content")?.innerText.includes("各人餘額")`)
 
-	// A row opens the form on that expense; saving changes it in place.
 	app.click("#nav-list")
 	app.waitFor("the list", app.visible(`#list-content [data-edit]`))
 	app.click(`#list-content [data-edit]`)
@@ -98,23 +92,18 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	assert.Equal(t, "新增消費", strings.TrimSpace(app.text(`document.getElementById("form-title").textContent`)), "the form is for new expenses again")
 	assert.Equal(t, "", app.text(`document.getElementById("expense-id").value`))
 
-	// Leaving the editor without saving changes nothing.
 	app.click(`#list-content [data-edit]`)
 	app.waitFor("the editor", `document.getElementById("form-title").textContent === "編輯消費"`)
 	app.click(`[data-action="cancel-edit"]`)
 	app.waitFor("the list", app.visible("#view-list"))
 	assert.Equal(t, "", app.text(`document.getElementById("name").value`), "the half-edited form is emptied")
 
-	// Deleting happens from the editor, and the list redraws without it.
 	app.click(`#list-content [data-edit]`)
 	app.waitFor("the editor", `document.getElementById("form-title").textContent === "編輯消費"`)
 	app.click(`[data-action="delete-expense"]`)
-	// The list keeps the category filter it was narrowed to, so it reads as emptied.
 	app.waitFor("the list to redraw empty", `document.getElementById("list-content")?.innerText.includes("沒有符合條件的消費")`)
 	assert.Equal(t, 0, app.expenseCount())
 
-	// A page that leaves its console clean ran under the CSP without a single
-	// blocked script, style, or request.
 	app.requireNoProblems()
 }
 
@@ -149,10 +138,8 @@ func TestBrowserToastsKeepEditorActionsClickable(t *testing.T) {
 		}
 	}
 	assertActionsReachable()
-	// The server toast still has a working close button.
 	app.click("[data-tui-toast-dismiss]")
 	app.waitFor("the toast to close", `!document.querySelector("#result [data-tui-toast]")`)
-	// Client-side notifications use the same click-through behavior.
 	app.run(chromedp.Evaluate[chromedp.Void](`import("/static/toast.js").then(m => m.showToast("已刪除", "通知遮擋測試", "success"))`))
 	app.waitFor("the client toast", toastSaying("已刪除"))
 	assertActionsReachable()
@@ -176,7 +163,6 @@ func TestBrowserEditFailureKeepsTheEditor(t *testing.T) {
 	app.click(`#list-content [data-edit]`)
 	app.waitFor("the editor", `document.getElementById("form-title").textContent === "編輯消費"`)
 
-	// The editor shows the expense as it was filed, not as the defaults would.
 	assert.Equal(t, "JPY", app.text(`document.getElementById("currency-input").value`))
 	assert.Equal(t, "0.22", app.text(`document.getElementById("exchange-rate-input").value`), "the stored rate is not replaced by today's")
 	assert.Equal(t, "transport", app.text(`document.getElementById("category-input").value`))
@@ -199,8 +185,6 @@ func TestBrowserEditFailureKeepsTheEditor(t *testing.T) {
 	assert.Equal(t, "9", app.expenseAt(0).PaidByID)
 }
 
-// toastSaying is true while any toast on screen has the text; an earlier toast
-// may still be showing in front of the one being waited for.
 func toastSaying(text string) string {
 	return fmt.Sprintf(`[...document.querySelectorAll("#result [data-tui-toast]")].some((el) => el.textContent.includes(%q))`, text)
 }
@@ -460,7 +444,6 @@ func TestBrowserReceiptScanAndSave(t *testing.T) {
 
 	assert.False(t, app.flag(app.visible("#more-categories")), "secondary categories start collapsed")
 
-	// Simulate picking a receipt photo in the file input.
 	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const input = document.getElementById("receipt-file-input");
 		const dt = new DataTransfer();
@@ -505,13 +488,11 @@ func TestBrowserForeignCurrencyAndNumpadMath(t *testing.T) {
 	app.open()
 	app.waitReady()
 
-	// Switch to JPY on a TWD trip: rate section opens and fetches 0.22.
 	app.click(`#currency-tabs [data-tui-tabs-value="JPY"]`)
 	app.waitFor("the live exchange rate", `document.getElementById("exchange-rate-input").value === "0.22"`)
 	assert.Equal(t, "(即時)", app.text(`document.getElementById("rate-status").textContent`))
 	assert.Contains(t, app.text(`document.getElementById("rate-hint").textContent`), "1 JPY = NT$0.2200")
 
-	// Open numpad, use "00" and "+" keys: 100 + 900 = 1000 JPY (≈ NT$220).
 	app.click("#price")
 	app.waitFor("the numpad", app.visible("#numpad-sheet"))
 	app.click(`[data-numpad-key="1"]`)
@@ -524,7 +505,6 @@ func TestBrowserForeignCurrencyAndNumpadMath(t *testing.T) {
 	assert.Equal(t, "1000", app.text(`document.getElementById("price").value`))
 	app.click("#numpad-confirm")
 
-	// Leave #name empty: submitting defaults the name to the chosen category label ("交通").
 	app.click(`#category-tabs [data-tui-tabs-value="transport"]`)
 	app.click("#submit-btn")
 	app.waitFor("the success toast", toastSaying("交通"))
@@ -536,7 +516,6 @@ func TestBrowserForeignCurrencyAndNumpadMath(t *testing.T) {
 	assert.Equal(t, domain.CurrencyJPY, filed.Currency)
 	assert.Equal(t, "0.22", filed.ExchangeRate.String())
 
-	// If /api/rates fails on refresh, the cached rate in localStorage is used.
 	app.failRates.Store(true)
 	app.run(chromedp.Evaluate[chromedp.Void](`document.getElementById("exchange-rate-input").value = ""`))
 	app.click("#fetch-rate-btn")
@@ -551,7 +530,6 @@ func TestBrowserMultiTripSwitchAndScopedDefaults(t *testing.T) {
 	app.open()
 	app.waitReady()
 
-	// On trip 10 (TWD), choose Bob (67890) as payer and TWD as currency, then file an expense.
 	assert.Equal(t, "10", app.text(`document.body.dataset.tripId`))
 	assert.Equal(t, "TWD", app.text(`document.getElementById("currency-input").value`))
 	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
@@ -562,7 +540,6 @@ func TestBrowserMultiTripSwitchAndScopedDefaults(t *testing.T) {
 	app.click("#submit-btn")
 	app.waitFor("the success toast", toastSaying("台北計程車"))
 
-	// Switch to trip 20 (JPY); the page reloads onto trip 20 with its own currency and default payer.
 	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const sel = document.getElementById("trip-select");
 		sel.value = "20";
@@ -582,7 +559,6 @@ func TestBrowserParticipantsValidationAndSplit(t *testing.T) {
 
 	app.fillExpense("個人咖啡", "150")
 
-	// Uncheck all participants: submitting must be blocked with #participants-error.
 	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		for (const box of document.querySelectorAll('#participants input[name="participants"]')) {
 			box.checked = false;
@@ -592,7 +568,6 @@ func TestBrowserParticipantsValidationAndSplit(t *testing.T) {
 	app.waitFor("the participants error", app.visible("#participants-error"))
 	assert.Equal(t, 0, app.expenseCount(), "no expense is filed with zero participants")
 
-	// Check only Bob (9) and submit.
 	app.run(chromedp.Evaluate[chromedp.Void](`(() => {
 		const bob = document.querySelector('#participants input[value="9"]');
 		if (bob) bob.checked = true;
@@ -624,7 +599,6 @@ func TestBrowserStatisticsDrillDowns(t *testing.T) {
 	app.open()
 	app.waitReady()
 
-	// Drill down by payment method (credit_card).
 	app.click("#nav-stats")
 	app.waitFor("the statistics", app.visible(`button[data-list-method="credit_card"]`))
 	app.click(`button[data-list-method="credit_card"]`)
@@ -632,7 +606,6 @@ func TestBrowserStatisticsDrillDowns(t *testing.T) {
 	assert.Equal(t, "credit_card", app.text(`document.getElementById("list-method").value`))
 	assert.NotContains(t, app.text(`document.getElementById("list-content").innerText`), "抹茶冰淇淋")
 
-	// Drill down by payer (Bob = "9").
 	app.click("#nav-stats")
 	app.waitFor("the statistics", app.visible(`button[data-list-payer="9"]`))
 	app.click(`button[data-list-payer="9"]`)
@@ -640,7 +613,6 @@ func TestBrowserStatisticsDrillDowns(t *testing.T) {
 	assert.Equal(t, "9", app.text(`document.getElementById("list-payer").value`))
 	assert.NotContains(t, app.text(`document.getElementById("list-content").innerText`), "新幹線")
 
-	// Drill down by date ("2026-10-01").
 	app.click("#nav-stats")
 	app.waitFor("the statistics", app.visible(`button[data-list-date="2026-10-01"]`))
 	app.click(`button[data-list-date="2026-10-01"]`)

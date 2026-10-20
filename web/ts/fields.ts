@@ -1,5 +1,3 @@
-// What the expense form's fields share between filing an expense, editing one
-// and restoring the last-used defaults.
 const $ = (id: string) => document.getElementById(id);
 
 export function formatDate(d: Date): string {
@@ -43,7 +41,6 @@ function markChip(chip: HTMLElement | null, pressed: boolean): void {
   chip.classList.add(...(pressed ? CHIP_ON : CHIP_OFF));
 }
 
-// Sets the day and lights the today or yesterday chip when it is one of them.
 export function setDate(value: string): void {
   const input = $("date-input") as HTMLInputElement | null;
   if (input) input.value = value;
@@ -54,7 +51,6 @@ export function setDate(value: string): void {
   markChip($("date-yesterday-btn"), value === formatDate(yesterday));
 }
 
-// An expense is being edited, not filed, while the form holds the id of one.
 export function editingId(): string {
   return ($("expense-id") as HTMLInputElement | null)?.value ?? "";
 }
@@ -73,7 +69,6 @@ export function renewRequestId(): void {
     globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-// Empties the fields an expense is typed into, and the errors they showed.
 export function clearFields(): void {
   const name = $("name") as HTMLInputElement | null;
   const price = $("price") as HTMLInputElement | null;

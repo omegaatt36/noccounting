@@ -8,8 +8,6 @@ import (
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
 )
 
-// ExpenseRow is one expense in the list. Edit is the JSON the form is filled
-// from when the row is picked, so editing needs no second request.
 type ExpenseRow struct {
 	Emoji  string
 	Name   string
@@ -18,23 +16,18 @@ type ExpenseRow struct {
 	Edit   string
 }
 
-// ExpenseDay is the expenses of one day with what they came to.
 type ExpenseDay struct {
 	Label string
 	Total string
 	Rows  []ExpenseRow
 }
 
-// ExpenseListView is the expenses that match the filters, by day, newest first.
-// Filtered says the filters hid something the trip has, so an empty list is
-// told apart from a trip with nothing in it.
 type ExpenseListView struct {
 	Days     []ExpenseDay
 	Count    int
 	Filtered bool
 }
 
-// listRanges are the periods the list can be cut to, in the order of the chips.
 var listRanges = []struct{ Value, Label string }{
 	{"all", "全部"},
 	{"today", "今天"},
@@ -42,7 +35,6 @@ var listRanges = []struct{ Value, Label string }{
 	{"7d", "近7天"},
 }
 
-// ListTab is the list's frame: the filters, which load the list into #list-host.
 templ ListTab() {
 	<h1 class="flex items-center justify-center gap-2 text-xl font-bold py-1 mb-4">
 		<span aria-hidden="true" class="inline-flex">@icon.ReceiptText(icon.Props{Size: 22})

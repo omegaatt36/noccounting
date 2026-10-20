@@ -3,7 +3,7 @@ import { appReady } from "./api.js";
 const $ = (id: string) => document.getElementById(id);
 
 export type DataView = "list" | "stats" | "settle";
-export type View = "form" | DataView;
+type View = "form" | DataView;
 
 const VIEWS: readonly View[] = ["form", "list", "stats", "settle"];
 const DATA_VIEWS: readonly DataView[] = ["list", "stats", "settle"];
@@ -20,17 +20,14 @@ export function registerLoader(view: DataView, load: () => void): void {
   loaders.set(view, load);
 }
 
-// Draws a data view now.
 export function reloadView(view: DataView): void {
   loaders.get(view)?.();
 }
 
-// Marks a data view as out of date; it is redrawn when next opened.
 export function invalidate(view: DataView): void {
   stale.add(view);
 }
 
-// An expense that was filed, edited or deleted makes every view stale.
 document.addEventListener("expense-saved", () => {
   for (const view of DATA_VIEWS) invalidate(view);
 });

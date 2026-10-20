@@ -4,7 +4,6 @@ const $ = (id: string) => document.getElementById(id);
 
 const SEARCH_DELAY_MS = 300;
 
-// Typing in the search box narrows the list a moment after the last key.
 let searching: ReturnType<typeof setTimeout> | undefined;
 document.addEventListener("input", (evt) => {
   if (!(evt.target instanceof Element)) return;
@@ -20,8 +19,6 @@ document.addEventListener("input", (evt) => {
   }, SEARCH_DELAY_MS);
 });
 
-// Opens the list narrowed to what the statistics row summed up, over the same
-// period: the row is the total, the list is what it is made of.
 function showFiltered(filters: {
   category?: string;
   method?: string;

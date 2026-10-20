@@ -124,7 +124,6 @@ func (m *fakeUserRepo) GetUsers() ([]domain.User, error) {
 	return users, nil
 }
 
-// testTrip is the one trip the Mini App tests file under.
 var testTrip = domain.Trip{ID: 3, Title: "2026 Tokyo", Currency: domain.CurrencyTWD}
 
 type singleTrip struct{}
@@ -199,7 +198,6 @@ func TestHandleCreateExpenseMissingInitData(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// POST without init_data
 	data := url.Values{"trip_id": {"3"}}
 	data.Set("name", "Lunch")
 	data.Set("price", "100")
@@ -233,7 +231,6 @@ func TestHandleCreateExpenseInvalidInitData(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// POST with invalid init_data
 	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", "invalid_data")
 	data.Set("name", "Lunch")
@@ -269,7 +266,6 @@ func TestHandleCreateExpenseUnauthorizedUser(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// Create valid init_data for unauthorized user
 	params := map[string]string{
 		"query_id": "AAHdF6IQAAAAAAAA",
 		"user":     `{"id":999999999,"is_bot":false,"first_name":"Unknown"}`,
@@ -321,7 +317,6 @@ func TestHandleCreateExpenseMissingName(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// Create valid init_data
 	params := map[string]string{
 		"query_id": "AAHdF6IQAAAAAAAA",
 		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
@@ -330,7 +325,6 @@ func TestHandleCreateExpenseMissingName(t *testing.T) {
 
 	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
-	// Missing name
 	data.Set("price", "100")
 	data.Set("currency", "TWD")
 	data.Set("category", "food")
@@ -373,7 +367,6 @@ func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// Create valid init_data
 	params := map[string]string{
 		"query_id": "AAHdF6IQAAAAAAAA",
 		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
@@ -383,7 +376,6 @@ func TestHandleCreateExpenseMissingPrice(t *testing.T) {
 	data := url.Values{"trip_id": {"3"}}
 	data.Set("init_data", initData)
 	data.Set("name", "Lunch")
-	// Missing price
 	data.Set("currency", "TWD")
 	data.Set("category", "food")
 	data.Set("method", "cash")
@@ -425,7 +417,6 @@ func TestHandleCreateExpenseInvalidPrice(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// Create valid init_data
 	params := map[string]string{
 		"query_id": "AAHdF6IQAAAAAAAA",
 		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
@@ -485,7 +476,6 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// Create valid init_data for user 1
 	params := map[string]string{
 		"query_id": "AAHdF6IQAAAAAAAA",
 		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
@@ -499,7 +489,7 @@ func TestHandleCreateExpenseWithPaidBy(t *testing.T) {
 	data.Set("currency", "TWD")
 	data.Set("category", "food")
 	data.Set("method", "cash")
-	data.Set("paid_by", "987654321") // User 2 paid
+	data.Set("paid_by", "987654321")
 
 	req := httptest.NewRequest("POST", "/api/expense", strings.NewReader(data.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -538,7 +528,6 @@ func TestHandleCreateExpenseRepositoryError(t *testing.T) {
 		t.Fatalf("failed to create handler: %v", err)
 	}
 
-	// Create valid init_data
 	params := map[string]string{
 		"query_id": "AAHdF6IQAAAAAAAA",
 		"user":     `{"id":123456789,"is_bot":false,"first_name":"John"}`,
@@ -569,7 +558,6 @@ func TestHandleCreateExpenseRepositoryError(t *testing.T) {
 	}
 }
 
-// TestRegisterRoutes verifies that all routes are registered correctly.
 func TestRegisterRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	mockRepo := &stubAccountingRepo{}
@@ -600,15 +588,11 @@ func TestRegisterRoutes(t *testing.T) {
 		parts := strings.Split(route, " ")
 		method, path := parts[0], parts[1]
 
-		// Verify route exists by making a test request
 		req := httptest.NewRequest(method, path, nil)
 		w := httptest.NewRecorder()
 
-		// The router will call the handler if the route exists
 		mux.ServeHTTP(w, req)
 
-		// We just verify the handler doesn't return 404 (method not allowed)
-		// Some handlers may return 400 or other codes due to validation
 		if w.Code == http.StatusNotFound {
 			t.Errorf("route %s %s should be registered", method, path)
 		}
@@ -668,17 +652,14 @@ func TestHandleExportCSVDevMode(t *testing.T) {
 	}
 
 	body := w.Body.String()
-	// Check for BOM
 	if !strings.HasPrefix(body, "\xef\xbb\xbf") {
 		t.Errorf("expected CSV to start with BOM")
 	}
 
-	// Check for header row
 	if !strings.Contains(body, "日期") {
 		t.Errorf("expected CSV header to contain '日期'")
 	}
 
-	// Check for data
 	if !strings.Contains(body, "Lunch") {
 		t.Errorf("expected CSV data to contain 'Lunch'")
 	}
@@ -711,12 +692,10 @@ func TestHandleExportCSVEmpty(t *testing.T) {
 	}
 
 	body := w.Body.String()
-	// Check for BOM
 	if !strings.HasPrefix(body, "\xef\xbb\xbf") {
 		t.Errorf("expected CSV to start with BOM")
 	}
 
-	// Check for header row even with no data
 	if !strings.Contains(body, "日期") {
 		t.Errorf("expected CSV to contain header row even when empty")
 	}

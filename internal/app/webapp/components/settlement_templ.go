@@ -15,22 +15,18 @@ import (
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
 )
 
-// BalanceRow is one person's position in the trip: Owed when they are due money.
 type BalanceRow struct {
 	Name   string
 	Amount string
 	Owed   bool
 }
 
-// TransferRow is one payment that helps settle the trip.
 type TransferRow struct {
 	From   string
 	To     string
 	Amount string
 }
 
-// SettlementView is where the trip's money stands. Unconverted counts what was
-// left out because no rate could convert it.
 type SettlementView struct {
 	TripTitle   string
 	Balances    []BalanceRow
@@ -74,7 +70,7 @@ func SettlementContent(v SettlementView) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(v.TripTitle)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 38, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 34, Col: 16}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -122,7 +118,7 @@ func SettlementContent(v SettlementView) templ.Component {
 					var templ_7745c5c3_Var4 string
 					templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(balance.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 52, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 48, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 					if templ_7745c5c3_Err != nil {
@@ -157,7 +153,7 @@ func SettlementContent(v SettlementView) templ.Component {
 					var templ_7745c5c3_Var7 string
 					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(balance.Amount)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 56, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 52, Col: 24}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 					if templ_7745c5c3_Err != nil {
@@ -203,7 +199,7 @@ func SettlementContent(v SettlementView) templ.Component {
 						var templ_7745c5c3_Var9 string
 						templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(transfer.From)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 69, Col: 24}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 65, Col: 24}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 						if templ_7745c5c3_Err != nil {
@@ -224,7 +220,7 @@ func SettlementContent(v SettlementView) templ.Component {
 						var templ_7745c5c3_Var10 string
 						templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(transfer.To)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 72, Col: 22}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 68, Col: 22}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 						if templ_7745c5c3_Err != nil {
@@ -237,7 +233,7 @@ func SettlementContent(v SettlementView) templ.Component {
 						var templ_7745c5c3_Var11 string
 						templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(transfer.Amount)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 74, Col: 64}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 70, Col: 64}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 						if templ_7745c5c3_Err != nil {
@@ -276,7 +272,7 @@ func SettlementContent(v SettlementView) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("有 %d 筆因為缺少匯率沒有計入", v.Unconverted))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 85, Col: 76}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/app/webapp/components/settlement.templ`, Line: 81, Col: 76}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {

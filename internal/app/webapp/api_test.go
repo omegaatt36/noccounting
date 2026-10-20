@@ -2,8 +2,10 @@ package webapp
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -92,8 +94,6 @@ type noTrips struct{}
 
 func (noTrips) ListTrips(context.Context) ([]domain.Trip, error) { return nil, nil }
 
-// The Mini App and the bot share one choice per person, so switching in either
-// moves the other.
 func TestHandleSelectTrip_MovesWhereTheNextExpenseIsFiled(t *testing.T) {
 	repo := &stubAccountingRepo{}
 	handler, ledger := devHandler(t, repo, twoTrips{})
@@ -121,8 +121,6 @@ func TestHandleSelectTrip_RefusesATripThatIsGone(t *testing.T) {
 	}
 }
 
-// A page left open keeps filing under the trip it was opened for, even after the
-// person switched to another meanwhile.
 func TestHandleCreateExpense_FilesUnderTheTripThePageWasOpenedFor(t *testing.T) {
 	handler, ledger := devHandler(t, &stubAccountingRepo{}, twoTrips{})
 	post(t, handler.handleSelectTrip, "/api/trip", url.Values{"trip_id": {"9"}})
@@ -178,8 +176,6 @@ func TestHandleCreateExpense_DefaultsToAllMembers(t *testing.T) {
 	}
 }
 
-// Only an expense in another currency than the trip's carries a rate; the form
-// posts the one it last showed even after the currency is switched back.
 func TestHandleCreateExpense_OnlyAForeignExpenseCarriesTheRate(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -274,14 +270,14 @@ func TestHandleDashboard_ShowsSpendingByCategoryAndPaymentMethod(t *testing.T) {
 
 	body := w.Body.String()
 	for _, want := range []string{
-		"2026 Tokyo",    // the trip it is about
-		"NT$4,210",      // the total, in the trip's currency
-		"機票",            // a category by its label, not its slug
-		"付款方式明細", "信用卡", // spending by payment method
-		`data-list-category="flights"`,   // a category opens the list filtered to it
-		`data-list-method="credit_card"`, // and so does a payment method
-		`data-range="all"`,               // in the range the statistics were drawn for
-		"未標示",                            // what records no method
+		"2026 Tokyo",
+		"NT$4,210",
+		"機票",
+		"付款方式明細", "信用卡",
+		`data-list-category="flights"`,
+		`data-list-method="credit_card"`,
+		`data-range="all"`,
+		"未標示",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard does not contain %q", want)
@@ -434,15 +430,16 @@ func TestHandleDeleteExpense(t *testing.T) {
 }
 
 type stubAnalyzer struct {
+	delay  time.Duration
 	result *domain.ReceiptAnalysis
 	err    error
 }
 
 func (s stubAnalyzer) Analyze(_ context.Context, _ []byte) (*domain.ReceiptAnalysis, error) {
+	time.Sleep(s.delay)
 	return s.result, s.err
 }
 
-// scanReceipt posts a receipt photo to the analyzer and returns what it answered.
 func scanReceipt(t *testing.T, handler *Handler) analyzeReceiptResponse {
 	t.Helper()
 	body := new(strings.Builder)
@@ -624,5 +621,93 @@ func TestHandleCreateExpense_FailedRequestMayBeSentAgain(t *testing.T) {
 	}
 	if strings.Contains(retry.Body.String(), "重複送出已略過") {
 		t.Error("a retry of a request that failed was taken for a repeat")
+	}
+}
+
+func TestHandleDashboard_ShowsATinyShareInsteadOfHidingIt(t *testing.T) {
+	repo := &stubAccountingRepo{
+		expenses: []domain.Expense{
+			{ID: "1", Name: "機票", Price: 100000, Currency: domain.CurrencyTWD, Category: domain.CategoryFlights, Method: domain.PaymentMethodCash, PaidByID: "8", ShoppedAt: time.Now()},
+			{ID: "2", Name: "咖啡", Price: 300, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCash, PaidByID: "8", ShoppedAt: time.Now()},
+		},
+	}
+	handler, _ := devHandler(t, repo, twoTrips{})
+
+	body := get(t, handler.handleDashboardContent, "/partial/dashboard?range=all&trip_id=3").Body.String()
+
+	for _, want := range []string{`data-list-category="food"`, "NT$300", "&lt;1%"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard does not contain %q: a 0.3%% category was dropped", want)
+		}
+	}
+}
+
+func TestHandleDashboard_NamesPayersTheMappingDoesNotKnow(t *testing.T) {
+	repo := &stubAccountingRepo{
+		members: []domain.Member{{ID: "8", Name: "john-trek"}, {ID: "42", Name: "Mei"}},
+		expenses: []domain.Expense{
+			{ID: "1", Name: "a", Price: 300, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, PaidByID: "8", ShoppedAt: time.Now()},
+			{ID: "2", Name: "b", Price: 200, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, PaidByID: "42", ShoppedAt: time.Now()},
+			{ID: "3", Name: "c", Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: time.Now()},
+		},
+	}
+	handler, _ := devHandler(t, repo, twoTrips{})
+
+	body := get(t, handler.handleDashboardContent, "/partial/dashboard?range=all&trip_id=3").Body.String()
+
+	for want, why := range map[string]string{
+		"John":                 "the user mapping's nickname wins over TREK's name",
+		"Mei":                  "someone outside the mapping goes by the name TREK has, not by id 42",
+		`data-list-payer="42"`: "and still opens their expenses",
+		"未標示":                  "an expense nobody paid is named, not blank",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard does not contain %q: %s", want, why)
+		}
+	}
+	if strings.Contains(body, "john-trek") {
+		t.Error("TREK's name for John showed where his nickname belongs")
+	}
+}
+
+func TestHandleExportCSV_DefusesFormulasInText(t *testing.T) {
+	repo := &stubAccountingRepo{expenses: []domain.Expense{
+		{ID: "1", Name: `=HYPERLINK("http://evil.example","pay")`, Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, PaidByID: "8", ShoppedAt: time.Date(2026, 2, 22, 0, 0, 0, 0, time.UTC)},
+		{ID: "2", Name: "+cmd", Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, PaidByID: "8", ShoppedAt: time.Date(2026, 2, 22, 0, 0, 0, 0, time.UTC)},
+		{ID: "3", Name: "ramen", Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, PaidByID: "8", ShoppedAt: time.Date(2026, 2, 22, 0, 0, 0, 0, time.UTC)},
+	}}
+	handler, _ := devHandler(t, repo, twoTrips{})
+
+	rows, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(get(t, handler.handleExportCSV, "/api/export/csv?range=all&trip_id=3").Body.String(), "\xef\xbb\xbf"))).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := map[string]bool{}
+	for _, row := range rows[1:] {
+		names[row[1]] = true
+	}
+	for _, want := range []string{`'=HYPERLINK("http://evil.example","pay")`, "'+cmd", "ramen"} {
+		if !names[want] {
+			t.Errorf("names = %v, want %q", names, want)
+		}
+	}
+}
+
+func TestServerStart_DevModeListensOnLoopbackOnly(t *testing.T) {
+	for devMode, wantLoopback := range map[bool]bool{true: true, false: false} {
+		users := user.NewService(&fakeUserRepo{users: map[int64]*domain.User{}})
+		server, err := NewServer(users, expense.NewService(&stubAccountingRepo{}, nil, nil), newTestTrips(), "0", "token", devMode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := server.Start(); err != nil {
+			t.Fatal(err)
+		}
+		addr := server.Addr().(*net.TCPAddr)
+		if addr.IP.IsLoopback() != wantLoopback {
+			t.Errorf("dev mode %v listens on %v, want loopback only = %v", devMode, addr, wantLoopback)
+		}
+		_ = server.Shutdown(t.Context())
 	}
 }

@@ -127,7 +127,7 @@ func TestLiveT1Contract(t *testing.T) {
 	t.Logf("uploaded receipt file %s", fileID)
 
 	linked := liveReadByID(t, repo, itemID)
-	linked.ReceiptURL = fileID // the id an upload returns is what a write carries
+	linked.ReceiptURL = fileID
 	if err := repo.UpdateExpense(ctx, &linked); err != nil {
 		t.Fatalf("UpdateExpense() linking the receipt: %v", err)
 	}

@@ -6,8 +6,6 @@ import (
 	"github.com/omegaatt36/noccounting/domain"
 )
 
-// A category without a color of its own would be drawn in the neutral gray the
-// donut uses for something it does not know, and read as "other".
 func TestCategoryColor_EveryCategoryHasItsOwn(t *testing.T) {
 	seen := map[string]domain.Category{}
 	for _, category := range domain.CategoryValues() {

@@ -39,7 +39,6 @@ func TestHandleBootstrap_OffersEverythingThePageDrawsFrom(t *testing.T) {
 	if len(got.Users) != 1 || got.Users[0].Nickname != "John" || got.Users[0].TelegramID != 123456789 {
 		t.Errorf("users = %+v, want the user mapping", got.Users)
 	}
-	// User 8 is in the mapping as John; user 3 is not and keeps the name TREK has.
 	want := []MemberInfo{{ID: "3", Name: "owner-trek"}, {ID: "8", Name: "John"}}
 	if len(got.Members) != 2 || got.Members[0] != want[0] || got.Members[1] != want[1] {
 		t.Errorf("members = %+v, want %+v", got.Members, want)

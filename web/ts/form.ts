@@ -85,8 +85,6 @@ function validateForm(): boolean {
   return nameOk && priceOk && participantsOk;
 }
 
-// What to tell the user about a request that got no usable answer. The form
-// keeps what was typed, so trying again is one tap.
 function failureMessage(status: number): string {
   switch (status) {
     case 0:

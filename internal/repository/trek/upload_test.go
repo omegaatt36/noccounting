@@ -32,11 +32,11 @@ var (
 
 type uploadSeen struct {
 	path        string
-	contentType string // the request's own Content-Type, boundary included
+	contentType string
 	auth        string
-	files       []string // every form field that carried a file
-	values      []string // every form field that carried a value
-	count       int      // how many parts arrived under uploadField
+	files       []string
+	values      []string
+	count       int
 	filename    string
 	partType    string
 	content     []byte

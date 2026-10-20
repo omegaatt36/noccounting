@@ -2,8 +2,6 @@ package components
 
 import "github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
 
-// Result is the toast the form shows after saving an expense: what was saved
-// when it was, what could not be saved and why when it was not.
 templ Result(success bool, title string, description string) {
 	if success {
 		@toast.Toast(toast.Props{

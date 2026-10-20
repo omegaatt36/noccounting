@@ -7,22 +7,18 @@ import (
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/icon"
 )
 
-// BalanceRow is one person's position in the trip: Owed when they are due money.
 type BalanceRow struct {
 	Name   string
 	Amount string
 	Owed   bool
 }
 
-// TransferRow is one payment that helps settle the trip.
 type TransferRow struct {
 	From   string
 	To     string
 	Amount string
 }
 
-// SettlementView is where the trip's money stands. Unconverted counts what was
-// left out because no rate could convert it.
 type SettlementView struct {
 	TripTitle   string
 	Balances    []BalanceRow

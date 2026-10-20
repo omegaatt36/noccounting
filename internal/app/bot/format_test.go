@@ -45,7 +45,7 @@ func TestExpenseCard_LeavesAnExpenseInTheTripsCurrencyUnconverted(t *testing.T) 
 	trip := domain.Trip{Title: "Tokyo", Currency: domain.CurrencyJPY}
 	exp := &domain.Expense{
 		Name: "拉麵", Price: 1200, Currency: domain.CurrencyJPY,
-		ExchangeRate: decimal.RequireFromString("0.22"), // stray: it is the trip's own currency
+		ExchangeRate: decimal.RequireFromString("0.22"),
 		Category:     domain.CategoryFood, Method: domain.PaymentMethodCash,
 	}
 
@@ -67,8 +67,6 @@ func TestSettlementMessage(t *testing.T) {
 		},
 		Unconverted: 2,
 	}
-	// A person in the user mapping goes by their nickname here; anyone else by
-	// the name TREK gave them.
 	names := map[string]string{"3": "Alice"}
 
 	got := settlementMessage(trip, settlement, names)

@@ -44,9 +44,7 @@ func NewHandler(userService *user.Service, expenseService *expense.Service, trip
 	}, nil
 }
 
-// nowFor returns the current time in the caller's timezone (or an explicit tz
-// parameter), normalized to UTC calendar coordinates so date comparisons match
-// date-only ShoppedAt values.
+// nowFor is the current time in the caller's timezone as UTC calendar coordinates, so it compares with date-only ShoppedAt values.
 func (h *Handler) nowFor(r *http.Request, caller int64) time.Time {
 	var loc *time.Location
 	if rawTZ := r.FormValue("tz"); rawTZ != "" {
@@ -68,17 +66,13 @@ func (h *Handler) nowFor(r *http.Request, caller int64) time.Time {
 	return time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), local.Minute(), local.Second(), local.Nanosecond(), time.UTC)
 }
 
-// The ways a caller can fail to be identified.
 var (
 	errMissingInitData = errors.New("missing init_data")
 	errInvalidInitData = errors.New("invalid init_data")
 	errUnauthorized    = errors.New("unauthorized")
 )
 
-// callerID is who is calling, as their Telegram id: init_data is read from the
-// query or the form and its signature is checked against the bot token, so the
-// id is the one Telegram vouched for. Dev mode skips the check and speaks for
-// the first mapped user, which is also who the trip selection is kept for.
+// callerID is the Telegram id vouched for by init_data's signature. Dev mode skips the check and speaks for the first mapped user.
 func (h *Handler) callerID(r *http.Request) (int64, error) {
 	if h.devMode {
 		slog.Warn("Dev mode: skipping auth check", "path", r.URL.Path)
@@ -109,8 +103,6 @@ func (h *Handler) callerID(r *http.Request) (int64, error) {
 	return telegramData.UserID, nil
 }
 
-// requireAuth identifies the caller for a route that answers in plain text. On
-// failure it writes the HTTP error and returns false.
 func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	caller, err := h.callerID(r)
 	switch {
@@ -169,15 +161,10 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// readyTimeout bounds the TREK check behind /ready so a hung TREK fails a probe
-// instead of stalling it.
 const readyTimeout = 5 * time.Second
 
-// handleReady says whether this instance can do its job: /health only says the
-// process is up, but with TREK unreachable every expense and dashboard request
-// fails. It is a separate route so a TREK outage marks the instance unready
-// without making a liveness probe restart it. Nothing about the failure is put
-// in the response; it is logged.
+// handleReady is separate from /health so a TREK outage marks the instance unready without making a liveness probe restart it.
+// The failure is logged, never put in the response.
 func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
 	defer cancel()
@@ -193,5 +180,4 @@ func (h *Handler) handleReady(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// InitData expiration time for validation.
 const initDataMaxAge = 24 * time.Hour

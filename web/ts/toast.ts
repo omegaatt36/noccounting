@@ -1,6 +1,4 @@
-// Mirrors the markup of the server-rendered toast (components/ui/toast) for
-// messages that never go through HTMX, so a failed request can say so without
-// leaving the app.
+// Mirrors components/ui/toast for messages that never go through HTMX.
 const $ = (id: string) => document.getElementById(id);
 
 const DURATION_MS = 5000;

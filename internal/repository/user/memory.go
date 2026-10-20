@@ -22,11 +22,8 @@ func NewRepo(mappedUserString string) *Repo {
 	}
 }
 
-// parseUsers parses USER_MAPPING as
-// telegram_id:backend_user_id[:nickname],… — comma-separated. The backend id
-// is validated here, at the one point the mapping is read: a mapping that
-// cannot name a backend user is a startup mistake, not an error to repeat per
-// expense.
+// parseUsers parses USER_MAPPING as telegram_id:backend_user_id[:nickname],… (comma-separated).
+// The backend id is validated here, the one place the mapping is read: a bad mapping is a startup mistake, not an error to repeat per expense.
 func parseUsers(s string) ([]domain.User, error) {
 	var users []domain.User
 
@@ -81,8 +78,6 @@ func parseUsers(s string) ([]domain.User, error) {
 	return users, nil
 }
 
-// validateBackendUserID refuses a mapped id that is not a positive decimal
-// number — the only shape a TREK user id has.
 func validateBackendUserID(id string) error {
 	parsed, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {

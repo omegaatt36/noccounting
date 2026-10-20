@@ -20,21 +20,16 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/trip"
 )
 
-// resultData is the toast an expense form gets back: what was done when it
-// worked, or what failed, and why, when it did not.
 type resultData struct {
 	Success     bool
 	Title       string
 	Description string
 }
 
-// errExpenseFields is how a form field that cannot be read is told to the
-// person: the message is theirs to act on, so it says what to fix.
 type errExpenseFields string
 
 func (e errExpenseFields) Error() string { return string(e) }
 
-// expenseFields is what the expense form describes, read and checked.
 type expenseFields struct {
 	name         string
 	price        uint64
@@ -58,8 +53,6 @@ type receiptItemWire struct {
 	Category domain.Category `json:"category,omitempty"`
 }
 
-// parseExpenseFields reads the expense form. The failure it returns is meant
-// for the person.
 func parseExpenseFields(r *http.Request, base domain.Currency) (expenseFields, error) {
 	var fields expenseFields
 
@@ -129,9 +122,6 @@ func parseExpenseFields(r *http.Request, base domain.Currency) (expenseFields, e
 	return fields, nil
 }
 
-// paidByFor is the backend user an expense is paid by: the person the form
-// names, or the caller when it names none. The second result is the failure to
-// tell the person.
 func (h *Handler) paidByFor(r *http.Request, caller int64) (string, string) {
 	var fallback string
 	if h.devMode {
@@ -171,9 +161,6 @@ func (h *Handler) paidByFor(r *http.Request, caller int64) (string, string) {
 	return u.BackendUserID, ""
 }
 
-// openExpenseRequest is what filing and editing an expense both start with:
-// the form read, the caller identified and the trip it is for resolved. It
-// renders the failure itself, under title, and returns false when there is one.
 func (h *Handler) openExpenseRequest(w http.ResponseWriter, r *http.Request, title string) (caller int64, selected domain.Trip, ok bool) {
 	fail := func(message string) {
 		h.renderResult(w, r, resultData{Title: title, Description: message})
@@ -292,11 +279,8 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 	h.renderResult(w, r, result)
 }
 
-// maxRequestIDLen bounds the request id a form may send; the page sends a UUID.
 const maxRequestIDLen = 64
 
-// attachReceipt uploads the photo a scanned receipt left in the stash and links
-// it to the expense. It says, in words to show the person, when it could not.
 func (h *Handler) attachReceipt(ctx context.Context, trip domain.Trip, token string, expense *domain.Expense) string {
 	if token == "" {
 		return ""
@@ -318,10 +302,7 @@ func (h *Handler) attachReceipt(ctx context.Context, trip domain.Trip, token str
 	return ""
 }
 
-// handleUpdateExpense rewrites an expense with what the form says. It starts
-// from the expense as it is stored, so what the form has no field for (a
-// receipt and its lines) is kept; a form that names no payer or day keeps those
-// too.
+// handleUpdateExpense starts from the stored expense, so what the form has no field for (a receipt and its lines) is kept.
 func (h *Handler) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
 	const failed = "儲存失敗"
 	fail := func(message string) { h.renderResult(w, r, resultData{Title: failed, Description: message}) }
@@ -394,8 +375,6 @@ func (h *Handler) handleUpdateExpense(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// amountSummary is what an expense came to: what was paid and, for a foreign
-// one with a rate, what that is in the trip's currency.
 func amountSummary(base domain.Currency, e *domain.Expense) string {
 	summary := format.Money(e.Currency, e.PriceDecimal())
 	if e.Currency != base && !e.ExchangeRate.IsZero() {
@@ -450,63 +429,82 @@ type analyzeReceiptResponse struct {
 	Error        string               `json:"error,omitempty"`
 }
 
+const (
+	maxReceiptUpload       = 12 << 20
+	receiptReadTimeout     = 60 * time.Second
+	receiptAnalysisTimeout = 180 * time.Second
+)
+
+// extendDeadlines gives a receipt scan the time the server-wide timeouts would cut off.
+func extendDeadlines(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	now := time.Now()
+	for _, set := range []struct {
+		apply func(time.Time) error
+		at    time.Time
+	}{
+		{rc.SetReadDeadline, now.Add(receiptReadTimeout)},
+		{rc.SetWriteDeadline, now.Add(receiptReadTimeout + receiptAnalysisTimeout + 15*time.Second)},
+	} {
+		if err := set.apply(set.at); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			slog.Warn("Failed to extend a deadline for the receipt scan", "error", err)
+		}
+	}
+}
+
 func (h *Handler) handleAnalyzeReceipt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	fail := func(status int, message string) {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{Success: false, Error: message})
+	}
+
+	extendDeadlines(w)
+
+	// init_data travels in the form with the photo, so the form is read before the caller is known; the size limit bounds that.
+	r.Body = http.MaxBytesReader(w, r.Body, maxReceiptUpload)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		if errors.As(err, new(*http.MaxBytesError)) {
+			fail(http.StatusRequestEntityTooLarge, "收據圖片太大")
+			return
+		}
+		fail(http.StatusBadRequest, "無法讀取上傳檔案")
+		return
+	}
 
 	if _, ok := h.requireAuth(w, r); !ok {
 		return
 	}
 
 	if !h.expenseService.HasReceiptAnalyzer() {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
-			Success: false,
-			Error:   "收據分析功能尚未啟用",
-		})
-		return
-	}
-
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
-			Success: false,
-			Error:   "無法讀取上傳檔案",
-		})
+		fail(http.StatusBadRequest, "收據分析功能尚未啟用")
 		return
 	}
 
 	file, _, err := r.FormFile("receipt")
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
-			Success: false,
-			Error:   "缺少收據圖片",
-		})
+		fail(http.StatusBadRequest, "缺少收據圖片")
 		return
 	}
 	defer file.Close()
 
 	imgBytes, err := io.ReadAll(file)
 	if err != nil || len(imgBytes) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
-			Success: false,
-			Error:   "讀取收據圖片失敗",
-		})
+		fail(http.StatusBadRequest, "讀取收據圖片失敗")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), receiptAnalysisTimeout)
 	defer cancel()
 
 	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imgBytes)
 	if err != nil {
 		slog.Error("Receipt analysis failed in webapp", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(analyzeReceiptResponse{
-			Success: false,
-			Error:   "收據辨識失敗，請手動輸入",
-		})
+		if errors.Is(err, domain.ErrUnsupportedCurrency) {
+			fail(http.StatusUnprocessableEntity, "收據的幣別不是 TWD 或 JPY，請手動輸入")
+			return
+		}
+		fail(http.StatusInternalServerError, "收據辨識失敗，請手動輸入")
 		return
 	}
 

@@ -15,7 +15,7 @@ function cloudStorage(): TelegramCloudStorage | null {
   return window.Telegram?.WebApp?.CloudStorage ?? null;
 }
 
-export function storageGet(key: string): Promise<string | null> {
+function storageGet(key: string): Promise<string | null> {
   const cloud = cloudStorage();
   if (!cloud) return Promise.resolve(localStorage.getItem(key));
   return new Promise((resolve) => {
@@ -25,7 +25,7 @@ export function storageGet(key: string): Promise<string | null> {
   });
 }
 
-export function storageSet(key: string, value: string): void {
+function storageSet(key: string, value: string): void {
   const cloud = cloudStorage();
   if (cloud) {
     cloud.setItem(key, value);

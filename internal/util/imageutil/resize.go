@@ -10,14 +10,10 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// ResizeAndCompress shrinks an image until its shorter side is at most maxShort
-// and its longer side at most maxLong, then encodes it as JPEG with the given
-// quality (1-100). The shorter side leads because a receipt is long and narrow:
-// capping the longer side alone would leave its text a few pixels tall.
-// An image already within both limits is still re-encoded as JPEG to ensure
-// consistent format and to strip unnecessary metadata.
+// ResizeAndCompress caps the shorter side at maxShort and the longer at maxLong, then encodes JPEG at the given quality.
+// The shorter side leads because a receipt is long and narrow: capping the longer side alone would leave its text a few pixels tall.
+// An image within both limits is still re-encoded, for a consistent format and no metadata.
 func ResizeAndCompress(data []byte, maxShort, maxLong, quality int) ([]byte, error) {
-	// Decode supported JPEG and PNG receipt images.
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)

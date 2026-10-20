@@ -7,10 +7,7 @@ import (
 
 const submissionTTL = 10 * time.Minute
 
-// submissions remembers the expense forms it has seen by the request id each
-// carries. A form sent again with the id of one that already went through, as
-// happens when the answer was lost on a bad connection, is told so instead of
-// filing the expense twice.
+// submissions remembers forms by request id, so a form re-sent after a lost answer files nothing twice.
 type submissions struct {
 	mu   sync.Mutex
 	seen map[string]*submission
@@ -27,9 +24,6 @@ func newSubmissions() *submissions {
 	return &submissions{seen: make(map[string]*submission), now: time.Now}
 }
 
-// begin claims a request id. When it is not the first to arrive, prev says what
-// became of the earlier one: done with its result, or still being worked on.
-// No id is never a repeat.
 func (s *submissions) begin(id string) (prev submission, first bool) {
 	if id == "" {
 		return submission{}, true
@@ -50,7 +44,6 @@ func (s *submissions) begin(id string) (prev submission, first bool) {
 	return submission{}, true
 }
 
-// finish records that a request went through, with the answer it was given.
 func (s *submissions) finish(id string, result resultData) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,7 +52,6 @@ func (s *submissions) finish(id string, result resultData) {
 	}
 }
 
-// abandon frees the id of a request that failed, so the form can send it again.
 func (s *submissions) abandon(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -39,8 +39,6 @@ type PayerBar struct {
 	Percentage int
 }
 
-// DashboardView is everything the dashboard shows, with the amounts already
-// written in the trip's currency.
 type DashboardView struct {
 	TripTitle           string
 	GrandTotal          string
@@ -55,8 +53,6 @@ type DashboardView struct {
 	DateRange           string
 }
 
-// dashboardRanges are the periods the dashboard can be drawn for, in the order
-// of the chips that pick them.
 var dashboardRanges = []struct{ Value, Label string }{
 	{"today", "今天"},
 	{"3d", "近3天"},
@@ -64,8 +60,6 @@ var dashboardRanges = []struct{ Value, Label string }{
 	{"all", "全部"},
 }
 
-// rangeActive says whether the chip for value is the one showing: a dashboard
-// asked for no range shows them all.
 func rangeActive(selected, value string) bool {
 	if selected == "" {
 		selected = "all"
@@ -73,8 +67,7 @@ func rangeActive(selected, value string) bool {
 	return selected == value
 }
 
-// categoryColors maps a category to its hex color, in the Flexoki palette: each
-// of TREK's fourteen has a color of its own so no two read as the same on the donut.
+// categoryColors is in the Flexoki palette; each of TREK's fourteen categories has a color of its own so no two read as the same on the donut.
 var categoryColors = map[domain.Category]string{
 	domain.CategoryFood:          "#D0A215",
 	domain.CategoryTransport:     "#4385BE",
@@ -92,8 +85,20 @@ var categoryColors = map[domain.Category]string{
 	domain.CategoryOther:         "#6F6E69",
 }
 
-// CategoryColor is the color of a category slug, or the neutral gray for
-// anything that is not one.
+// percentLabel shows a share too small to round to 1% as "<1%", never "0%" beside a nonzero amount.
+func percentLabel(percentage int) string {
+	if percentage < 1 {
+		return "<1%"
+	}
+	return fmt.Sprintf("%d%%", percentage)
+}
+
+// barWidth keeps the smallest share a sliver, not nothing.
+func barWidth(percentage int) int {
+	return max(percentage, 1)
+}
+
+// CategoryColor is the neutral gray for anything that is not a category slug.
 func CategoryColor(slug string) string {
 	if color, ok := categoryColors[domain.Category(slug)]; ok {
 		return color
@@ -167,9 +172,6 @@ templ DashboardContent(v DashboardView) {
 				</div>
 				<div class="flex flex-wrap gap-x-3 gap-y-1 pt-3 mt-2 border-t border-border">
 					for _, cat := range v.Categories {
-						if cat.Percentage == 0 {
-							continue
-						}
 						<div class="flex items-center gap-1.5 text-xs text-muted-foreground">
 							<span
 								class="w-2 h-2 rounded-sm inline-block"
@@ -200,9 +202,6 @@ templ DashboardContent(v DashboardView) {
 			<div class="space-y-3">
 				<h2 class="text-lg font-semibold text-foreground">分類明細</h2>
 				for _, cat := range v.Categories {
-					if cat.Percentage == 0 {
-						continue
-					}
 					<button
 						type="button"
 						class="w-full text-left cursor-pointer flex items-center gap-2 py-1.5 hover:bg-muted/50 rounded transition-colors"
@@ -249,22 +248,19 @@ templ DashboardContent(v DashboardView) {
 	</div>
 }
 
-// breakdownBody is one line of a breakdown, what was spent and its share, over
-// a bar drawn in the share of the whole.
 templ breakdownBody(emoji string, label string, amount string, percentage int, color string) {
 	<span class="flex items-center gap-2">
 		<span class="w-6 text-center" aria-hidden="true">{ emoji }</span>
 		<span class="flex-1 min-w-0 truncate text-sm text-muted-foreground">{ label }</span>
 		<span class="text-sm font-medium tabular-nums">{ amount }</span>
-		<span class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", percentage) }</span>
+		<span class="w-10 text-right text-xs text-muted-foreground tabular-nums">{ percentLabel(percentage) }</span>
 	</span>
 	<span class="mt-1.5 block h-2 rounded-full bg-secondary overflow-hidden" aria-hidden="true">
-		<span class="block h-2 rounded-full transition-all" style={ fmt.Sprintf("width: %d%%; background: %s;", percentage, color) }></span>
+		<span class="block h-2 rounded-full transition-all" style={ fmt.Sprintf("width: %d%%; background: %s;", barWidth(percentage), color) }></span>
 	</span>
 }
 
-// methodRow is spending by one payment method. Opening it lists those expenses,
-// except for the ones that record no method, which the list has no filter for.
+// methodRow opens its expenses, except for those that record no method, which the list has no filter for.
 templ methodRow(method MethodBar) {
 	if method.Slug == "" {
 		<div class="w-full flex items-center gap-2 py-1.5">
@@ -295,7 +291,7 @@ templ dateRow(d DateBar) {
 			<div class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
 				<div
 					class="bg-accent h-6 transition-all"
-					style={ fmt.Sprintf("width: %d%%", d.Percentage) }
+					style={ fmt.Sprintf("width: %d%%", barWidth(d.Percentage)) }
 				></div>
 			</div>
 			<div class="w-20 text-right text-sm font-medium tabular-nums">{ d.Amount }</div>
@@ -311,7 +307,7 @@ templ dateRow(d DateBar) {
 			<span class="flex-1 bg-secondary rounded-full overflow-hidden h-6">
 				<span
 					class="block bg-accent h-6 transition-all"
-					style={ fmt.Sprintf("width: %d%%", d.Percentage) }
+					style={ fmt.Sprintf("width: %d%%", barWidth(d.Percentage)) }
 				></span>
 			</span>
 			<span class="w-20 text-right text-sm font-medium tabular-nums">{ d.Amount }</span>
@@ -326,7 +322,7 @@ templ payerRow(payer PayerBar) {
 			<div class="text-sm font-medium">{ payer.Name }</div>
 			<div class="text-right">
 				<div class="text-sm font-medium tabular-nums">{ payer.Amount }</div>
-				<div class="text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", payer.Percentage) }</div>
+				<div class="text-xs text-muted-foreground tabular-nums">{ percentLabel(payer.Percentage) }</div>
 			</div>
 		</div>
 	} else {
@@ -340,7 +336,7 @@ templ payerRow(payer PayerBar) {
 			<span class="flex items-center gap-2">
 				<span class="text-right">
 					<span class="block text-sm font-medium tabular-nums">{ payer.Amount }</span>
-					<span class="block text-xs text-muted-foreground tabular-nums">{ fmt.Sprintf("%d%%", payer.Percentage) }</span>
+					<span class="block text-xs text-muted-foreground tabular-nums">{ percentLabel(payer.Percentage) }</span>
 				</span>
 				<span aria-hidden="true" class="inline-flex text-muted-foreground">@icon.ChevronRight(icon.Props{Size: 14})</span>
 			</span>

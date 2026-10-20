@@ -64,9 +64,6 @@ func (h *Handler) RegisterHandlers(bot *tele.Bot) {
 	bot.Handle(tele.OnCallback, h.handleCallback)
 }
 
-// requireAuthorized lets only the people in the user mapping through. Every
-// command reads or changes the trip's real expenses, so none is open to someone
-// who merely found the bot.
 func (h *Handler) requireAuthorized(next tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		sender := c.Sender()
@@ -84,8 +81,7 @@ func (h *Handler) requireAuthorized(next tele.HandlerFunc) tele.HandlerFunc {
 	}
 }
 
-// currentTrip is the trip the sender is filing under. When there is none it has
-// already told them why, so the caller only has to stop.
+// currentTrip has already told the sender why when there is none, so the caller only has to stop.
 func (h *Handler) currentTrip(c tele.Context) (domain.Trip, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -104,9 +100,6 @@ func (h *Handler) currentTrip(c tele.Context) (domain.Trip, bool) {
 	return domain.Trip{}, false
 }
 
-// writeFailure is what a person is told when an expense could not be written. A
-// payer or participant who is not on the trip is a thing they can fix, so it is
-// named; anything else is not theirs to act on.
 func writeFailure(err error, generic string) string {
 	if errors.Is(err, domain.ErrNotOnTrip) {
 		return "❌ 付款人或分攤的人不在這趟旅行裡\n\n請先在 TREK 把對方加入旅行"
@@ -185,7 +178,6 @@ func (h *Handler) handleHelp(c tele.Context) error {
 	return c.Send(help)
 }
 
-// handleTrip shows the trip the sender files under and offers the others.
 func (h *Handler) handleTrip(c tele.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -249,7 +241,6 @@ func (h *Handler) handleRate(c tele.Context) error {
 	return c.Send(rateMessage(h.expenseService.ExchangeRates(ctx)))
 }
 
-// handleSummary reports where the trip's money stands, as TREK works it out.
 func (h *Handler) handleSummary(c tele.Context) error {
 	current, ok := h.currentTrip(c)
 	if !ok {
@@ -350,6 +341,9 @@ func (h *Handler) handlePhoto(c tele.Context) error {
 	analysis, err := h.expenseService.AnalyzeReceipt(ctx, imageData)
 	if err != nil {
 		slog.Error("Receipt analysis failed", "error", err)
+		if errors.Is(err, domain.ErrUnsupportedCurrency) {
+			return c.Send("❌ 收據的幣別不是 TWD 或 JPY，請使用 Mini App 手動新增")
+		}
 		return c.Send("❌ 無法辨識收據，請使用 Mini App 手動新增")
 	}
 
@@ -371,7 +365,7 @@ func (h *Handler) handleText(c tele.Context) error {
 	state := h.convManager.GetState(userID)
 
 	if state == nil {
-		return nil // No active conversation, ignore
+		return nil
 	}
 
 	text := strings.TrimSpace(c.Text())
@@ -381,7 +375,6 @@ func (h *Handler) handleText(c tele.Context) error {
 		return h.handleEditValue(c, state, text)
 
 	case StepNone, StepEditSelect, StepEditField, ReceiptConfirm:
-		// These steps accept callbacks rather than text input.
 		return nil
 	}
 
@@ -396,27 +389,22 @@ func (h *Handler) handleCallback(c tele.Context) error {
 	// telebot v4 prefixes callback data with \f (form feed character)
 	data = strings.TrimPrefix(data, "\f")
 
-	// Handle trip selection (format: "trip|{trip_id}")
 	if strings.HasPrefix(data, "trip|") {
 		return h.handleTripCallback(c, data)
 	}
 
-	// Handle timezone selection (format: "tz|{timezone}")
 	if strings.HasPrefix(data, "tz|") {
 		return h.handleTimezoneCallback(c, data)
 	}
 
-	// Handle edit expense selection (format: "edit_select|{expense_id}")
 	if strings.HasPrefix(data, "edit_select|") {
 		return h.handleEditSelectCallback(c, data)
 	}
 
-	// Handle edit field selection (format: "edit_field|{field}")
 	if strings.HasPrefix(data, "edit_field|") {
 		return h.handleEditFieldCallback(c, state, data)
 	}
 
-	// Handle receipt callback (format: "receipt|{action}")
 	if strings.HasPrefix(data, "receipt|") {
 		return h.handleReceiptCallback(c, state, data)
 	}
@@ -649,8 +637,7 @@ func (h *Handler) saveEdit(c tele.Context, state *ConversationState, failure str
 	return c.Send(expenseCard("✅ 已更新消費記錄", state.Trip, exp))
 }
 
-// confirmEditDelete asks again before deleting: TREK removes an expense for
-// good, and the delete button sits next to the cancel one.
+// confirmEditDelete asks again: TREK deletes for good, and the delete button sits next to cancel.
 func (h *Handler) confirmEditDelete(c tele.Context, state *ConversationState) error {
 	if state == nil || state.EditingExpense == nil {
 		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
@@ -774,7 +761,6 @@ func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState
 		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
 	}
 
-	// Remove inline buttons from the original message for final actions
 	if msg := c.Message(); msg != nil {
 		_, _ = c.Bot().Edit(msg, msg.Text)
 	}
@@ -782,8 +768,6 @@ func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState
 	return h.fileReceipt(c, claimed, action == "split")
 }
 
-// fileReceipt files the scanned receipt the person confirmed, as one expense or
-// one per line, and tells them what actually got filed.
 func (h *Handler) fileReceipt(c tele.Context, state *ConversationState, split bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -831,8 +815,6 @@ func (h *Handler) fileReceipt(c tele.Context, state *ConversationState, split bo
 	return c.Send(msg)
 }
 
-// splitReceiptMessage reports a split receipt as it was filed: the lines that
-// became expenses, and any that did not.
 func splitReceiptMessage(trip domain.Trip, analysis *domain.ReceiptAnalysis, result expense.ReceiptResult) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "✅ 已拆開新增 %d 項消費\n%s\n\n", len(result.Filed), tripLine(trip))

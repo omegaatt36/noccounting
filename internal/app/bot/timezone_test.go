@@ -64,7 +64,6 @@ func TestHandler_TimezoneCommandAndCallback(t *testing.T) {
 	}
 	handler.RegisterHandlers(b)
 
-	// 1. /tz with payload "Asia/Tokyo"
 	ctx1 := &mockTimezoneBotContext{
 		sender:  &tele.User{ID: 100},
 		message: &tele.Message{Text: "/tz Asia/Tokyo", Payload: "Asia/Tokyo"},
@@ -76,7 +75,6 @@ func TestHandler_TimezoneCommandAndCallback(t *testing.T) {
 		t.Errorf("expected confirmation of Asia/Tokyo, got %v", ctx1.sent)
 	}
 
-	// 2. /tz with payload "tw"
 	ctx2 := &mockTimezoneBotContext{
 		sender:  &tele.User{ID: 100},
 		message: &tele.Message{Text: "/tz tw", Payload: "tw"},
@@ -88,7 +86,6 @@ func TestHandler_TimezoneCommandAndCallback(t *testing.T) {
 		t.Errorf("expected confirmation of Asia/Taipei, got %v", ctx2.sent)
 	}
 
-	// 3. /tz with invalid timezone
 	ctx3 := &mockTimezoneBotContext{
 		sender:  &tele.User{ID: 100},
 		message: &tele.Message{Text: "/tz Mars/City", Payload: "Mars/City"},
@@ -100,7 +97,6 @@ func TestHandler_TimezoneCommandAndCallback(t *testing.T) {
 		t.Errorf("expected error for invalid timezone, got %v", ctx3.sent)
 	}
 
-	// 4. Callback "tz|Asia/Tokyo"
 	ctx4 := &mockTimezoneBotContext{
 		sender: &tele.User{ID: 100},
 		cb:     &tele.Callback{Data: "tz|Asia/Tokyo"},

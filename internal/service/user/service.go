@@ -40,7 +40,6 @@ func (s *Service) IsAuthorized(telegramUserID int64) bool {
 	return user != nil
 }
 
-// Timezone returns the user's preferred timezone, defaulting to Asia/Taipei.
 func (s *Service) Timezone(telegramUserID int64) *time.Location {
 	s.tzMu.RLock()
 	loc := s.timezones[telegramUserID]
@@ -51,14 +50,12 @@ func (s *Service) Timezone(telegramUserID int64) *time.Location {
 	return DefaultTimezone()
 }
 
-// Today is the calendar day it is for the user now, as a date in UTC so it
-// compares with the dates expenses are filed under.
+// Today is the user's calendar day as a UTC date, so it compares with the dates expenses are filed under.
 func (s *Service) Today(telegramUserID int64) time.Time {
 	local := time.Now().In(s.Timezone(telegramUserID))
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// SetTimezone stores the user's preferred timezone in memory.
 func (s *Service) SetTimezone(telegramUserID int64, loc *time.Location) {
 	if loc == nil {
 		return
@@ -68,7 +65,6 @@ func (s *Service) SetTimezone(telegramUserID int64, loc *time.Location) {
 	s.tzMu.Unlock()
 }
 
-// DefaultTimezone returns Asia/Taipei (UTC+8).
 func DefaultTimezone() *time.Location {
 	loc, err := time.LoadLocation("Asia/Taipei")
 	if err != nil {

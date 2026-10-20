@@ -15,13 +15,11 @@ func TestAggregateDashboard_GroupsSpendingByPaymentMethod(t *testing.T) {
 		{Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCreditCard, ShoppedAt: now},
 		{Price: 300, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCash, ShoppedAt: now},
 		{Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, Method: domain.PaymentMethodCash, ShoppedAt: now},
-		{Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: now}, // no method recorded
+		{Price: 100, Currency: domain.CurrencyTWD, Category: domain.CategoryFood, ShoppedAt: now},
 	}
 
 	got := aggregateDashboard(expenses, nil, domain.CurrencyTWD)
 
-	// The domain's order, cash before credit_card, then what no method was
-	// recorded for.
 	want := []struct {
 		method domain.PaymentMethod
 		amount int64

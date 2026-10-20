@@ -119,12 +119,10 @@ func (c *Client) sessionToken() string {
 	return c.token
 }
 
-// reauth serializes concurrent token refreshes so multiple 401s do not hammer the login endpoint.
 func (c *Client) reauth(ctx context.Context, failedToken string) error {
 	c.reauthMu.Lock()
 	defer c.reauthMu.Unlock()
 
-	// If the token changed while waiting for the lock, another goroutine already refreshed it.
 	if c.sessionToken() != failedToken && c.sessionToken() != "" {
 		return nil
 	}
@@ -268,7 +266,6 @@ func (c *Client) raw(ctx context.Context, method, path string, in any, token str
 	return respBody, resp.StatusCode, nil
 }
 
-// Stream multipart content without buffering the entire file into memory, while providing exact Content-Length.
 func (c *Client) postMultipart(ctx context.Context, path, fieldName, filename string, content io.ReadSeeker, contentType string, out any) error {
 	return c.call(ctx, http.MethodPost, path, func(token string) ([]byte, int, error) {
 		size, err := content.Seek(0, io.SeekEnd)

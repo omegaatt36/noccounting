@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -18,12 +19,15 @@ import (
 const (
 	finMindBaseURL  = "https://api.finmindtrade.com/api/v4/data"
 	defaultCacheTTL = 1 * time.Hour
+	// defaultMaxStale is how old a rate may be and still stand in when FinMind is down.
+	defaultMaxStale = 7 * 24 * time.Hour
 )
 
 type FinMindClient struct {
 	httpClient *http.Client
 	baseURL    string
 	cacheTTL   time.Duration
+	maxStale   time.Duration
 
 	mu         sync.RWMutex
 	cachedRate decimal.Decimal
@@ -41,6 +45,7 @@ func NewFinMindClientWithBaseURL(baseURL string) *FinMindClient {
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		baseURL:    baseURL,
 		cacheTTL:   defaultCacheTTL,
+		maxStale:   defaultMaxStale,
 	}
 }
 
@@ -48,6 +53,12 @@ func (c *FinMindClient) SetCacheTTL(ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cacheTTL = ttl
+}
+
+func (c *FinMindClient) SetMaxStale(age time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maxStale = age
 }
 
 type finMindResponse struct {
@@ -83,17 +94,29 @@ func (c *FinMindClient) GetRate(ctx context.Context, source, target domain.Curre
 	}
 }
 
-// fetchTWDPerJPY is the board's latest cash selling rate: what a traveller
-// pays in TWD for one JPY of cash.
+// fetchTWDPerJPY is the board's latest cash selling rate; when it cannot be read, the last rate stands in for a while.
 func (c *FinMindClient) fetchTWDPerJPY(ctx context.Context) (decimal.Decimal, error) {
 	c.mu.RLock()
-	if !c.cachedRate.IsZero() && time.Since(c.cachedAt) < c.cacheTTL {
-		cached := c.cachedRate
-		c.mu.RUnlock()
-		return cached, nil
-	}
+	cached, cachedAt := c.cachedRate, c.cachedAt
+	ttl, maxStale := c.cacheTTL, c.maxStale
 	c.mu.RUnlock()
 
+	if !cached.IsZero() && time.Since(cachedAt) < ttl {
+		return cached, nil
+	}
+
+	rate, err := c.requestTWDPerJPY(ctx)
+	if err != nil {
+		if !cached.IsZero() && time.Since(cachedAt) < maxStale {
+			slog.Warn("could not fetch the exchange rate; using the last one", "age", time.Since(cachedAt).Round(time.Minute), "error", err)
+			return cached, nil
+		}
+		return decimal.Zero, err
+	}
+	return rate, nil
+}
+
+func (c *FinMindClient) requestTWDPerJPY(ctx context.Context) (decimal.Decimal, error) {
 	// Query past 7 days to tolerate weekends and market holidays.
 	startDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
 

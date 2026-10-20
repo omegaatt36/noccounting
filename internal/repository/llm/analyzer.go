@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -25,8 +27,9 @@ type Analyzer struct {
 	baseURL    string
 	apiKey     string
 	model      string
-	// retryBase is the first backoff; each further retry doubles it.
-	retryBase time.Duration
+	retryBase  time.Duration
+	// reasoningEffort is sent when set: only some models take it, and an endpoint may refuse the whole request otherwise.
+	reasoningEffort string
 }
 
 var _ expense.ReceiptAnalyzer = (*Analyzer)(nil)
@@ -52,6 +55,11 @@ const systemPrompt = `You are a receipt OCR parser.
 Your ONLY job is to read the receipt image and output a single JSON object.
 Do NOT think step by step. Do NOT explain. Do NOT output markdown code blocks.
 Output raw, valid JSON and nothing else.`
+
+func (a *Analyzer) WithReasoningEffort(effort string) *Analyzer {
+	a.reasoningEffort = effort
+	return a
+}
 
 const receiptPromptTemplate = `Analyze this receipt image. Extract all items with their prices, categories, payment method, and Traditional Chinese translations.
 
@@ -110,14 +118,20 @@ func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.Recei
 		}
 		lastErr = err
 
-		// Don't retry on client errors (4xx) unless it's 429 Too Many Requests
-		if strings.Contains(err.Error(), "LLM API error (status 4") && !strings.Contains(err.Error(), "429") {
-			break
+		// Asking again cannot fix a request the endpoint refused, or a receipt
+		// noccounting cannot account for.
+		if errors.As(err, new(permanentError)) {
+			return nil, err
 		}
 	}
 
 	return nil, fmt.Errorf("failed to call LLM API after %d retries: %w", maxRetries, lastErr)
 }
+
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
 
 var jsonBlockRE = regexp.MustCompile(`(?s)\{.*\}`)
 
@@ -143,7 +157,7 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 		ResponseFormat:  &responseFormat{Type: "json_object"},
 		MaxTokens:       16384,
 		Temperature:     new(0.0),
-		ReasoningEffort: "low",
+		ReasoningEffort: a.reasoningEffort,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -169,7 +183,11 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("LLM API error (status %d): %s", resp.StatusCode, string(body))
+		err := fmt.Errorf("LLM API error (status %d): %s", resp.StatusCode, string(body))
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			return nil, permanentError{err}
+		}
+		return nil, err
 	}
 
 	var chatResp chatResponse
@@ -194,14 +212,27 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 		}
 	}
 
-	items := make([]domain.ReceiptItem, 0, len(analysis.Items))
-	for _, item := range analysis.Items {
+	return analysis.toDomain()
+}
+
+// toDomain: the model is free text, so an unknown category or method falls back and an unsupported currency is refused.
+func (r receiptResponse) toDomain() (*domain.ReceiptAnalysis, error) {
+	currency, err := parseCurrency(r.Currency)
+	if err != nil {
+		return nil, permanentError{err}
+	}
+
+	items := make([]domain.ReceiptItem, 0, len(r.Items))
+	for _, item := range r.Items {
 		items = append(items, domain.ReceiptItem{
-			Name: item.Name, NameZH: item.NameZH, Price: item.Price, Category: item.Category,
+			Name:     item.Name,
+			NameZH:   item.NameZH,
+			Price:    int64(math.Round(item.Price)),
+			Category: parseCategory(item.Category),
 		})
 	}
 
-	category := analysis.Category
+	category := parseCategory(r.Category)
 	if !category.IsValid() {
 		if len(items) > 0 && items[0].Category.IsValid() {
 			category = items[0].Category
@@ -210,35 +241,78 @@ func (a *Analyzer) doAnalyze(ctx context.Context, b64Image string) (*domain.Rece
 		}
 	}
 
-	paymentMethod := analysis.PaymentMethod
-	if !paymentMethod.IsValid() {
+	paymentMethod, err := domain.ParsePaymentMethod(slug(r.PaymentMethod))
+	if err != nil {
 		paymentMethod = domain.PaymentMethodCash
 	}
 
 	return &domain.ReceiptAnalysis{
-		Summary:       analysis.Summary,
+		Summary:       r.Summary,
 		Items:         items,
-		Currency:      analysis.Currency,
-		Total:         analysis.Total,
+		Currency:      currency,
+		Total:         amount(r.Total),
 		Category:      category,
 		PaymentMethod: paymentMethod,
 	}, nil
 }
 
+func slug(raw string) string {
+	return strings.NewReplacer(" ", "_", "-", "_").Replace(strings.ToLower(strings.TrimSpace(raw)))
+}
+
+func parseCategory(raw string) domain.Category {
+	category, err := domain.ParseCategory(slug(raw))
+	if err != nil {
+		return ""
+	}
+	return category
+}
+
+var currencyAliases = map[string]domain.Currency{
+	"NTD": domain.CurrencyTWD,
+	"NT$": domain.CurrencyTWD,
+	"YEN": domain.CurrencyJPY,
+	"円":   domain.CurrencyJPY,
+}
+
+func parseCurrency(raw string) (domain.Currency, error) {
+	spelled := strings.ToUpper(strings.TrimSpace(raw))
+	if alias, ok := currencyAliases[spelled]; ok {
+		return alias, nil
+	}
+	currency, err := domain.ParseCurrency(spelled)
+	if err != nil {
+		return "", fmt.Errorf("%w: the receipt is in %q", domain.ErrUnsupportedCurrency, raw)
+	}
+	return currency, nil
+}
+
+// maxAmount keeps a nonsense total from overflowing the conversion.
+const maxAmount = 1e12
+
+// amount is a whole number of currency units, or zero for what is not one: the
+// model may write 1280.0 where a whole number was asked for.
+func amount(raw float64) uint64 {
+	if raw <= 0 || raw > maxAmount {
+		return 0
+	}
+	return uint64(math.Round(raw))
+}
+
 type receiptResponse struct {
 	Summary       string                `json:"summary"`
-	Category      domain.Category       `json:"category"`
-	PaymentMethod domain.PaymentMethod  `json:"payment_method"`
+	Category      string                `json:"category"`
+	PaymentMethod string                `json:"payment_method"`
 	Items         []receiptItemResponse `json:"items"`
-	Currency      domain.Currency       `json:"currency"`
-	Total         uint64                `json:"total"`
+	Currency      string                `json:"currency"`
+	Total         float64               `json:"total"`
 }
 
 type receiptItemResponse struct {
-	Name     string          `json:"name"`
-	NameZH   string          `json:"name_zh"`
-	Price    int64           `json:"price"`
-	Category domain.Category `json:"category"`
+	Name     string  `json:"name"`
+	NameZH   string  `json:"name_zh"`
+	Price    float64 `json:"price"`
+	Category string  `json:"category"`
 }
 
 type chatRequest struct {

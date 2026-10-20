@@ -16,8 +16,7 @@ import (
 	"github.com/omegaatt36/noccounting/internal/app/webapp/components"
 )
 
-// expenseEdit is an expense as the form is filled from it when a row of the
-// list is picked. It travels in the row, so editing needs no second request.
+// expenseEdit rides in the row, so editing needs no second request.
 type expenseEdit struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -35,8 +34,6 @@ type expenseEdit struct {
 
 var weekdays = [...]string{"日", "一", "二", "三", "四", "五", "六"}
 
-// handleExpenseList lists the expenses of the trip that match the filters of
-// the list tab, a day at a time, newest first.
 func (h *Handler) handleExpenseList(w http.ResponseWriter, r *http.Request) {
 	req, ok := h.openDashboardRequest(w, r)
 	if !ok {
@@ -86,7 +83,6 @@ func (h *Handler) handleExpenseList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A list the filters emptied is told apart from a trip nobody has spent on yet.
 	filtered := req.rangeStr != "all" || search != "" || categoryName != "" || methodName != "" || paidByID != "" || dateStr != ""
 	var kept []domain.Expense
 	for _, exp := range expenses {
@@ -102,7 +98,7 @@ func (h *Handler) handleExpenseList(w http.ResponseWriter, r *http.Request) {
 		return b.ShoppedAt.Compare(a.ShoppedAt)
 	})
 
-	view := h.expenseListView(kept, req.trip.Currency)
+	view := h.expenseListView(kept, req.trip.Currency, h.payerNames(req.ctx, req.trip))
 	view.Filtered = filtered
 
 	if err := components.ExpenseList(view).Render(r.Context(), w); err != nil {
@@ -111,17 +107,13 @@ func (h *Handler) handleExpenseList(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// expenseListView groups expenses, which are already in the order to show them
-// in, by the day they were made.
-func (h *Handler) expenseListView(expenses []domain.Expense, base domain.Currency) components.ExpenseListView {
+func (h *Handler) expenseListView(expenses []domain.Expense, base domain.Currency, payerNames map[string]string) components.ExpenseListView {
 	users, err := h.userService.GetAllUsers()
 	if err != nil {
 		slog.Warn("Failed to read the users for the expense list", "error", err)
 	}
-	nicknames := map[string]string{}
 	telegramIDs := map[string]string{}
 	for _, u := range users {
-		nicknames[u.BackendUserID] = u.Nickname
 		telegramIDs[u.BackendUserID] = fmt.Sprint(u.TelegramID)
 	}
 
@@ -146,7 +138,6 @@ func (h *Handler) expenseListView(expenses []domain.Expense, base domain.Currenc
 		}
 		total = total.Add(exp.TotalInBase(base))
 
-		// A foreign expense shows what was paid and what it came to.
 		amount := format.Money(base, exp.TotalInBase(base))
 		rate := ""
 		if exp.Currency != base && !exp.ExchangeRate.IsZero() {
@@ -155,7 +146,7 @@ func (h *Handler) expenseListView(expenses []domain.Expense, base domain.Currenc
 		}
 
 		meta := []string{}
-		if payer := nicknames[exp.PaidByID]; payer != "" {
+		if payer := payerNames[exp.PaidByID]; payer != "" {
 			meta = append(meta, payer)
 		}
 		if exp.Method != "" {

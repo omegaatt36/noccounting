@@ -15,15 +15,11 @@ import (
 )
 
 var (
-	// ErrInvalidInitData is returned when the initData is invalid or tampered.
 	ErrInvalidInitData = errors.New("invalid init data")
-	// ErrExpiredInitData is returned when the initData is expired.
 	ErrExpiredInitData = errors.New("expired init data")
-	// ErrMissingHash is returned when the hash is missing from initData.
-	ErrMissingHash = errors.New("missing hash in init data")
+	ErrMissingHash     = errors.New("missing hash in init data")
 )
 
-// TelegramInitData is the parsed and validated Telegram WebApp initData.
 type TelegramInitData struct {
 	QueryID      string
 	UserID       int64
@@ -35,8 +31,6 @@ type TelegramInitData struct {
 	Hash         string
 }
 
-// ValidateTelegramInitData verifies the initData's HMAC-SHA256 signature with
-// the bot token (per Telegram's WebApp spec) and that it has not expired.
 func ValidateTelegramInitData(initData, botToken string, maxAge time.Duration) (*TelegramInitData, error) {
 	if initData == "" {
 		return nil, ErrInvalidInitData
@@ -88,7 +82,6 @@ func ValidateTelegramInitData(initData, botToken string, maxAge time.Duration) (
 		return nil, ErrExpiredInitData
 	}
 
-	// Parse user data (it's a JSON string)
 	result := &TelegramInitData{
 		QueryID:  values.Get("query_id"),
 		AuthDate: authDate,

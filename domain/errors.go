@@ -4,14 +4,11 @@ import "errors"
 
 var ErrUserNotFound = errors.New("user not found")
 
-// ErrNotOnTrip reports someone an expense names, as its payer or as one of the
-// people it is shared with, who is not on the trip it is filed under. The
-// backend would otherwise drop them without a word and keep an expense nobody
-// owes anything for.
+// ErrNotOnTrip: the backend would silently drop a payer or participant who is not on the trip.
 var ErrNotOnTrip = errors.New("not a member of the trip")
 
 var ErrUnsupportedSplit = errors.New("custom split edits are not supported")
 
-// ErrExpenseNotFound reports an expense that is not on the trip it was looked
-// for on, such as one deleted since the list it was picked from was drawn.
 var ErrExpenseNotFound = errors.New("expense not found")
+
+var ErrUnsupportedCurrency = errors.New("unsupported currency")

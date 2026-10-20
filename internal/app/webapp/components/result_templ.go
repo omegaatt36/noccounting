@@ -10,8 +10,6 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import "github.com/omegaatt36/noccounting/internal/app/webapp/components/ui/toast"
 
-// Result is the toast the form shows after saving an expense: what was saved
-// when it was, what could not be saved and why when it was not.
 func Result(success bool, title string, description string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

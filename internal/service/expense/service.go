@@ -47,15 +47,10 @@ func (s *Service) CreateExpense(ctx context.Context, trip domain.Trip, expense *
 	return s.repo.CreateExpense(ctx, trip, expense)
 }
 
-func (s *Service) QueryExpenses(ctx context.Context, trip domain.Trip) ([]domain.Expense, error) {
-	return s.repo.QueryExpenses(ctx, trip)
-}
-
 func (s *Service) QueryExpensesWithFilter(ctx context.Context, trip domain.Trip, filter ExpenseFilter) ([]domain.Expense, error) {
 	return s.repo.QueryExpensesWithFilter(ctx, trip, filter)
 }
 
-// GetExpense is the expense of the trip with the given id, as it is stored.
 func (s *Service) GetExpense(ctx context.Context, trip domain.Trip, id string) (*domain.Expense, error) {
 	expenses, err := s.repo.QueryExpenses(ctx, trip)
 	if err != nil {
@@ -135,8 +130,7 @@ func (s *Service) GetTodaySummary(ctx context.Context, trip domain.Trip, loc ...
 	}, nil
 }
 
-// UploadReceiptImage stores a receipt image on the trip and returns the file id
-// to link an expense to. No image is no file and no error.
+// UploadReceiptImage returns the file id to link an expense to; no image is no file and no error.
 func (s *Service) UploadReceiptImage(ctx context.Context, trip domain.Trip, imageData []byte) (string, error) {
 	if len(imageData) == 0 {
 		return "", nil
@@ -159,35 +153,25 @@ func (s *Service) UploadReceiptImage(ctx context.Context, trip domain.Trip, imag
 	return s.repo.UploadFile(ctx, trip, tmpPath)
 }
 
-// RemainderName is the line a split receipt gets for what its items do not add
-// up to, such as tax and service fees, so the lines sum to the receipt's total.
+// RemainderName is the line a split receipt gets for what its items do not add up to (tax, service fees), so the lines sum to the total.
 const RemainderName = "稅金／服務費等"
 
-// ReceiptRequest is a scanned receipt to file as expenses.
 type ReceiptRequest struct {
-	Analysis *domain.ReceiptAnalysis
-	// Image is the receipt photo to attach; empty attaches nothing.
-	Image    []byte
-	PaidByID string
-	// ShoppedAt is the day the receipt is filed under.
-	ShoppedAt time.Time
-	// SplitItems files one expense per line instead of one for the whole receipt.
+	Analysis   *domain.ReceiptAnalysis
+	Image      []byte
+	PaidByID   string
+	ShoppedAt  time.Time
 	SplitItems bool
 }
 
-// ReceiptResult says what filing a receipt did, so the person is told what
-// happened and not what was meant to.
 type ReceiptResult struct {
-	// Filed are the lines that became expenses and Failed the ones that could not.
 	Filed  []domain.ReceiptItem
 	Failed []domain.ReceiptItem
 	// ReceiptMissing is set when there was an image that could not be attached.
 	ReceiptMissing bool
 }
 
-// CreateFromAnalysis files a receipt. A split that files some lines and loses
-// others is not an error: the result names both. It is an error when it files
-// nothing.
+// CreateFromAnalysis treats a split that files some lines and loses others as no error: the result names both. Filing nothing is one.
 func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, req ReceiptRequest) (ReceiptResult, error) {
 	var result ReceiptResult
 	analysis := req.Analysis
@@ -270,9 +254,7 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, req 
 	return result, nil
 }
 
-// splitLines are the lines a split receipt files: its items with a price, and a
-// last line for the difference to the receipt's total when the items fall short
-// of it.
+// splitLines are the items with a price, plus a last line for the difference to the receipt's total when they fall short.
 func splitLines(analysis *domain.ReceiptAnalysis, category domain.Category) []domain.ReceiptItem {
 	lines := make([]domain.ReceiptItem, 0, len(analysis.Items)+1)
 	var sum int64

@@ -94,7 +94,6 @@ type PayerResolver struct {
 	tripID    int64
 	rosterTTL time.Duration
 
-	// Serializes fetches so concurrent requests share one roster refresh.
 	mu        sync.Mutex
 	roster    *Roster
 	fetchedAt time.Time

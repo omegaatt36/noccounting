@@ -16,7 +16,6 @@ import (
 )
 
 type DashboardData struct {
-	// Currency is the trip's currency, which every amount below is in.
 	Currency   domain.Currency
 	GrandTotal decimal.Decimal
 	ItemCount  int
@@ -34,8 +33,7 @@ type CategoryStat struct {
 	Percentage float64
 }
 
-// MethodStat is the spending paid one way. Method is empty for an expense that
-// says nothing about how it was paid, such as one entered in TREK's own UI.
+// MethodStat's Method is empty for an expense that records no method.
 type MethodStat struct {
 	Method     domain.PaymentMethod
 	Emoji      string
@@ -45,8 +43,8 @@ type MethodStat struct {
 }
 
 type DailyStat struct {
-	Date       string // format: "M/D" e.g. "2/21"
-	ISODate    string // format: "YYYY-MM-DD" e.g. "2026-02-21"
+	Date       string // M/D
+	ISODate    string // YYYY-MM-DD
 	Amount     decimal.Decimal
 	Percentage float64
 }
@@ -66,7 +64,18 @@ func percentage(amount, total decimal.Decimal) float64 {
 	return share
 }
 
-func aggregateDashboard(expenses []domain.Expense, users []domain.User, base domain.Currency) DashboardData {
+const unnamedPayer = "未標示"
+
+func nicknamesOf(users []domain.User) map[string]string {
+	names := make(map[string]string, len(users))
+	for _, u := range users {
+		names[u.BackendUserID] = u.Nickname
+	}
+	return names
+}
+
+// aggregateDashboard takes names from backend user id to display name; an unknown payer shows by id.
+func aggregateDashboard(expenses []domain.Expense, names map[string]string, base domain.Currency) DashboardData {
 	result := DashboardData{
 		Currency:   base,
 		GrandTotal: decimal.NewFromInt(0),
@@ -81,17 +90,10 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		return result
 	}
 
-	// Build backendUserID to nickname map
-	nicknameMap := make(map[string]string)
-	for i := range users {
-		nicknameMap[users[i].BackendUserID] = users[i].Nickname
-	}
-
 	categoryMap := make(map[domain.Category]decimal.Decimal)
 	methodMap := make(map[domain.PaymentMethod]decimal.Decimal)
 	dateMap := make(map[time.Time]decimal.Decimal)
 	payerMap := make(map[string]decimal.Decimal)
-	payerIDMap := make(map[string]string)
 
 	for _, expense := range expenses {
 		amount := expense.TotalInBase(base)
@@ -104,19 +106,11 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		day := time.Date(expense.ShoppedAt.Year(), expense.ShoppedAt.Month(), expense.ShoppedAt.Day(), 0, 0, 0, 0, time.UTC)
 		dateMap[day] = dateMap[day].Add(amount)
 
-		// Payer aggregation (use nickname if available, otherwise the backend user id)
-		nickname, ok := nicknameMap[expense.PaidByID]
-		if !ok {
-			nickname = expense.PaidByID
-		}
-		payerMap[nickname] = payerMap[nickname].Add(amount)
-		if expense.PaidByID != "" {
-			payerIDMap[nickname] = expense.PaidByID
-		}
+		// Payers are told apart by id: two people can go by the same name.
+		payerMap[expense.PaidByID] = payerMap[expense.PaidByID].Add(amount)
 	}
 
-	// ByCategory follows the domain's own category order, the same order /today
-	// renders, so the donut and the legend cannot disagree with it.
+	// ByCategory follows the domain's category order, the same as /today, so the donut and legend cannot disagree with it.
 	for _, category := range domain.CategoryValues() {
 		amount := categoryMap[category]
 		if amount.IsZero() {
@@ -130,8 +124,6 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		})
 	}
 
-	// ByMethod follows the domain's order too, with what no method was recorded
-	// for last.
 	for _, method := range domain.PaymentMethodValues() {
 		if amount := methodMap[method]; !amount.IsZero() {
 			result.ByMethod = append(result.ByMethod, MethodStat{
@@ -152,7 +144,6 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		})
 	}
 
-	// Build ByDate, sorted chronologically
 	type dateEntry struct {
 		day    time.Time
 		amount decimal.Decimal
@@ -179,11 +170,17 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		})
 	}
 
-	// Build ByPayer, sorted by amount descending
-	for payer, amount := range payerMap {
+	for id, amount := range payerMap {
+		name, ok := names[id]
+		switch {
+		case id == "":
+			name = unnamedPayer
+		case !ok:
+			name = id
+		}
 		result.ByPayer = append(result.ByPayer, PayerStat{
-			ID:         payerIDMap[payer],
-			Name:       payer,
+			ID:         id,
+			Name:       name,
 			Amount:     amount,
 			Percentage: percentage(amount, result.GrandTotal),
 		})
@@ -192,13 +189,12 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 	// Payers come out of a map, so equal amounts need a tie-break or the order
 	// changes from one load to the next.
 	slices.SortFunc(result.ByPayer, func(a, b PayerStat) int {
-		return cmp.Or(b.Amount.Cmp(a.Amount), cmp.Compare(a.Name, b.Name))
+		return cmp.Or(b.Amount.Cmp(a.Amount), cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 	})
 
 	return result
 }
 
-// formatDate formats time.Time to "M/D" string (e.g., "2/21")
 func formatDate(t time.Time) string {
 	return t.Format("1/2")
 }
@@ -221,8 +217,6 @@ func BuildDonutGradient(categories []CategoryStat) string {
 	return "conic-gradient(" + strings.Join(segments, ", ") + ")"
 }
 
-// rangeDays is how many days a range covers, today included. Anything else,
-// "all" included, covers no particular days.
 func rangeDays(rangeStr string) (int, bool) {
 	switch rangeStr {
 	case "today":
@@ -235,15 +229,12 @@ func rangeDays(rangeStr string) (int, bool) {
 	return 0, false
 }
 
-// dayWindow is the days days that end back days before today, from the start of
-// the first to the end of the last.
 func dayWindow(now time.Time, days, back int) (*time.Time, *time.Time) {
 	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1 + back))
 	to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).AddDate(0, 0, -back)
 	return &from, &to
 }
 
-// parseDateRange is the days a range covers, or nil for all of them.
 func parseDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
 	days, ok := rangeDays(rangeStr)
 	if !ok {
@@ -252,8 +243,6 @@ func parseDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
 	return dayWindow(now, days, 0)
 }
 
-// getPreviousDateRange is the period of the same length just before a range,
-// to compare it with, or nil when the range has no such period.
 func getPreviousDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
 	days, ok := rangeDays(rangeStr)
 	if !ok {

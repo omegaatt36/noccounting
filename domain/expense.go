@@ -20,12 +20,12 @@ type Currency string
 type Expense struct {
 	ID           string
 	Name         string
-	Price        uint64 // Price in smallest currency unit (no decimals)
+	Price        uint64 // smallest currency unit, no decimals
 	Currency     Currency
 	ExchangeRate decimal.Decimal // Base-currency units per one unit of Currency
 	Category     Category
 	Method       PaymentMethod
-	PaidByID     string // Backend user id of the payer; empty means no payer
+	PaidByID     string // empty means no payer
 	// Empty participants default to everyone on the trip, shared equally.
 	ParticipantIDs []string
 	ShoppedAt      time.Time
@@ -47,7 +47,6 @@ func (e *Expense) TotalInBase(base Currency) decimal.Decimal {
 	return price
 }
 
-// Settlement amounts use Currency.
 type Settlement struct {
 	Currency  Currency
 	Balances  []Balance

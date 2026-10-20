@@ -25,13 +25,13 @@ type spyAccountingRepo struct {
 	trips             []domain.Trip
 	uploadErr         error
 	uploadResult      string
-	createdExpenses   []*domain.Expense // records every CreateExpense call
+	createdExpenses   []*domain.Expense
 	updatedExpenses   []*domain.Expense
 	deletedExpenseIDs []string
 	uploadCalls       int
 
-	expenses   []domain.Expense      // what a query answers
-	lastFilter expense.ExpenseFilter // what the last query asked
+	expenses   []domain.Expense
+	lastFilter expense.ExpenseFilter
 	settlement *domain.Settlement
 }
 
@@ -148,7 +148,7 @@ type spyContext struct {
 	message   *tele.Message
 	callback  *tele.Callback
 	bot       tele.API
-	sentMsgs  []any // records Send() payloads
+	sentMsgs  []any
 	sentOpts  [][]any
 	responded []*tele.CallbackResponse
 	args      []string
@@ -292,10 +292,6 @@ func newCallbackContext(botAPI tele.API, data string) *spyContext {
 	}
 }
 
-// ============================================================
-// Integration Tests: Photo → ReceiptAnalysis → Action → Repo
-// ============================================================
-
 func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 	analysis := newTestAnalysis()
 
@@ -313,7 +309,6 @@ func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 		t.Fatalf("handlePhoto returned error: %v", err)
 	}
 
-	// Verify conversation state was stored
 	state := h.convManager.GetState(testTelegramUserID)
 	if state == nil {
 		t.Fatal("expected conversation state to be set after handlePhoto")
@@ -330,12 +325,10 @@ func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 		t.Fatalf("handleReceiptCallback(single) returned error: %v", err)
 	}
 
-	// UploadFile should have been called once
 	if repo.uploadCalls != 1 {
 		t.Errorf("expected 1 UploadFile call, got %d", repo.uploadCalls)
 	}
 
-	// CreateExpense should have been called exactly once
 	if len(repo.createdExpenses) != 1 {
 		t.Fatalf("expected 1 CreateExpense call, got %d", len(repo.createdExpenses))
 	}
@@ -373,7 +366,6 @@ func TestHandlePhoto_ThenSingle_CreatesOneExpense(t *testing.T) {
 		t.Fatal("recording mutated the original receipt analysis")
 	}
 
-	// Conversation state should be cleared
 	if h.convManager.GetState(testTelegramUserID) != nil {
 		t.Error("expected conversation state to be cleared after single")
 	}
@@ -415,17 +407,14 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 		t.Fatalf("handleReceiptCallback(split) returned error: %v", err)
 	}
 
-	// UploadFile should have been called once (shared across all items)
 	if repo.uploadCalls != 1 {
 		t.Errorf("expected 1 UploadFile call, got %d", repo.uploadCalls)
 	}
 
-	// CreateExpense should have been called 3 times (one per item)
 	if len(repo.createdExpenses) != 3 {
 		t.Fatalf("expected 3 CreateExpense calls, got %d", len(repo.createdExpenses))
 	}
 
-	// Verify each expense matches its corresponding item
 	expectations := []struct {
 		name     string
 		price    uint64
@@ -461,7 +450,6 @@ func TestHandlePhoto_ThenSplit_CreatesMultipleExpenses(t *testing.T) {
 		}
 	}
 
-	// Conversation state should be cleared
 	if h.convManager.GetState(testTelegramUserID) != nil {
 		t.Error("expected conversation state to be cleared after split")
 	}
@@ -494,7 +482,6 @@ func TestHandlePhoto_ThenCancel_NoExpenseCreated(t *testing.T) {
 		t.Fatalf("handleReceiptCallback(cancel) returned error: %v", err)
 	}
 
-	// No UploadFile or CreateExpense should have been called
 	if repo.uploadCalls != 0 {
 		t.Errorf("expected 0 UploadFile calls, got %d", repo.uploadCalls)
 	}
@@ -502,7 +489,6 @@ func TestHandlePhoto_ThenCancel_NoExpenseCreated(t *testing.T) {
 		t.Errorf("expected 0 CreateExpense calls, got %d", len(repo.createdExpenses))
 	}
 
-	// Conversation state should be cleared
 	if h.convManager.GetState(testTelegramUserID) != nil {
 		t.Error("expected conversation state to be cleared after cancel")
 	}
@@ -510,7 +496,7 @@ func TestHandlePhoto_ThenCancel_NoExpenseCreated(t *testing.T) {
 
 func TestHandlePhoto_AnalyzerDisabled_ReturnsMessage(t *testing.T) {
 	repo := &spyAccountingRepo{}
-	h := newTestHandler(repo, nil) // receiptAnalyzer = nil → HasReceiptAnalyzer() returns false
+	h := newTestHandler(repo, nil)
 
 	botAPI := &spyBotAPI{}
 	photoCtx := newPhotoContext(botAPI)
@@ -544,7 +530,6 @@ func TestHandlePhoto_AnalyzerFails_ReturnsErrorMessage(t *testing.T) {
 		t.Fatalf("handlePhoto returned error: %v", err)
 	}
 
-	// Should show error message, not crash
 	found := false
 	for _, msg := range photoCtx.sentMsgs {
 		if s, ok := msg.(string); ok && strings.Contains(s, "無法辨識收據") {
@@ -555,7 +540,6 @@ func TestHandlePhoto_AnalyzerFails_ReturnsErrorMessage(t *testing.T) {
 		t.Errorf("expected analysis failure message, got %v", photoCtx.sentMsgs)
 	}
 
-	// No expense should be created
 	if len(repo.createdExpenses) != 0 {
 		t.Error("expected 0 expenses after analyzer failure")
 	}
@@ -573,10 +557,9 @@ func TestHandlePhoto_ThenSplit_PartialFailure(t *testing.T) {
 		},
 	}
 
-	// CreateExpense fails on 2nd call
 	repo := &spyPartialFailRepo{
 		uploadResult: "file-id",
-		failOnCall:   2, // fail on the 2nd item
+		failOnCall:   2,
 	}
 
 	analyzer := &stubReceiptAnalyzer{result: analysis}
@@ -598,12 +581,10 @@ func TestHandlePhoto_ThenSplit_PartialFailure(t *testing.T) {
 		t.Fatalf("handleReceiptCallback(split) returned error: %v", err)
 	}
 
-	// Should have 2 successful expenses (1st and 3rd)
 	if len(repo.createdExpenses) != 2 {
 		t.Errorf("expected 2 successful CreateExpense calls, got %d", len(repo.createdExpenses))
 	}
 
-	// The message reports the two lines that were filed and names the one that was not.
 	var report string
 	for _, msg := range callbackCtx.sentMsgs {
 		if text, ok := msg.(string); ok {
@@ -622,7 +603,6 @@ func TestHandlePhoto_ThenSplit_PartialFailure(t *testing.T) {
 	}
 }
 
-// spyPartialFailRepo fails CreateExpense on a specific call number and records successful creates.
 type spyPartialFailRepo struct {
 	uploadResult    string
 	failOnCall      int
@@ -673,16 +653,10 @@ func newTestHandlerWithUserRepo(repo expense.AccountingRepo, analyzer expense.Re
 	return NewHandler(userSvc, expenseSvc, trip.NewService(singleTrip{}), "")
 }
 
-// ============================================================
-// Error Path Tests
-// ============================================================
-
-// Every command reads or changes the trip's real expenses, so the middleware in
-// front of all of them is what keeps someone who merely found the bot out.
 func TestRequireAuthorized_StopsSomeoneNotInTheUserMapping(t *testing.T) {
 	repo := &spyAccountingRepo{}
 	h := newTestHandlerWithUserRepo(repo, &stubReceiptAnalyzer{result: newTestAnalysis()}, &fakeUserRepo{
-		users: map[int64]*domain.User{}, // empty
+		users: map[int64]*domain.User{},
 	})
 
 	reached := false
@@ -799,19 +773,16 @@ func TestHandlePhoto_ThenSingle_UploadFails_StillCreatesExpenseWithoutReceiptURL
 		t.Fatalf("handleReceiptCallback(single) returned error: %v", err)
 	}
 
-	// Expense should still be created (graceful degradation)
 	if len(repo.createdExpenses) != 1 {
 		t.Fatalf("expected 1 CreateExpense call, got %d", len(repo.createdExpenses))
 	}
 
 	exp := repo.createdExpenses[0]
 
-	// ReceiptURL should be empty since upload failed
 	if exp.ReceiptURL != "" {
 		t.Errorf("expected empty ReceiptURL after upload failure, got %q", exp.ReceiptURL)
 	}
 
-	// Other fields should still be correct
 	if exp.Name != "松屋 午餐" {
 		t.Errorf("expected Name '松屋 午餐', got %q", exp.Name)
 	}
@@ -819,7 +790,6 @@ func TestHandlePhoto_ThenSingle_UploadFails_StillCreatesExpenseWithoutReceiptURL
 		t.Errorf("expected Price 1280, got %d", exp.Price)
 	}
 
-	// The person is told the image did not make it.
 	last, _ := callbackCtx.sentMsgs[len(callbackCtx.sentMsgs)-1].(string)
 	if !strings.Contains(last, "收據圖片上傳失敗") {
 		t.Errorf("reply %q does not say the receipt image was not attached", last)
@@ -908,7 +878,6 @@ func TestHandlePhoto_ThenSingle_CreateExpenseFails_ReturnsError(t *testing.T) {
 		t.Fatalf("handleReceiptCallback(single) returned error: %v", err)
 	}
 
-	// Should show error message
 	found := false
 	for _, msg := range callbackCtx.sentMsgs {
 		if s, ok := msg.(string); ok && s == "❌ 新增失敗，請稍後再試" {
@@ -919,7 +888,6 @@ func TestHandlePhoto_ThenSingle_CreateExpenseFails_ReturnsError(t *testing.T) {
 		t.Errorf("expected create failure message, got %v", callbackCtx.sentMsgs)
 	}
 
-	// No expenses should be stored (createErr prevents append)
 	if len(repo.createdExpenses) != 0 {
 		t.Errorf("expected 0 stored expenses, got %d", len(repo.createdExpenses))
 	}
@@ -931,10 +899,6 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 	repo := &spyAccountingRepo{uploadResult: "file-id"}
 	analyzer := &stubReceiptAnalyzer{result: analysis}
 
-	// User exists for IsAuthorized (handlePhoto) but GetUser fails during callback
-	// We simulate this by using a user repo that succeeds for the photo step
-	// then swapping to one that fails. Instead, we use a repo where the user
-	// is authorized but GetUser returns an error for the backend user ID lookup.
 	failUserRepo := &fakeUserRepo{
 		users: map[int64]*domain.User{
 			testTelegramUserID: {
@@ -959,7 +923,6 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 
 	state := h.convManager.GetState(testTelegramUserID)
 
-	// Now make the user repo fail for GetUser
 	failUserRepo.err = errors.New("database connection lost")
 
 	callbackCtx := newCallbackContext(botAPI, "receipt|single")
@@ -967,7 +930,6 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 		t.Fatalf("handleReceiptCallback(single) returned error: %v", err)
 	}
 
-	// Should show user lookup error
 	found := false
 	for _, msg := range callbackCtx.sentMsgs {
 		if s, ok := msg.(string); ok && s == "❌ 無法取得用戶資訊" {
@@ -978,24 +940,14 @@ func TestHandlePhoto_ThenSingle_GetUserFails_ReturnsError(t *testing.T) {
 		t.Errorf("expected user lookup failure message, got %v", callbackCtx.sentMsgs)
 	}
 
-	// No expense should be created
 	if len(repo.createdExpenses) != 0 {
 		t.Error("expected 0 expenses after GetUser failure")
 	}
 }
 
-// ============================================================
-// R12: No residue
-// ============================================================
-
-// retiredLedgerCommands are the ledger routes the Notion and SQLite backends
-// owned. The active-ledger concept went away with them, so R12 says the bot
-// offers none of these — and the two tests below are the only thing that keeps
-// that true, since "it was deleted" is not a property a build can check.
+// retiredLedgerCommands are the routes of the retired Notion and SQLite backends; the tests below are what keeps them gone.
 var retiredLedgerCommands = []string{"/ledgers", "/ledger_add", "/ledger_use"}
 
-// newOfflineBot builds a telebot that never touches the network, so the routes
-// can be inspected without a token.
 func newOfflineBot(t *testing.T) *tele.Bot {
 	t.Helper()
 
@@ -1006,10 +958,6 @@ func newOfflineBot(t *testing.T) *tele.Bot {
 	return bot
 }
 
-// TestRegisterHandlers_RegistersNoLedgerCommand asks the real router whether
-// each retired command still reaches a handler. telebot answers an unregistered
-// endpoint with an error, so this is a question about the routes themselves
-// rather than about a list kept next to them.
 func TestRegisterHandlers_RegistersNoLedgerCommand(t *testing.T) {
 	handler := newTestHandler(&spyAccountingRepo{}, &stubReceiptAnalyzer{})
 	bot := newOfflineBot(t)
@@ -1028,9 +976,6 @@ func TestRegisterHandlers_RegistersNoLedgerCommand(t *testing.T) {
 	}
 }
 
-// TestHandleHelp_AdvertisesNoLedgerCommand covers the other half of R12 — "when
-// the bot lists its commands". A route that is gone but still documented sends
-// the user looking for a command that answers nothing.
 func TestHandleHelp_AdvertisesNoLedgerCommand(t *testing.T) {
 	handler := newTestHandler(&spyAccountingRepo{}, &stubReceiptAnalyzer{})
 

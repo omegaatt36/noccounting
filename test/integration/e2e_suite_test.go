@@ -24,12 +24,10 @@ import (
 	"github.com/omegaatt36/noccounting/internal/service/user"
 )
 
-// inMemoryAccountingRepo provides thread-safe stateful storage for integration tests.
 type inMemoryAccountingRepo struct {
 	mu       sync.Mutex
 	expenses []domain.Expense
 	nextID   int
-	// queryErr, when set, fails every read, as an unreachable TREK would.
 	queryErr error
 }
 
@@ -145,8 +143,7 @@ func (r *inMemoryAccountingRepo) UploadFile(_ context.Context, _ domain.Trip, _ 
 type inMemoryTripRepo struct {
 	mu    sync.Mutex
 	trips []domain.Trip
-	// err, when set, fails the listing, as an unreachable TREK would.
-	err error
+	err   error
 }
 
 func (r *inMemoryTripRepo) ListTrips(_ context.Context) ([]domain.Trip, error) {
@@ -176,7 +173,6 @@ func (staticRateFetcher) GetRate(_ context.Context, source, target domain.Curren
 	return decimal.NewFromInt(1), nil
 }
 
-// WebAppE2ESuite is an end-to-end integration test suite using testify/suite.
 type WebAppE2ESuite struct {
 	suite.Suite
 
@@ -259,7 +255,6 @@ func (s *WebAppE2ESuite) Test02_Bootstrap() {
 }
 
 func (s *WebAppE2ESuite) Test03_CreateExpenseE2E() {
-	// Create an expense via form POST (simulating frontend web form submission)
 	formData := url.Values{
 		"trip_id":      {"10"},
 		"name":         {"東京拉麵午餐"},
@@ -267,7 +262,7 @@ func (s *WebAppE2ESuite) Test03_CreateExpenseE2E() {
 		"currency":     {"JPY"},
 		"category":     {"food"},
 		"method":       {"cash"},
-		"paid_by":      {"12345"}, // Alice's Telegram ID
+		"paid_by":      {"12345"},
 		"participants": {"8", "9"},
 	}
 
@@ -279,7 +274,6 @@ func (s *WebAppE2ESuite) Test03_CreateExpenseE2E() {
 	body, _ := io.ReadAll(resp.Body)
 	s.Assert().Contains(string(body), "東京拉麵午餐")
 
-	// Verify the expense was recorded in the stateful repository
 	s.repo.mu.Lock()
 	defer s.repo.mu.Unlock()
 	s.Require().Len(s.repo.expenses, 1)
@@ -288,7 +282,7 @@ func (s *WebAppE2ESuite) Test03_CreateExpenseE2E() {
 	s.Assert().Equal(uint64(1200), exp.Price)
 	s.Assert().Equal(domain.CurrencyJPY, exp.Currency)
 	s.Assert().Equal(domain.PaymentMethodCash, exp.Method)
-	s.Assert().Equal("8", exp.PaidByID) // Resolved to Alice backend ID
+	s.Assert().Equal("8", exp.PaidByID)
 
 	s.createdID = exp.ID
 }
@@ -305,7 +299,7 @@ func (s *WebAppE2ESuite) Test04_UpdateExpenseE2E() {
 		"exchange_rate": {"0.22"},
 		"category":      {"food"},
 		"method":        {"credit_card"},
-		"paid_by":       {"67890"}, // Bob's Telegram ID
+		"paid_by":       {"67890"},
 		"participants":  {"9"},
 	}
 	req, err := http.NewRequest(http.MethodPut, s.server.URL+"/api/expense", strings.NewReader(formData.Encode()))
@@ -381,14 +375,12 @@ func (s *WebAppE2ESuite) Test07_DeleteExpenseE2E() {
 
 	s.Assert().Equal(http.StatusNoContent, resp.StatusCode)
 
-	// Verify deleted in repository
 	s.repo.mu.Lock()
 	defer s.repo.mu.Unlock()
 	s.Assert().Len(s.repo.expenses, 0)
 }
 
 func (s *WebAppE2ESuite) Test08_ServerLifecycle() {
-	// Verify NewServer, Start, and Shutdown lifecycle
 	srv, err := webapp.NewServer(s.userSvc, s.expSvc, s.tripSvc, "0", s.botToken, true)
 	s.Require().NoError(err)
 

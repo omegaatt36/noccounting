@@ -23,33 +23,6 @@ func TestCategoryDisplay_CoversEveryCategory(t *testing.T) {
 	}
 }
 
-func TestParseCategoryInput(t *testing.T) {
-	tests := []struct {
-		input   string
-		want    domain.Category
-		wantErr bool
-	}{
-		{"food", domain.CategoryFood, false},
-		{"  Food ", domain.CategoryFood, false},
-		{"餐飲", domain.CategoryFood, false},
-		{"機票", domain.CategoryFlights, false},
-		{"衣", "", true},
-		{"", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got, err := format.ParseCategoryInput(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ParseCategoryInput(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
-			}
-			if got != tt.want {
-				t.Errorf("ParseCategoryInput(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPaymentMethodDisplayName(t *testing.T) {
 	tests := []struct {
 		method domain.PaymentMethod
@@ -65,33 +38,6 @@ func TestPaymentMethodDisplayName(t *testing.T) {
 		t.Run(string(tt.method), func(t *testing.T) {
 			if got := format.PaymentLabel(tt.method); got != tt.name {
 				t.Errorf("PaymentMethod(%q).DisplayName() = %q, want %q", tt.method, got, tt.name)
-			}
-		})
-	}
-}
-
-func TestParsePaymentMethodInput(t *testing.T) {
-	tests := []struct {
-		input   string
-		want    domain.PaymentMethod
-		wantErr bool
-	}{
-		{"cash", domain.PaymentMethodCash, false},
-		{" Credit_Card ", domain.PaymentMethodCreditCard, false},
-		{"信用卡", domain.PaymentMethodCreditCard, false},
-		{"IC卡", domain.PaymentMethodIcCard, false},
-		{"bitcoin", "", true},
-		{"", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got, err := format.ParsePaymentMethodInput(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ParsePaymentMethodInput(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
-			}
-			if got != tt.want {
-				t.Errorf("ParsePaymentMethodInput(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

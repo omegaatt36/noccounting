@@ -819,7 +819,7 @@ func TestCreateExpense_LinksTheUploadedReceipt(t *testing.T) {
 func TestCreateExpense_LeavesTheReceiptOutWhenThereIsNoReceipt(t *testing.T) {
 	stub := newCreateStub(t)
 	repo := stub.repo(t, domain.CurrencyTWD, nil)
-	expense := ramen() // ReceiptURL empty, exactly as a failed upload leaves it
+	expense := ramen()
 
 	if err := repo.CreateExpense(context.Background(), expense); err != nil {
 		t.Fatalf("CreateExpense() error = %v, want the expense written without a receipt", err)
@@ -840,9 +840,9 @@ func TestCreateExpense_LeavesTheReceiptOutWhenThereIsNoReceipt(t *testing.T) {
 
 func TestCreateExpense_AReceiptThatIsNotAFileIDLinksNothing(t *testing.T) {
 	for _, receipt := range []string{
-		"/api/trips/3/files/77/download",    // what a read leaves in the field
-		"https://trek.example.com/files/77", // and what the Notion backend left
-		"0", "-77", "77.5", "seventy7",      // nothing a trip_files row can be
+		"/api/trips/3/files/77/download",
+		"https://trek.example.com/files/77",
+		"0", "-77", "77.5", "seventy7",
 	} {
 		t.Run("receipt "+receipt, func(t *testing.T) {
 			stub := newCreateStub(t)

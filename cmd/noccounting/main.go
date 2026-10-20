@@ -52,8 +52,6 @@ func newUserRepo(mapping string) (repo *userrepo.Repo, err error) {
 }
 
 func main() {
-	// `noccounting healthcheck` is what the image's HEALTHCHECK runs; it needs
-	// none of the configuration a real start does.
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		if err := healthcheck(context.Background(), "http://127.0.0.1:"+env("PORT", "8080")+"/ready"); err != nil {
 			fmt.Fprintln(os.Stderr, "unhealthy:", err)
@@ -83,6 +81,7 @@ func main() {
 	llmAPIKey := env("LLM_API_KEY", "")
 	llmBaseURL := env("LLM_BASE_URL", "")
 	llmModel := env("LLM_MODEL", "gpt-4o")
+	llmReasoningEffort := env("LLM_REASONING_EFFORT", "")
 	devMode := os.Getenv("DEV_MODE") == "true"
 
 	app.App{Main: func(ctx context.Context) error {
@@ -126,7 +125,7 @@ func main() {
 
 		var analyzer expense.ReceiptAnalyzer
 		if llmAPIKey != "" && llmBaseURL != "" {
-			analyzer = llm.NewAnalyzer(llmBaseURL, llmAPIKey, llmModel)
+			analyzer = llm.NewAnalyzer(llmBaseURL, llmAPIKey, llmModel).WithReasoningEffort(llmReasoningEffort)
 		}
 
 		expenseService := expense.NewService(accountingRepo, rateFetcher, analyzer)

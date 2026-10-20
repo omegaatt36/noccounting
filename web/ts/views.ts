@@ -20,7 +20,6 @@ function succeeded(status: number): boolean {
   return status >= 200 && status < 300;
 }
 
-// The data view a request is drawing, named by the element that makes it.
 function viewOf(evt: Event): string | undefined {
   return sourceOf(evt)?.closest<HTMLElement>("[data-view-source]")?.dataset.viewSource;
 }
@@ -30,8 +29,6 @@ document.addEventListener("htmx:before:request", (evt) => {
   if (view) $(`${view}-error`)?.classList.add("hidden");
 });
 
-// The failed load was not swapped in, so the previous content (or the skeleton)
-// is still on screen; say why and offer another try.
 document.addEventListener("htmx:finally:request", (evt) => {
   const view = viewOf(evt);
   if (view && !succeeded(statusOf(evt))) $(`${view}-error`)?.classList.remove("hidden");

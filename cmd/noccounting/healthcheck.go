@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-// healthcheck asks a running instance whether it is ready. The image is
-// distroless, with no curl or wget for a Docker HEALTHCHECK to call, so the
-// binary checks itself.
+// healthcheck probes /ready itself: the distroless image has no curl or wget for a Docker HEALTHCHECK.
 func healthcheck(ctx context.Context, url string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

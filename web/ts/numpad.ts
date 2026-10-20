@@ -13,7 +13,6 @@ export function setupNumpad(ctx: TelegramContext): void {
 
   if (!priceField || !numpad) return;
 
-  // Prevent system keyboard
   priceField.setAttribute("inputmode", "none");
   priceField.setAttribute("readonly", "true");
 
@@ -51,7 +50,6 @@ export function setupNumpad(ctx: TelegramContext): void {
       openNumpad();
     }
   });
-  // Escape closes the sheet wherever focus is; with the sheet closed it is a no-op.
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeNumpad();
   });
@@ -105,11 +103,9 @@ export function setupNumpad(ctx: TelegramContext): void {
     const currencyInput = document.getElementById("currency-input") as HTMLInputElement | null;
     const currency = currencyInput?.value ?? "TWD";
 
-    // Update currency label
     const currencyLabel = document.getElementById("numpad-currency-label");
     if (currencyLabel) currencyLabel.textContent = currency;
 
-    // Live conversion into the trip's currency, for an expense in another one
     const rateInput = document.getElementById("exchange-rate-input") as HTMLInputElement | null;
     const base = tripCurrency();
     const rate = parseFloat(rateInput?.value ?? "");
@@ -121,21 +117,18 @@ export function setupNumpad(ctx: TelegramContext): void {
     }
   }
 
-  // Observe currency / exchange rate changes for live conversion update
   const rateInput = document.getElementById("exchange-rate-input") as HTMLInputElement | null;
   rateInput?.addEventListener("input", updateDisplay);
 
   const currencyInput = document.getElementById("currency-input") as HTMLInputElement | null;
   currencyInput?.addEventListener("change", updateDisplay);
 
-  // also update on tabs change
   document.querySelectorAll("#currency-tabs [data-tui-tabs-trigger]").forEach((trigger) => {
     trigger.addEventListener("click", () => {
        setTimeout(updateDisplay, 10);
     });
   });
 
-  // Key press handler
   document.querySelectorAll("[data-numpad-key]").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();

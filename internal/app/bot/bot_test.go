@@ -72,9 +72,6 @@ func TestCommandMenu_IsRegisteredWithTelegram(t *testing.T) {
 	}
 }
 
-// TestCommandMenu_MatchesHelp keeps the menu and /help describing the same
-// commands: a command in one and not the other is either unreachable from the
-// menu or invisible in /help.
 func TestCommandMenu_MatchesHelp(t *testing.T) {
 	handler := newTestHandler(&spyAccountingRepo{}, &stubReceiptAnalyzer{})
 	ctx := &spyContext{}
@@ -88,7 +85,7 @@ func TestCommandMenu_MatchesHelp(t *testing.T) {
 
 	for _, command := range commands {
 		switch command.Text {
-		case "start", "help", "cancel": // not listed in /help's body
+		case "start", "help", "cancel":
 			continue
 		}
 		if !strings.Contains(help.String(), "/"+command.Text) {

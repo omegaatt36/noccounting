@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -28,8 +29,6 @@ func isWithinRange(t time.Time, from, to *time.Time) bool {
 	return true
 }
 
-// dashboardRequest is what every dashboard route needs to know about its
-// request: who is asking, which trip they are looking at, and over which days.
 type dashboardRequest struct {
 	trip     domain.Trip
 	rangeStr string
@@ -40,8 +39,6 @@ type dashboardRequest struct {
 	cancel   context.CancelFunc
 }
 
-// openDashboardRequest identifies the caller and resolves the trip and the date
-// range. It writes the HTTP error itself and returns false when it cannot.
 func (h *Handler) openDashboardRequest(w http.ResponseWriter, r *http.Request) (*dashboardRequest, bool) {
 	caller, ok := h.requireAuth(w, r)
 	if !ok {
@@ -76,6 +73,22 @@ func (h *Handler) openDashboardRequest(w http.ResponseWriter, r *http.Request) (
 	}, true
 }
 
+// payerNames: nicknames win over the names TREK has; an unreadable roster leaves nicknames only.
+func (h *Handler) payerNames(ctx context.Context, selected domain.Trip) map[string]string {
+	names := map[string]string{}
+	members, err := h.expenseService.Members(ctx, selected)
+	if err != nil {
+		slog.Warn("Failed to read the trip members for the payers' names", "error", err)
+	}
+	for _, member := range members {
+		names[member.ID] = member.Name
+	}
+	for id, nickname := range h.nicknames() {
+		names[id] = nickname
+	}
+	return names
+}
+
 func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request) {
 	req, ok := h.openDashboardRequest(w, r)
 	if !ok {
@@ -83,12 +96,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	}
 	defer req.cancel()
 
-	allUsers, err := h.userService.GetAllUsers()
-	if err != nil {
-		slog.Error("Failed to get users", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	names := h.payerNames(req.ctx, req.trip)
 
 	currency := req.trip.Currency
 	var (
@@ -104,7 +112,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		dashboardData = aggregateDashboard(expenses, allUsers, currency)
+		dashboardData = aggregateDashboard(expenses, names, currency)
 	} else {
 		// Merge query range to cover both current and previous periods in one call
 		mergedFilter := expense.ExpenseFilter{DateFrom: prevFrom, DateTo: req.to}
@@ -132,8 +140,8 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 			}
 		}
 
-		dashboardData = aggregateDashboard(currExpenses, allUsers, currency)
-		prevData := aggregateDashboard(prevExpenses, allUsers, currency)
+		dashboardData = aggregateDashboard(currExpenses, names, currency)
+		prevData := aggregateDashboard(prevExpenses, names, currency)
 
 		currTotal, _ := dashboardData.GrandTotal.Float64()
 		prevTotal, _ := prevData.GrandTotal.Float64()
@@ -168,7 +176,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 			Emoji:      stat.Emoji,
 			Label:      format.CategoryLabel(stat.Category),
 			Amount:     format.Money(currency, stat.Amount),
-			Percentage: int(stat.Percentage),
+			Percentage: int(math.Round(stat.Percentage)),
 		})
 	}
 	for _, stat := range dashboardData.ByMethod {
@@ -177,7 +185,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 			Emoji:      stat.Emoji,
 			Label:      stat.Label,
 			Amount:     format.Money(currency, stat.Amount),
-			Percentage: int(stat.Percentage),
+			Percentage: int(math.Round(stat.Percentage)),
 		})
 	}
 	for _, stat := range dashboardData.ByDate {
@@ -185,7 +193,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 			Date:       stat.Date,
 			ISODate:    stat.ISODate,
 			Amount:     format.Money(currency, stat.Amount),
-			Percentage: int(stat.Percentage),
+			Percentage: int(math.Round(stat.Percentage)),
 		})
 	}
 	for _, stat := range dashboardData.ByPayer {
@@ -193,7 +201,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 			ID:         stat.ID,
 			Name:       stat.Name,
 			Amount:     format.Money(currency, stat.Amount),
-			Percentage: int(stat.Percentage),
+			Percentage: int(math.Round(stat.Percentage)),
 		})
 	}
 
@@ -203,8 +211,7 @@ func (h *Handler) handleDashboardContent(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleSettlement is where the trip's money stands, as TREK works it out. It
-// does not depend on a date range: it is everything owed so far.
+// handleSettlement does not depend on a date range: it is everything owed so far.
 func (h *Handler) handleSettlement(w http.ResponseWriter, r *http.Request) {
 	req, ok := h.openDashboardRequest(w, r)
 	if !ok {
@@ -249,7 +256,6 @@ func (h *Handler) handleSettlement(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// signedAmount writes a balance with its sign in front of the whole figure.
 func signedAmount(currency domain.Currency, amount decimal.Decimal) string {
 	if amount.IsPositive() {
 		return "+" + format.Money(currency, amount)
@@ -257,7 +263,14 @@ func signedAmount(currency domain.Currency, amount decimal.Decimal) string {
 	return format.Money(currency, amount)
 }
 
-// handleExportCSV exports expenses as CSV with BOM and Chinese headers
+// csvText defuses a cell a spreadsheet would read as a formula (leading = + - @); names can come from a scanned receipt.
+func csvText(text string) string {
+	if text != "" && strings.ContainsAny(text[:1], "=+-@\t\r") {
+		return "'" + text
+	}
+	return text
+}
+
 func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	req, ok := h.openDashboardRequest(w, r)
 	if !ok {
@@ -272,18 +285,15 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	nicknameMap := h.nicknames()
+	payerNames := h.payerNames(req.ctx, req.trip)
 
-	// Sort expenses by date
 	sort.Slice(expenses, func(i, j int) bool {
 		return expenses[i].ShoppedAt.Before(expenses[j].ShoppedAt)
 	})
 
-	// Set response headers
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"noccounting-%s.csv\"", req.rangeStr))
 
-	// Write BOM
 	if _, err := w.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
 		slog.Error("Failed to write BOM", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -312,18 +322,18 @@ func (h *Handler) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	for _, expense := range expenses {
 		payer := expense.PaidByID
-		if nickname, ok := nicknameMap[expense.PaidByID]; ok {
+		if nickname, ok := payerNames[expense.PaidByID]; ok {
 			payer = nickname
 		}
 
 		row := []string{
 			expense.ShoppedAt.Format("2006-01-02"),
-			expense.Name,
+			csvText(expense.Name),
 			fmt.Sprintf("%d", expense.Price),
 			expense.Currency.String(),
 			format.CategoryLabel(expense.Category),
 			format.PaymentLabel(expense.Method),
-			payer,
+			csvText(payer),
 			expense.TotalInBase(req.trip.Currency).Round(0).String(),
 		}
 		if err := csvWriter.Write(row); err != nil {

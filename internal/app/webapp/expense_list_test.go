@@ -31,10 +31,10 @@ func TestHandleExpenseList_GroupsByDayNewestFirst(t *testing.T) {
 		t.Fatalf("days are not newest first (13th at %d, 12th at %d):\n%s", newer, older, body)
 	}
 	for _, want := range []string{
-		"NT$3,050",   // the day's total, over both of its expenses
-		"John · 信用卡", // who paid, and how
+		"NT$3,050",
+		"John · 信用卡",
 		"共 3 筆",
-		`aria-label="編輯 刷卡車票"`, // every row opens the editor
+		`aria-label="編輯 刷卡車票"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list does not contain %q:\n%s", want, body)
@@ -112,9 +112,9 @@ func TestHandleExpenseList_RowsCarryWhatTheEditorFillsFormFrom(t *testing.T) {
 	for _, want := range []string{
 		`"id":"7"`, `"price":1000`, `"currency":"JPY"`, `"exchange_rate":"0.215"`,
 		`"category":"food"`, `"method":"ic_card"`,
-		`"paid_by":"123456789"`, // the payer by the id the picker knows them by
+		`"paid_by":"123456789"`,
 		`"participants":["3","8"]`, `"shopped_at":"2026-10-13"`,
-		"¥1,000 (NT$215)", // what was paid and what it came to
+		"¥1,000 (NT$215)",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("row does not contain %q:\n%s", want, body)

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -58,8 +59,6 @@ func TestFinMindClient_GetRate_JPY(t *testing.T) {
 	}
 }
 
-// The board quotes TWD per JPY; a JPY trip needs the other reading of the same
-// pair, which is its inverse.
 func TestFinMindClient_GetRate_TWDInJPY(t *testing.T) {
 	response := map[string]any{
 		"status": 200,
@@ -158,5 +157,73 @@ func TestFinMindClient_GetRate_UsesCachedRate(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Errorf("requests = %d, want 1 (second call should use cache)", requests)
+	}
+}
+
+func TestFinMindClient_GetRate_UsesTheLastRateWhenFinMindIsDown(t *testing.T) {
+	down := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if down {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"status": 200,
+			"data":   []map[string]any{{"date": "2026-02-20", "currency": "JPY", "cash_sell": 0.2200}},
+		}); err != nil {
+			t.Errorf("Encode error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
+	client.SetCacheTTL(time.Nanosecond)
+	fresh, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	down = true
+	stale, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD)
+	if err != nil {
+		t.Fatalf("GetRate() with FinMind down error = %v, want the last rate", err)
+	}
+	if !stale.Equal(fresh) {
+		t.Errorf("rate = %s, want the last one, %s", stale, fresh)
+	}
+
+	inverse, err := client.GetRate(context.Background(), domain.CurrencyTWD, domain.CurrencyJPY)
+	if err != nil || inverse.IsZero() {
+		t.Errorf("TWD to JPY with FinMind down = %s, %v, want the inverse of the last rate", inverse, err)
+	}
+}
+
+func TestFinMindClient_GetRate_DoesNotUseARateThatIsTooOld(t *testing.T) {
+	down := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if down {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"status": 200,
+			"data":   []map[string]any{{"date": "2026-02-20", "currency": "JPY", "cash_sell": 0.2200}},
+		}); err != nil {
+			t.Errorf("Encode error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := exchangerate.NewFinMindClientWithBaseURL(server.URL)
+	client.SetCacheTTL(time.Nanosecond)
+	client.SetMaxStale(time.Nanosecond)
+	if _, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD); err != nil {
+		t.Fatal(err)
+	}
+
+	down = true
+	time.Sleep(time.Millisecond)
+	if _, err := client.GetRate(context.Background(), domain.CurrencyJPY, domain.CurrencyTWD); err == nil {
+		t.Error("GetRate() = nil error, want a rate older than the limit refused")
 	}
 }
