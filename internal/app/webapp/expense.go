@@ -44,8 +44,10 @@ type expenseFields struct {
 	method       domain.PaymentMethod
 	participants []string
 	// shoppedAt is zero when the form names no day.
-	shoppedAt    time.Time
-	receiptURL   string
+	shoppedAt time.Time
+	// receiptToken names a scanned receipt's photo, which is uploaded when the
+	// expense is saved.
+	receiptToken string
 	receiptItems []domain.ReceiptItem
 }
 
@@ -110,7 +112,7 @@ func parseExpenseFields(r *http.Request, base domain.Currency) (expenseFields, e
 	}
 
 	fields.participants = participantsOf(r)
-	fields.receiptURL = strings.TrimSpace(r.PostFormValue("receipt_url"))
+	fields.receiptToken = strings.TrimSpace(r.PostFormValue("receipt_token"))
 	if rawItems := strings.TrimSpace(r.PostFormValue("receipt_items")); rawItems != "" {
 		var wire []receiptItemWire
 		if err := json.Unmarshal([]byte(rawItems), &wire); err == nil {
@@ -234,6 +236,22 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		fields.shoppedAt = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	}
 
+	// The same form sent again, because its answer was lost, files nothing new.
+	requestID := strings.TrimSpace(r.PostFormValue("request_id"))
+	if len(requestID) > maxRequestIDLen {
+		fail("無法解析表單")
+		return
+	}
+	if prev, first := h.submissions.begin(requestID); !first {
+		if !prev.done {
+			fail("上一次送出還在處理中，請稍後到明細確認")
+			return
+		}
+		prev.result.Description += "（先前已記錄，重複送出已略過）"
+		h.renderResult(w, r, prev.result)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -247,11 +265,12 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		PaidByID:       paidBy,
 		ParticipantIDs: fields.participants,
 		ShoppedAt:      fields.shoppedAt,
-		ReceiptURL:     fields.receiptURL,
 		ReceiptItems:   fields.receiptItems,
 	}
+	receiptNote := h.attachReceipt(ctx, selected, fields.receiptToken, expense)
 
 	if err := h.expenseService.CreateExpense(ctx, selected, expense); err != nil {
+		h.submissions.abandon(requestID)
 		slog.Error("Failed to create expense", "error", err)
 		if errors.Is(err, domain.ErrNotOnTrip) {
 			fail("付款人或分攤的人不在這趟旅行裡")
@@ -260,12 +279,43 @@ func (h *Handler) handleCreateExpense(w http.ResponseWriter, r *http.Request) {
 		fail("新增失敗，請稍後再試")
 		return
 	}
+	h.receipts.discard(fields.receiptToken)
 
-	h.renderResult(w, r, resultData{
+	result := resultData{
 		Success:     true,
 		Title:       fmt.Sprintf("%s %s", format.CategoryEmoji(fields.category), fields.name),
-		Description: amountSummary(selected.Currency, expense),
-	})
+		Description: amountSummary(selected.Currency, expense) + receiptNote,
+	}
+	if requestID != "" {
+		h.submissions.finish(requestID, result)
+	}
+	h.renderResult(w, r, result)
+}
+
+// maxRequestIDLen bounds the request id a form may send; the page sends a UUID.
+const maxRequestIDLen = 64
+
+// attachReceipt uploads the photo a scanned receipt left in the stash and links
+// it to the expense. It says, in words to show the person, when it could not.
+func (h *Handler) attachReceipt(ctx context.Context, trip domain.Trip, token string, expense *domain.Expense) string {
+	if token == "" {
+		return ""
+	}
+
+	image, fileID, found := h.receipts.get(token)
+	if !found {
+		return "\n⚠️ 收據圖片已過期，沒有附上"
+	}
+	if fileID == "" {
+		var err error
+		if fileID, err = h.expenseService.UploadReceiptImage(ctx, trip, image); err != nil {
+			slog.Warn("Failed to upload the receipt image; saving the expense without it", "error", err)
+			return "\n⚠️ 收據圖片上傳失敗，沒有附上"
+		}
+		h.receipts.setFile(token, fileID)
+	}
+	expense.ReceiptURL = fileID
+	return ""
 }
 
 // handleUpdateExpense rewrites an expense with what the form says. It starts
@@ -395,7 +445,7 @@ type analyzeReceiptResponse struct {
 	Total        uint64               `json:"total,omitempty"`
 	Category     domain.Category      `json:"category,omitempty"`
 	Method       domain.PaymentMethod `json:"method,omitempty"`
-	ReceiptURL   string               `json:"receipt_url,omitempty"`
+	ReceiptToken string               `json:"receipt_token,omitempty"`
 	ReceiptItems []receiptItemWire    `json:"receipt_items,omitempty"`
 	Error        string               `json:"error,omitempty"`
 }
@@ -460,11 +510,6 @@ func (h *Handler) handleAnalyzeReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var receiptURL string
-	if selected, err := h.tripFor(ctx, r); err == nil {
-		receiptURL = h.expenseService.UploadReceiptImage(ctx, selected, imgBytes)
-	}
-
 	var wireItems []receiptItemWire
 	for _, item := range analysis.Items {
 		wireItems = append(wireItems, receiptItemWire{
@@ -481,7 +526,7 @@ func (h *Handler) handleAnalyzeReceipt(w http.ResponseWriter, r *http.Request) {
 		Total:        analysis.Total,
 		Category:     analysis.Category,
 		Method:       analysis.PaymentMethod,
-		ReceiptURL:   receiptURL,
+		ReceiptToken: h.receipts.put(imgBytes),
 		ReceiptItems: wireItems,
 	})
 }

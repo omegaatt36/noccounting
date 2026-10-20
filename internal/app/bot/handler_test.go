@@ -603,17 +603,22 @@ func TestHandlePhoto_ThenSplit_PartialFailure(t *testing.T) {
 		t.Errorf("expected 2 successful CreateExpense calls, got %d", len(repo.createdExpenses))
 	}
 
-	// Should show partial success message
-	found := false
+	// The message reports the two lines that were filed and names the one that was not.
+	var report string
 	for _, msg := range callbackCtx.sentMsgs {
-		if s, ok := msg.(string); ok {
-			if len(s) > 0 && s[0] == 0xe2 { // starts with ⚠️ (UTF-8)
-				found = true
-			}
+		if text, ok := msg.(string); ok {
+			report = text
 		}
 	}
-	if !found {
-		t.Errorf("expected partial success message, got %v", callbackCtx.sentMsgs)
+	for _, want := range []string{"已拆開新增 2 項", "1 項新增失敗", "牛奶"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report %q does not contain %q", report, want)
+		}
+	}
+	for _, want := range []string{"飯糰", "雜誌"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report %q does not list the filed line %q", report, want)
+		}
 	}
 }
 
@@ -812,6 +817,68 @@ func TestHandlePhoto_ThenSingle_UploadFails_StillCreatesExpenseWithoutReceiptURL
 	}
 	if exp.Price != 1280 {
 		t.Errorf("expected Price 1280, got %d", exp.Price)
+	}
+
+	// The person is told the image did not make it.
+	last, _ := callbackCtx.sentMsgs[len(callbackCtx.sentMsgs)-1].(string)
+	if !strings.Contains(last, "收據圖片上傳失敗") {
+		t.Errorf("reply %q does not say the receipt image was not attached", last)
+	}
+}
+
+func TestHandleReceiptCallback_DoubleTapFilesOnce(t *testing.T) {
+	for _, action := range []string{"single", "split"} {
+		t.Run(action, func(t *testing.T) {
+			repo := &spyAccountingRepo{uploadResult: "file-id"}
+			h := newTestHandler(repo, &stubReceiptAnalyzer{result: newTestAnalysis()})
+			botAPI := &spyBotAPI{fileReader: io.NopCloser(bytes.NewReader([]byte("fake-jpeg-image-data")))}
+			if err := h.handlePhoto(newPhotoContext(botAPI)); err != nil {
+				t.Fatalf("handlePhoto returned error: %v", err)
+			}
+
+			data := "receipt|" + action
+			// Both taps are handed the state the way handleCallback reads it, before either runs.
+			state := h.convManager.GetState(testTelegramUserID)
+			first, second := newCallbackContext(botAPI, data), newCallbackContext(botAPI, data)
+			if err := h.handleReceiptCallback(first, state, data); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.handleReceiptCallback(second, state, data); err != nil {
+				t.Fatal(err)
+			}
+
+			want := 1
+			if action == "split" {
+				want = 3
+			}
+			if len(repo.createdExpenses) != want {
+				t.Errorf("created %d expenses, want %d: the second tap must not file again", len(repo.createdExpenses), want)
+			}
+			if len(second.responded) == 0 || second.responded[0].Text != "會話已過期" {
+				t.Errorf("second tap was answered %v, want it told the receipt is gone", second.responded)
+			}
+		})
+	}
+}
+
+func TestHandleReceiptCallback_FilesUnderTheUsersDay(t *testing.T) {
+	repo := &spyAccountingRepo{uploadResult: "file-id"}
+	h := newTestHandler(repo, &stubReceiptAnalyzer{result: newTestAnalysis()})
+	h.userService.SetTimezone(testTelegramUserID, time.FixedZone("far-east", 14*3600))
+	botAPI := &spyBotAPI{fileReader: io.NopCloser(bytes.NewReader([]byte("fake-jpeg-image-data")))}
+	if err := h.handlePhoto(newPhotoContext(botAPI)); err != nil {
+		t.Fatalf("handlePhoto returned error: %v", err)
+	}
+
+	state := h.convManager.GetState(testTelegramUserID)
+	if err := h.handleReceiptCallback(newCallbackContext(botAPI, "receipt|single"), state, "receipt|single"); err != nil {
+		t.Fatal(err)
+	}
+
+	local := time.Now().In(time.FixedZone("far-east", 14*3600))
+	want := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	if got := repo.createdExpenses[0].ShoppedAt; !got.Equal(want) {
+		t.Errorf("ShoppedAt = %v, want the user's own day %v, not the server's", got, want)
 	}
 }
 

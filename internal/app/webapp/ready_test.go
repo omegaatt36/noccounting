@@ -73,7 +73,7 @@ func TestReady(t *testing.T) {
 }
 
 func TestProbesAreNotRateLimited(t *testing.T) {
-	handler := rateLimit(1, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	handler := newRateLimiter(1, time.Minute).middleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	for range 5 {
 		req := httptest.NewRequest("GET", "/ready", nil)
 		req.RemoteAddr = "192.0.2.1:1234"

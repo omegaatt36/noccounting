@@ -132,7 +132,7 @@ func TestRateLimiterPerIP(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
-	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newRateLimiter(1, 100*time.Millisecond).middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
 			t.Errorf("write response: %v", err)
@@ -164,7 +164,7 @@ func TestRateLimitMiddlewareSkipsHealthCheck(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareSkipsStaticAssets(t *testing.T) {
-	handler := rateLimit(1, time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := newRateLimiter(1, time.Minute).middleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -210,7 +210,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
-	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newRateLimiter(1, 100*time.Millisecond).middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
 			t.Errorf("write response: %v", err)
@@ -257,7 +257,7 @@ func TestRateLimitMiddlewareBlocksOverLimit(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
-	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newRateLimiter(1, 100*time.Millisecond).middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -285,7 +285,7 @@ func TestRateLimitMiddlewareUsesFirstXForwardedFor(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareIgnoresInvalidXForwardedFor(t *testing.T) {
-	handler := rateLimit(1, 100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newRateLimiter(1, 100*time.Millisecond).middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

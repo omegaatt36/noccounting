@@ -79,16 +79,16 @@ func main() {
 		WebhookListen:      env("WEBHOOK_LISTEN", ""),
 		WebhookSecretToken: env("WEBHOOK_SECRET_TOKEN", ""),
 	}
-	logLevel := env("LOG_LEVEL", "debug")
+	logLevel := env("LOG_LEVEL", "info")
 	llmAPIKey := env("LLM_API_KEY", "")
 	llmBaseURL := env("LLM_BASE_URL", "")
 	llmModel := env("LLM_MODEL", "gpt-4o")
 	devMode := os.Getenv("DEV_MODE") == "true"
 
 	app.App{Main: func(ctx context.Context) error {
-		lvl := slog.LevelDebug
+		lvl := slog.LevelInfo
 		if err := lvl.UnmarshalText([]byte(logLevel)); err != nil {
-			slog.Warn("invalid LOG_LEVEL, falling back to debug", "value", logLevel, "error", err)
+			slog.Warn("invalid LOG_LEVEL, falling back to info", "value", logLevel, "error", err)
 		}
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 

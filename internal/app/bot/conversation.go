@@ -76,18 +76,23 @@ func (m *ConversationManager) ClearState(userID int64) {
 	m.states.Delete(userID)
 }
 
-func (m *ConversationManager) Cleanup() {
-	if m.ttl <= 0 {
-		return
+// Take claims a person's conversation for a step that must run once, such as
+// filing a receipt or deleting an expense: of two taps arriving together, only
+// one gets the state. It claims nothing, and leaves the state be, when ok says
+// the conversation is not the one the step belongs to.
+func (m *ConversationManager) Take(userID int64, ok func(*ConversationState) bool) *ConversationState {
+	val, loaded := m.states.Load(userID)
+	if !loaded {
+		return nil
 	}
-	m.states.Range(func(key, value any) bool {
-		if state, ok := value.(*ConversationState); ok {
-			if time.Since(state.StartedAt) > m.ttl {
-				m.states.Delete(key)
-			}
-		}
-		return true
-	})
+	state := val.(*ConversationState)
+	if (m.ttl > 0 && time.Since(state.StartedAt) > m.ttl) || !ok(state) {
+		return nil
+	}
+	if !m.states.CompareAndDelete(userID, val) {
+		return nil
+	}
+	return state
 }
 
 func (m *ConversationManager) StartEditFlow(userID int64, trip domain.Trip, expense *domain.Expense) *ConversationState {

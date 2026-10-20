@@ -2,6 +2,7 @@ package webapp
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -534,5 +535,24 @@ func TestIsWithinRange(t *testing.T) {
 				t.Errorf("isWithinRange() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAggregateDashboard_EqualPayersKeepOneOrder(t *testing.T) {
+	expenses := []domain.Expense{
+		{Price: 100, Currency: domain.CurrencyTWD, PaidByID: "3"},
+		{Price: 100, Currency: domain.CurrencyTWD, PaidByID: "1"},
+		{Price: 100, Currency: domain.CurrencyTWD, PaidByID: "2"},
+		{Price: 100, Currency: domain.CurrencyTWD, PaidByID: "4"},
+	}
+
+	for range 20 {
+		var names []string
+		for _, payer := range aggregateDashboard(expenses, nil, domain.CurrencyTWD).ByPayer {
+			names = append(names, payer.Name)
+		}
+		if strings.Join(names, ",") != "1,2,3,4" {
+			t.Fatalf("payers = %v, want equal amounts in name order on every load", names)
+		}
 	}
 }

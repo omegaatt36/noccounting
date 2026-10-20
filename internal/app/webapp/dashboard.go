@@ -1,7 +1,9 @@
 package webapp
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -187,8 +189,10 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 		})
 	}
 
-	sort.Slice(result.ByPayer, func(i, j int) bool {
-		return result.ByPayer[i].Amount.GreaterThan(result.ByPayer[j].Amount)
+	// Payers come out of a map, so equal amounts need a tie-break or the order
+	// changes from one load to the next.
+	slices.SortFunc(result.ByPayer, func(a, b PayerStat) int {
+		return cmp.Or(b.Amount.Cmp(a.Amount), cmp.Compare(a.Name, b.Name))
 	})
 
 	return result
@@ -197,31 +201,6 @@ func aggregateDashboard(expenses []domain.Expense, users []domain.User, base dom
 // formatDate formats time.Time to "M/D" string (e.g., "2/21")
 func formatDate(t time.Time) string {
 	return t.Format("1/2")
-}
-
-func getPreviousDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
-	switch rangeStr {
-	case "today":
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -1)
-		to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).AddDate(0, 0, -1)
-		return &from, &to
-
-	case "3d":
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -5)
-		to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).AddDate(0, 0, -3)
-		return &from, &to
-
-	case "7d":
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -13)
-		to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).AddDate(0, 0, -7)
-		return &from, &to
-
-	case "all", "":
-		return nil, nil
-
-	default:
-		return nil, nil
-	}
 }
 
 func BuildDonutGradient(categories []CategoryStat) string {
@@ -242,27 +221,43 @@ func BuildDonutGradient(categories []CategoryStat) string {
 	return "conic-gradient(" + strings.Join(segments, ", ") + ")"
 }
 
-func parseDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
+// rangeDays is how many days a range covers, today included. Anything else,
+// "all" included, covers no particular days.
+func rangeDays(rangeStr string) (int, bool) {
 	switch rangeStr {
 	case "today":
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
-		return &from, &to
-
+		return 1, true
 	case "3d":
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -2)
-		to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
-		return &from, &to
-
+		return 3, true
 	case "7d":
-		from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -6)
-		to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location())
-		return &from, &to
+		return 7, true
+	}
+	return 0, false
+}
 
-	case "all", "":
-		return nil, nil
+// dayWindow is the days days that end back days before today, from the start of
+// the first to the end of the last.
+func dayWindow(now time.Time, days, back int) (*time.Time, *time.Time) {
+	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, -(days - 1 + back))
+	to := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 999999999, now.Location()).AddDate(0, 0, -back)
+	return &from, &to
+}
 
-	default:
+// parseDateRange is the days a range covers, or nil for all of them.
+func parseDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
+	days, ok := rangeDays(rangeStr)
+	if !ok {
 		return nil, nil
 	}
+	return dayWindow(now, days, 0)
+}
+
+// getPreviousDateRange is the period of the same length just before a range,
+// to compare it with, or nil when the range has no such period.
+func getPreviousDateRange(rangeStr string, now time.Time) (*time.Time, *time.Time) {
+	days, ok := rangeDays(rangeStr)
+	if !ok {
+		return nil, nil
+	}
+	return dayWindow(now, days, days)
 }

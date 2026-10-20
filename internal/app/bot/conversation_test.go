@@ -1,9 +1,11 @@
 package bot_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/omegaatt36/noccounting/domain"
 	"github.com/omegaatt36/noccounting/internal/app/bot"
 )
 
@@ -25,20 +27,55 @@ func TestConversationManager_ExpiresStateAfterTTL(t *testing.T) {
 	}
 }
 
-func TestConversationManager_CleanupRemovesExpiredStates(t *testing.T) {
+func TestConversationManager_TakeHandsTheStateToOnlyOneCaller(t *testing.T) {
+	mgr := bot.NewConversationManager()
+	mgr.SetState(7, &bot.ConversationState{Step: bot.ReceiptConfirm, ReceiptAnalysis: &domain.ReceiptAnalysis{}})
+	isReceipt := func(s *bot.ConversationState) bool { return s.ReceiptAnalysis != nil }
+
+	var (
+		wg     sync.WaitGroup
+		mu     sync.Mutex
+		winner int
+	)
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if mgr.Take(7, isReceipt) != nil {
+				mu.Lock()
+				winner++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if winner != 1 {
+		t.Fatalf("%d callers took the state, want exactly 1", winner)
+	}
+	if mgr.GetState(7) != nil {
+		t.Error("the taken state is still there")
+	}
+}
+
+func TestConversationManager_TakeLeavesAnotherConversationAlone(t *testing.T) {
+	mgr := bot.NewConversationManager()
+	mgr.SetState(7, &bot.ConversationState{Step: bot.StepEditField})
+
+	if got := mgr.Take(7, func(s *bot.ConversationState) bool { return s.ReceiptAnalysis != nil }); got != nil {
+		t.Fatalf("took %+v, want nothing from an edit conversation", got)
+	}
+	if mgr.GetState(7) == nil {
+		t.Error("a claim for a receipt removed the edit conversation")
+	}
+}
+
+func TestConversationManager_TakeIgnoresExpiredState(t *testing.T) {
 	mgr := bot.NewConversationManagerWithTTL(10 * time.Millisecond)
-
-	mgr.SetState(1, &bot.ConversationState{Step: bot.StepEditField})
-	mgr.SetState(2, &bot.ConversationState{Step: bot.StepEditValue})
-
+	mgr.SetState(7, &bot.ConversationState{Step: bot.ReceiptConfirm})
 	time.Sleep(20 * time.Millisecond)
 
-	mgr.Cleanup()
-
-	if state := mgr.GetState(1); state != nil {
-		t.Error("expected state 1 to be cleaned up")
-	}
-	if state := mgr.GetState(2); state != nil {
-		t.Error("expected state 2 to be cleaned up")
+	if got := mgr.Take(7, func(*bot.ConversationState) bool { return true }); got != nil {
+		t.Fatalf("took an expired state: %+v", got)
 	}
 }

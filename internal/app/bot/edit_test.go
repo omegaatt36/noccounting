@@ -324,18 +324,42 @@ func TestHandleEdit_Delete(t *testing.T) {
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_select|exp-delete-me"},
 	})
-	delCtx := &spyContext{
+	askCtx := &spyContext{
 		sender:   &tele.User{ID: testTelegramUserID},
 		callback: &tele.Callback{Data: "edit_field|delete"},
 	}
-	if err := handler.handleCallback(delCtx); err != nil {
+	if err := handler.handleCallback(askCtx); err != nil {
 		t.Fatalf("delete callback error: %v", err)
+	}
+	if len(repo.deletedExpenseIDs) != 0 {
+		t.Fatalf("deletedExpenseIDs = %v, want nothing deleted before the confirming tap", repo.deletedExpenseIDs)
+	}
+	if len(askCtx.sentMsgs) != 1 || !strings.Contains(askCtx.sentMsgs[0].(string), "確定要刪除") {
+		t.Fatalf("delete prompt = %v, want a confirmation question", askCtx.sentMsgs)
+	}
+
+	confirmCtx := &spyContext{
+		sender:   &tele.User{ID: testTelegramUserID},
+		callback: &tele.Callback{Data: "edit_field|delete_confirm"},
+	}
+	if err := handler.handleCallback(confirmCtx); err != nil {
+		t.Fatalf("confirm callback error: %v", err)
 	}
 	if len(repo.deletedExpenseIDs) != 1 || repo.deletedExpenseIDs[0] != "exp-delete-me" {
 		t.Errorf("deletedExpenseIDs = %v, want ['exp-delete-me']", repo.deletedExpenseIDs)
 	}
-	if len(delCtx.sentMsgs) != 1 || !strings.Contains(delCtx.sentMsgs[0].(string), "已刪除消費記錄") {
-		t.Errorf("delete response = %v, want deletion confirmation", delCtx.sentMsgs)
+	if len(confirmCtx.sentMsgs) != 1 || !strings.Contains(confirmCtx.sentMsgs[0].(string), "已刪除消費記錄") {
+		t.Errorf("delete response = %v, want deletion confirmation", confirmCtx.sentMsgs)
+	}
+
+	// A second tap on the confirming button finds nothing left to delete.
+	again := &spyContext{
+		sender:   &tele.User{ID: testTelegramUserID},
+		callback: &tele.Callback{Data: "edit_field|delete_confirm"},
+	}
+	_ = handler.handleCallback(again)
+	if len(repo.deletedExpenseIDs) != 1 {
+		t.Errorf("deletedExpenseIDs = %v, want a double tap to delete once", repo.deletedExpenseIDs)
 	}
 }
 

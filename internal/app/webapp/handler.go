@@ -24,6 +24,8 @@ type Handler struct {
 	botToken       string
 	devMode        bool
 	now            func() time.Time
+	receipts       *receiptStash
+	submissions    *submissions
 }
 
 func NewHandler(userService *user.Service, expenseService *expense.Service, tripService *trip.Service, botToken string, devMode bool) (*Handler, error) {
@@ -37,6 +39,8 @@ func NewHandler(userService *user.Service, expenseService *expense.Service, trip
 		botToken:       botToken,
 		devMode:        devMode,
 		now:            time.Now,
+		receipts:       newReceiptStash(),
+		submissions:    newSubmissions(),
 	}, nil
 }
 

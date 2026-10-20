@@ -257,8 +257,3 @@ func (rl *rateLimiter) middleware() middleware {
 		})
 	}
 }
-
-// rateLimit creates a rate limiting middleware.
-func rateLimit(rate int, window time.Duration) middleware {
-	return newRateLimiter(rate, window).middleware()
-}

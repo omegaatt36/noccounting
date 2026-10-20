@@ -63,16 +63,27 @@ export function isEditing(): boolean {
   return editingId() !== "";
 }
 
+// Names the next expense the form files. A form sent again with the same id, as
+// after an answer lost on a bad connection, is not filed twice; the id changes
+// only once an expense has gone through.
+export function renewRequestId(): void {
+  const field = $("request-id") as HTMLInputElement | null;
+  if (!field) return;
+  field.value =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 // Empties the fields an expense is typed into, and the errors they showed.
 export function clearFields(): void {
   const name = $("name") as HTMLInputElement | null;
   const price = $("price") as HTMLInputElement | null;
-  const receiptUrl = $("receipt-url") as HTMLInputElement | null;
+  const receiptToken = $("receipt-token") as HTMLInputElement | null;
   const receiptItems = $("receipt-items") as HTMLInputElement | null;
   if (name) name.value = "";
   if (price) price.value = "";
-  if (receiptUrl) receiptUrl.value = "";
+  if (receiptToken) receiptToken.value = "";
   if (receiptItems) receiptItems.value = "";
+  renewRequestId();
 
   const display = $("numpad-display");
   if (display) display.textContent = "0";

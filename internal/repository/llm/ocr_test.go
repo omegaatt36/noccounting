@@ -70,7 +70,7 @@ func TestOCRParseErrorWrapsSyntaxError(t *testing.T) {
 
 func TestOCRRequestCompressesImageAndDisablesReasoning(t *testing.T) {
 	var input bytes.Buffer
-	if err := jpeg.Encode(&input, image.NewRGBA(image.Rect(0, 0, 1600, 800)), nil); err != nil {
+	if err := jpeg.Encode(&input, image.NewRGBA(image.Rect(0, 0, 3000, 1500)), nil); err != nil {
 		t.Fatal(err)
 	}
 	transport := &spyTransport{content: `{"items":[],"total":0}`}
@@ -108,7 +108,7 @@ func TestOCRRequestCompressesImageAndDisablesReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Width != 1024 || config.Height != 512 {
-		t.Errorf("dimensions = %dx%d, want 1024x512", config.Width, config.Height)
+	if config.Width != 2*receiptShortEdge || config.Height != receiptShortEdge {
+		t.Errorf("dimensions = %dx%d, want the shorter side at %d", config.Width, config.Height, receiptShortEdge)
 	}
 }

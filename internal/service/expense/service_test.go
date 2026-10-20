@@ -188,54 +188,6 @@ func TestGetTodaySummary_GroupsInNoccountingsCategoryOrder(t *testing.T) {
 	}
 }
 
-func TestCreateFromReceipt_NoAnalyzer(t *testing.T) {
-	svc := NewService(&spyRepo{}, nil, nil)
-	err := svc.CreateFromReceipt(context.Background(), testTrip, []byte("data"), "user1", false)
-	if err == nil || err.Error() != "receipt analyzer not available" {
-		t.Errorf("expected 'receipt analyzer not available', got %v", err)
-	}
-}
-
-func TestCreateFromReceipt_AnalyzerError(t *testing.T) {
-	analyzer := &stubReceiptAnalyzer{err: errors.New("analyze failed")}
-	svc := NewService(&spyRepo{}, nil, analyzer)
-	err := svc.CreateFromReceipt(context.Background(), testTrip, []byte("data"), "user1", false)
-	if err == nil || err.Error() != "analyze failed" {
-		t.Errorf("expected 'analyze failed', got %v", err)
-	}
-}
-
-func TestCreateFromReceipt_SingleMode(t *testing.T) {
-	analysis := &domain.ReceiptAnalysis{
-		Summary:  "松屋 午餐",
-		Total:    850,
-		Currency: domain.CurrencyJPY,
-		Items: []domain.ReceiptItem{
-			{Name: "牛丼", Price: 500, Category: domain.CategoryFood},
-			{Name: "味噌湯", Price: 350, Category: domain.CategoryFood},
-		},
-	}
-	analyzer := &stubReceiptAnalyzer{analysis: analysis}
-	repo := &spyRepo{}
-	svc := NewService(repo, nil, analyzer)
-
-	err := svc.CreateFromReceipt(context.Background(), testTrip, []byte("imagedata"), "userXYZ", false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(repo.createdExpenses) != 1 {
-		t.Fatalf("expected 1 created expense, got %d", len(repo.createdExpenses))
-	}
-
-	// Verify CreateFromReceipt properly pipes analysis to creation.
-	// Field mapping specifics are tested separately in TestCreateFromAnalysis_SingleMode.
-	exp := repo.createdExpenses[0]
-	if exp.Name != "松屋 午餐" || exp.Price != 850 || exp.PaidByID != "userXYZ" {
-		t.Errorf("expense = %+v, want delegated analysis summary, total, and paidBy", exp)
-	}
-}
-
 type fakeFailOnSecondCallRepo struct {
 	spyRepo
 	callCount int
@@ -304,6 +256,95 @@ func TestGetTodaySummary_DateFieldSet(t *testing.T) {
 	}
 }
 
+var receiptDay = time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)
+
+func receipt(analysis *domain.ReceiptAnalysis, image []byte, paidBy string, split bool) ReceiptRequest {
+	return ReceiptRequest{Analysis: analysis, Image: image, PaidByID: paidBy, ShoppedAt: receiptDay, SplitItems: split}
+}
+
+func TestCreateFromAnalysis_SplitMode_FilesTheRemainderAsALine(t *testing.T) {
+	analysis := &domain.ReceiptAnalysis{
+		Summary:  "居酒屋",
+		Total:    1100,
+		Currency: domain.CurrencyJPY,
+		Category: domain.CategoryFood,
+		Items: []domain.ReceiptItem{
+			{Name: "唐揚げ", Price: 600, Category: domain.CategoryFood},
+			{Name: "ビール", Price: 400, Category: domain.CategoryFood},
+		},
+	}
+	repo := &spyRepo{}
+	svc := NewService(repo, nil, nil)
+
+	result, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, nil, "8", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(repo.createdExpenses) != 3 {
+		t.Fatalf("created %d expenses, want the 2 items and the remainder", len(repo.createdExpenses))
+	}
+	var sum uint64
+	for _, e := range repo.createdExpenses {
+		sum += e.Price
+	}
+	if sum != analysis.Total {
+		t.Errorf("lines add up to %d, want the receipt's total %d", sum, analysis.Total)
+	}
+	last := repo.createdExpenses[2]
+	if last.Name != RemainderName || last.Price != 100 || last.Category != domain.CategoryFood {
+		t.Errorf("remainder = %+v, want %d of %s in the receipt's category", last, 100, RemainderName)
+	}
+	if len(result.Filed) != 3 {
+		t.Errorf("filed %d lines, want the remainder reported too", len(result.Filed))
+	}
+}
+
+func TestCreateFromAnalysis_SplitMode_NoRemainderWhenItemsReachTheTotal(t *testing.T) {
+	analysis := &domain.ReceiptAnalysis{
+		Summary:  "x",
+		Total:    100,
+		Currency: domain.CurrencyTWD,
+		Items:    []domain.ReceiptItem{{Name: "a", Price: 60}, {Name: "b", Price: 40}, {Name: "discount", Price: -10}},
+	}
+	repo := &spyRepo{}
+	svc := NewService(repo, nil, nil)
+
+	if _, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, nil, "8", true)); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.createdExpenses) != 2 {
+		t.Fatalf("created %d expenses, want 2: no remainder and no negative line", len(repo.createdExpenses))
+	}
+}
+
+func TestCreateFromAnalysis_SplitMode_AllFailIsAnError(t *testing.T) {
+	analysis := &domain.ReceiptAnalysis{
+		Summary: "x", Total: 100, Currency: domain.CurrencyTWD,
+		Items: []domain.ReceiptItem{{Name: "a", Price: 100}},
+	}
+	want := errors.New("trek is down")
+	repo := &failingCreateRepo{err: want}
+	svc := NewService(repo, nil, nil)
+
+	result, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, nil, "8", true))
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want the create error when nothing was filed", err)
+	}
+	if len(result.Filed) != 0 || len(result.Failed) != 1 {
+		t.Errorf("result = %+v, want the one line reported failed", result)
+	}
+}
+
+type failingCreateRepo struct {
+	spyRepo
+	err error
+}
+
+func (r *failingCreateRepo) CreateExpense(context.Context, domain.Trip, *domain.Expense) error {
+	return r.err
+}
+
 func TestCreateFromAnalysis_SingleMode(t *testing.T) {
 	analysis := &domain.ReceiptAnalysis{
 		Summary:  "松屋 午餐",
@@ -317,7 +358,7 @@ func TestCreateFromAnalysis_SingleMode(t *testing.T) {
 	repo := &spyRepo{}
 	svc := NewService(repo, nil, nil)
 
-	err := svc.CreateFromAnalysis(context.Background(), testTrip, analysis, []byte("imagedata"), "userXYZ", false)
+	result, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, []byte("imagedata"), "userXYZ", false))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -345,15 +386,18 @@ func TestCreateFromAnalysis_SingleMode(t *testing.T) {
 	if exp.ReceiptURL != "https://example.com/receipt.jpg" {
 		t.Errorf("unexpected ReceiptURL: %s", exp.ReceiptURL)
 	}
-	if exp.ShoppedAt.IsZero() {
-		t.Error("expected ShoppedAt to be set")
+	if !exp.ShoppedAt.Equal(receiptDay) {
+		t.Errorf("ShoppedAt = %v, want the day the request names, %v", exp.ShoppedAt, receiptDay)
+	}
+	if len(result.Filed) != 1 || result.ReceiptMissing {
+		t.Errorf("result = %+v, want one filed line and the receipt attached", result)
 	}
 }
 
 func TestCreateFromAnalysis_SplitMode(t *testing.T) {
 	analysis := &domain.ReceiptAnalysis{
 		Summary:  "全家便利商店",
-		Total:    350,
+		Total:    144,
 		Currency: domain.CurrencyTWD,
 		Items: []domain.ReceiptItem{
 			{Name: "茶葉蛋", Price: 10, Category: domain.CategoryFood},
@@ -364,7 +408,7 @@ func TestCreateFromAnalysis_SplitMode(t *testing.T) {
 	repo := &spyRepo{}
 	svc := NewService(repo, nil, nil)
 
-	err := svc.CreateFromAnalysis(context.Background(), testTrip, analysis, []byte("imagedata"), "userABC", true)
+	result, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, []byte("imagedata"), "userABC", true))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -380,9 +424,12 @@ func TestCreateFromAnalysis_SplitMode(t *testing.T) {
 		if exp.ReceiptURL != "https://example.com/receipt.jpg" {
 			t.Errorf("item %d: unexpected ReceiptURL: %s", i, exp.ReceiptURL)
 		}
-		if exp.ShoppedAt.IsZero() {
-			t.Errorf("item %d: expected ShoppedAt to be set", i)
+		if !exp.ShoppedAt.Equal(receiptDay) {
+			t.Errorf("item %d: ShoppedAt = %v, want %v", i, exp.ShoppedAt, receiptDay)
 		}
+	}
+	if len(result.Filed) != 3 {
+		t.Errorf("filed %d lines, want 3", len(result.Filed))
 	}
 
 	if repo.createdExpenses[0].Name != "茶葉蛋" {
@@ -404,7 +451,7 @@ func TestCreateFromAnalysis_NilImageData_SkipsUpload(t *testing.T) {
 	}
 	svc := NewService(repo, nil, nil)
 
-	err := svc.CreateFromAnalysis(context.Background(), testTrip, analysis, nil, "u1", false)
+	_, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, nil, "u1", false))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -427,9 +474,12 @@ func TestCreateFromAnalysis_UploadError_GracefulDegradation(t *testing.T) {
 		},
 	}
 	svc := NewService(repo, nil, nil)
-	err := svc.CreateFromAnalysis(context.Background(), testTrip, analysis, []byte("data"), "u1", false)
+	result, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, []byte("data"), "u1", false))
 	if err != nil {
 		t.Fatalf("expected no error on upload failure, got %v", err)
+	}
+	if !result.ReceiptMissing {
+		t.Error("expected the result to say the receipt image is missing")
 	}
 	if len(repo.createdExpenses) != 1 {
 		t.Fatalf("expected expense to be created despite upload failure, got %d", len(repo.createdExpenses))
@@ -452,9 +502,12 @@ func TestCreateFromAnalysis_SplitMode_PartialFailure(t *testing.T) {
 	repo := &fakeFailOnSecondCallRepo{}
 	svc := NewService(repo, nil, nil)
 
-	err := svc.CreateFromAnalysis(context.Background(), testTrip, analysis, []byte("data"), "u1", true)
+	result, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, []byte("data"), "u1", true))
 	if err != nil {
 		t.Fatalf("expected nil error on partial failure, got: %v", err)
+	}
+	if len(result.Filed) != 1 || result.Filed[0].Name != "item1" || len(result.Failed) != 1 || result.Failed[0].Name != "item2" {
+		t.Errorf("result = %+v, want item1 filed and item2 failed", result)
 	}
 
 	if len(repo.createdExpenses) != 1 {
@@ -673,7 +726,7 @@ func TestCreateFromAnalysis_DefaultsParticipantsForEveryReceiptItem(t *testing.T
 		repo := &spyRepo{}
 		svc := NewService(repo, nil, nil)
 		analysis := &domain.ReceiptAnalysis{Summary: "dinner", Total: 100, Currency: domain.CurrencyTWD, Items: []domain.ReceiptItem{{Name: "soup", Price: 40}, {Name: "rice", Price: 60}}}
-		if err := svc.CreateFromAnalysis(context.Background(), testTrip, analysis, nil, "8", split); err != nil {
+		if _, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(analysis, nil, "8", split)); err != nil {
 			t.Fatal(err)
 		}
 		for _, e := range repo.createdExpenses {
@@ -689,7 +742,7 @@ func TestCreateFromAnalysis_StopsWhenRosterCannotBeRead(t *testing.T) {
 		want := errors.New("roster unavailable")
 		repo := &spyRepo{membersErr: want}
 		svc := NewService(repo, nil, nil)
-		err := svc.CreateFromAnalysis(context.Background(), testTrip, &domain.ReceiptAnalysis{}, nil, "8", split)
+		_, err := svc.CreateFromAnalysis(context.Background(), testTrip, receipt(&domain.ReceiptAnalysis{}, nil, "8", split))
 		if !errors.Is(err, want) {
 			t.Fatalf("split=%v, error=%v, want roster error", split, err)
 		}

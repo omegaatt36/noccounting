@@ -3,6 +3,7 @@ package webapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -441,7 +442,35 @@ func (s stubAnalyzer) Analyze(_ context.Context, _ []byte) (*domain.ReceiptAnaly
 	return s.result, s.err
 }
 
-func TestHandleAnalyzeReceipt(t *testing.T) {
+// scanReceipt posts a receipt photo to the analyzer and returns what it answered.
+func scanReceipt(t *testing.T, handler *Handler) analyzeReceiptResponse {
+	t.Helper()
+	body := new(strings.Builder)
+	body.WriteString("--boundary\r\n")
+	body.WriteString("Content-Disposition: form-data; name=\"trip_id\"\r\n\r\n3\r\n")
+	body.WriteString("--boundary\r\n")
+	body.WriteString("Content-Disposition: form-data; name=\"receipt\"; filename=\"receipt.jpg\"\r\n")
+	body.WriteString("Content-Type: image/jpeg\r\n\r\n")
+	body.WriteString("fake-image-bytes\r\n")
+	body.WriteString("--boundary--\r\n")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/receipt/analyze", strings.NewReader(body.String()))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	w := httptest.NewRecorder()
+	handler.handleAnalyzeReceipt(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
+	}
+	var resp analyzeReceiptResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func receiptHandler(t *testing.T, repo *stubAccountingRepo) *Handler {
+	t.Helper()
 	users := &fakeUserRepo{users: map[int64]*domain.User{
 		123456789: {ID: 1, TelegramID: 123456789, BackendUserID: "8", Nickname: "John"},
 	}}
@@ -456,37 +485,24 @@ func TestHandleAnalyzeReceipt(t *testing.T) {
 			{Name: "生野菜", NameZH: "沙拉", Price: 200, Category: domain.CategoryFood},
 		},
 	}
-	repo := &stubAccountingRepo{}
 	expSvc := expense.NewService(repo, stubRates{}, stubAnalyzer{result: analysis})
 	handler, err := NewHandler(user.NewService(users), expSvc, trip.NewService(twoTrips{}), "test-token", true)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return handler
+}
 
-	body := new(strings.Builder)
-	body.WriteString("--boundary\r\n")
-	body.WriteString("Content-Disposition: form-data; name=\"trip_id\"\r\n\r\n3\r\n")
-	body.WriteString("--boundary\r\n")
-	body.WriteString("Content-Disposition: form-data; name=\"receipt\"; filename=\"receipt.jpg\"\r\n")
-	body.WriteString("Content-Type: image/jpeg\r\n\r\n")
-	body.WriteString("fake-image-bytes\r\n")
-	body.WriteString("--boundary--\r\n")
+func TestHandleAnalyzeReceipt(t *testing.T) {
+	repo := &stubAccountingRepo{}
+	handler := receiptHandler(t, repo)
 
-	payload := strings.ReplaceAll(body.String(), "\\r\\n", "\r\n")
-	req := httptest.NewRequest(http.MethodPost, "/api/receipt/analyze", strings.NewReader(payload))
-	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
-	w := httptest.NewRecorder()
-	handler.handleAnalyzeReceipt(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200, body: %s", w.Code, w.Body.String())
-	}
-	var resp analyzeReceiptResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if !resp.Success || resp.Summary != "Matsuya" || resp.Total != 650 || resp.Currency != domain.CurrencyJPY || resp.ReceiptURL != "file-id" || len(resp.ReceiptItems) != 2 {
+	resp := scanReceipt(t, handler)
+	if !resp.Success || resp.Summary != "Matsuya" || resp.Total != 650 || resp.Currency != domain.CurrencyJPY || resp.ReceiptToken == "" || len(resp.ReceiptItems) != 2 {
 		t.Errorf("unexpected response: %+v", resp)
+	}
+	if repo.uploads != 0 {
+		t.Fatalf("scanning uploaded %d files, want none until an expense is saved", repo.uploads)
 	}
 
 	itemsJSON, err := json.Marshal(resp.ReceiptItems)
@@ -497,10 +513,116 @@ func TestHandleAnalyzeReceipt(t *testing.T) {
 		"name":          resp.Summary,
 		"price":         "650",
 		"currency":      "JPY",
-		"receipt_url":   resp.ReceiptURL,
+		"receipt_token": resp.ReceiptToken,
 		"receipt_items": string(itemsJSON),
 	}))
 	if len(repo.created) != 1 || repo.created[0].ReceiptURL != "file-id" || len(repo.created[0].ReceiptItems) != 2 {
-		t.Errorf("created expense = %+v, want receipt_url and 2 receipt_items preserved", repo.created)
+		t.Errorf("created expense = %+v, want the receipt linked and 2 receipt_items preserved", repo.created)
+	}
+	if repo.uploads != 1 {
+		t.Errorf("uploaded %d files, want the one receipt", repo.uploads)
+	}
+	if _, _, found := handler.receipts.get(resp.ReceiptToken); found {
+		t.Error("the photo stayed in the stash after the expense was saved")
+	}
+}
+
+func TestHandleAnalyzeReceipt_AbandonedScanUploadsNothing(t *testing.T) {
+	repo := &stubAccountingRepo{}
+	handler := receiptHandler(t, repo)
+
+	scanReceipt(t, handler)
+	scanReceipt(t, handler)
+
+	if repo.uploads != 0 || len(repo.created) != 0 {
+		t.Errorf("uploads=%d created=%d, want a scan that is never saved to leave nothing on the trip", repo.uploads, len(repo.created))
+	}
+}
+
+func TestHandleCreateExpense_ReceiptThatCannotBeAttachedIsToldNotDropped(t *testing.T) {
+	t.Run("upload fails", func(t *testing.T) {
+		repo := &stubAccountingRepo{uploadErr: errors.New("trek: 500")}
+		handler := receiptHandler(t, repo)
+		token := scanReceipt(t, handler).ReceiptToken
+
+		w := post(t, handler.handleCreateExpense, "/api/expense", expenseForm(map[string]string{"receipt_token": token}))
+		if len(repo.created) != 1 || repo.created[0].ReceiptURL != "" {
+			t.Fatalf("created = %+v, want the expense saved without a receipt", repo.created)
+		}
+		if !strings.Contains(w.Body.String(), "收據圖片上傳失敗") {
+			t.Errorf("answer does not say the receipt image was not attached: %s", w.Body.String())
+		}
+	})
+
+	t.Run("token is unknown", func(t *testing.T) {
+		repo := &stubAccountingRepo{}
+		handler := receiptHandler(t, repo)
+
+		w := post(t, handler.handleCreateExpense, "/api/expense", expenseForm(map[string]string{"receipt_token": "gone"}))
+		if len(repo.created) != 1 || repo.uploads != 0 {
+			t.Fatalf("created=%d uploads=%d, want the expense saved and nothing uploaded", len(repo.created), repo.uploads)
+		}
+		if !strings.Contains(w.Body.String(), "收據圖片已過期") {
+			t.Errorf("answer does not say the receipt image expired: %s", w.Body.String())
+		}
+	})
+}
+
+func TestHandleCreateExpense_RetryAfterFailureDoesNotUploadTheReceiptAgain(t *testing.T) {
+	repo := &stubAccountingRepo{createErr: errors.New("trek: 500")}
+	handler := receiptHandler(t, repo)
+	token := scanReceipt(t, handler).ReceiptToken
+	form := expenseForm(map[string]string{"receipt_token": token, "request_id": "req-1"})
+
+	post(t, handler.handleCreateExpense, "/api/expense", form)
+	repo.createErr = nil
+	post(t, handler.handleCreateExpense, "/api/expense", form)
+
+	if len(repo.created) != 1 || repo.created[0].ReceiptURL != "file-id" {
+		t.Fatalf("created = %+v, want the retry to file the expense with its receipt", repo.created)
+	}
+	if repo.uploads != 1 {
+		t.Errorf("uploaded %d times, want the receipt uploaded once across both tries", repo.uploads)
+	}
+}
+
+func TestHandleCreateExpense_SameRequestIDFilesOnce(t *testing.T) {
+	repo := &stubAccountingRepo{}
+	handler, _ := devHandler(t, repo, twoTrips{})
+	form := expenseForm(map[string]string{"request_id": "req-1"})
+
+	first := post(t, handler.handleCreateExpense, "/api/expense", form)
+	second := post(t, handler.handleCreateExpense, "/api/expense", form)
+
+	if len(repo.created) != 1 {
+		t.Fatalf("created %d expenses, want a repeated form to file once", len(repo.created))
+	}
+	if !strings.Contains(first.Body.String(), `data-success="true"`) || !strings.Contains(second.Body.String(), `data-success="true"`) {
+		t.Errorf("both answers should be successes:\nfirst: %s\nsecond: %s", first.Body.String(), second.Body.String())
+	}
+	if !strings.Contains(second.Body.String(), "重複送出已略過") {
+		t.Errorf("second answer does not say it was a repeat: %s", second.Body.String())
+	}
+
+	post(t, handler.handleCreateExpense, "/api/expense", expenseForm(map[string]string{"request_id": "req-2"}))
+	if len(repo.created) != 2 {
+		t.Errorf("created %d expenses, want a new request id to file", len(repo.created))
+	}
+}
+
+func TestHandleCreateExpense_FailedRequestMayBeSentAgain(t *testing.T) {
+	repo := &stubAccountingRepo{createErr: errors.New("trek: 500")}
+	handler, _ := devHandler(t, repo, twoTrips{})
+	form := expenseForm(map[string]string{"request_id": "req-1"})
+
+	post(t, handler.handleCreateExpense, "/api/expense", form)
+	repo.createErr = nil
+	retry := post(t, handler.handleCreateExpense, "/api/expense", form)
+
+	if len(repo.created) != 1 {
+		t.Fatalf("created %d expenses, want the retry of a failed request to file it", len(repo.created))
+	}
+	if strings.Contains(retry.Body.String(), "重複送出已略過") {
+		t.Error("a retry of a request that failed was taken for a repeat")
 	}
 }

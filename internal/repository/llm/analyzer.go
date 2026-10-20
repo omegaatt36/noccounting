@@ -41,6 +41,13 @@ func NewAnalyzer(baseURL, apiKey, model string) *Analyzer {
 	}
 }
 
+// A receipt is long and narrow, so it is the shorter side that decides whether
+// its text can be read.
+const (
+	receiptShortEdge = 1280
+	receiptLongEdge  = 4096
+)
+
 const systemPrompt = `You are a receipt OCR parser.
 Your ONLY job is to read the receipt image and output a single JSON object.
 Do NOT think step by step. Do NOT explain. Do NOT output markdown code blocks.
@@ -68,14 +75,14 @@ Rules:
 - "name_zh" is the Traditional Chinese (正體中文) translation of the item name. If the item name is already in Chinese, set "name_zh" to "".
 - Each item's "category" must be exactly one of: %s.
 - Currency must be either "TWD" or "JPY".
-- Price must be a positive integer (>= 0, no decimals).
+- Price must be a positive integer with no decimals.
 - Do NOT include discount items, tax adjustments, service fees, or set-deal breakdowns (e.g. セット値引き, discount, tax, etc.). Only list the actual goods or services purchased.
 - When a receipt shows a set meal with sub-items and discounts, list the set as a single item with its final set price, or list only the main items with their final prices after discount. Do NOT include negative prices.`
 
 var receiptPrompt = fmt.Sprintf(receiptPromptTemplate, strings.Join(domain.CategoryNames(), ", "), strings.Join(domain.CategoryNames(), ", "))
 
 func (a *Analyzer) Analyze(ctx context.Context, imageData []byte) (*domain.ReceiptAnalysis, error) {
-	resized, err := imageutil.ResizeAndCompress(imageData, 1024, 85)
+	resized, err := imageutil.ResizeAndCompress(imageData, receiptShortEdge, receiptLongEdge, 85)
 	if err != nil {
 		slog.Warn("Failed to resize image, using original", "error", err)
 		resized = imageData

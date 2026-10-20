@@ -26,6 +26,8 @@ type stubAccountingRepo struct {
 	deleted    []string
 	settlement *domain.Settlement
 	queries    int
+	uploads    int
+	uploadErr  error
 }
 
 func (m *stubAccountingRepo) CreateExpense(_ context.Context, selected domain.Trip, expense *domain.Expense) error {
@@ -86,6 +88,10 @@ func (m *stubAccountingRepo) Members(_ context.Context, _ domain.Trip) ([]domain
 }
 
 func (m *stubAccountingRepo) UploadFile(_ context.Context, _ domain.Trip, _ string) (string, error) {
+	m.uploads++
+	if m.uploadErr != nil {
+		return "", m.uploadErr
+	}
 	return "file-id", nil
 }
 

@@ -129,7 +129,7 @@ async function nativeForm(success = false) {
       if (id === "toast-trigger") return { dataset: { success: String(success) } };
       if (["app", "loading", "trip-error", "forbidden"].includes(id)) return { classList: name.classList };
       return null;
-    }, querySelectorAll: () => [], dispatchEvent() {} },
+    }, querySelectorAll: () => [], dispatchEvent() {}, addEventListener() {} },
     window: { Telegram: { WebApp: ctx.tg } }, console, CustomEvent,
   });
   const cache = new Map();
@@ -203,7 +203,9 @@ test("htmx 4 dev requests preserve explicit scope without Telegram auth", async 
   await bootstrap(Promise.resolve("forbidden"), { handlers, devMode: true, initData: "secret" });
   const request = { action: "/partial/dashboard?trip_id=9" };
   handlers["htmx:config:request"]({ detail: { ctx: { request } } });
-  assert.equal(request.action, "/partial/dashboard?trip_id=9");
+  const url = new URL(request.action, "https://example.test");
+  assert.equal(url.searchParams.get("trip_id"), "9");
+  assert.equal(url.searchParams.get("init_data"), null);
 });
 
 test("the expense form files a new expense, or changes the one it was opened on", async () => {

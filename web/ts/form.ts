@@ -12,6 +12,7 @@ import {
   clearFields,
   formatDate,
   isEditing,
+  renewRequestId,
   selectTab,
   setDate,
   setMoreCategoriesExpanded,
@@ -99,6 +100,37 @@ function failureMessage(status: number): string {
   }
 }
 
+// A phone photo is several megabytes, far more than the receipt needs, and its
+// orientation may sit in metadata the server does not read. Drawing it onto a
+// canvas applies that orientation and shrinks it, by its shorter side so a long
+// receipt keeps its width. Whatever cannot be decoded goes up as it is.
+const RECEIPT_SHORT_EDGE = 1600;
+const RECEIPT_LONG_EDGE = 4096;
+const RECEIPT_QUALITY = 0.85;
+
+async function shrinkReceipt(file: File): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(
+      1,
+      RECEIPT_SHORT_EDGE / Math.min(bitmap.width, bitmap.height),
+      RECEIPT_LONG_EDGE / Math.max(bitmap.width, bitmap.height),
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", RECEIPT_QUALITY),
+    );
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
+
 function setupReceiptUpload(ctx: TelegramContext): void {
   const receiptFileInput = document.getElementById(
     "receipt-file-input",
@@ -118,7 +150,7 @@ function setupReceiptUpload(ctx: TelegramContext): void {
 
     try {
       const formData = new FormData();
-      formData.append("receipt", file);
+      formData.append("receipt", await shrinkReceipt(file), "receipt.jpg");
       if (ctx.initData) {
         formData.append("init_data", ctx.initData);
       }
@@ -153,8 +185,8 @@ function setupReceiptUpload(ctx: TelegramContext): void {
         }
       }
 
-      const receiptUrlEl = document.getElementById("receipt-url") as HTMLInputElement | null;
-      if (receiptUrlEl) receiptUrlEl.value = data.receipt_url || "";
+      const receiptTokenEl = document.getElementById("receipt-token") as HTMLInputElement | null;
+      if (receiptTokenEl) receiptTokenEl.value = data.receipt_token || "";
       const receiptItemsEl = document.getElementById("receipt-items") as HTMLInputElement | null;
       if (receiptItemsEl) {
         receiptItemsEl.value =
@@ -213,6 +245,17 @@ export function setupEventListeners(ctx: TelegramContext): void {
   if (dateInput && !dateInput.value) {
     setDate(formatDate(new Date()));
   }
+  renewRequestId();
+
+  // A Mini App left open overnight still shows yesterday as today. A date nobody
+  // touched moves on when the app comes back; one that was picked stays.
+  let autoDate = formatDate(new Date());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || isEditing()) return;
+    const today = formatDate(new Date());
+    if (today !== autoDate && dateInput?.value === autoDate) setDate(today);
+    autoDate = today;
+  });
 
   const moreCategoriesBtn = document.getElementById("more-categories-btn");
   moreCategoriesBtn?.addEventListener("click", () => {

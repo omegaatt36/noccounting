@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	_ "time/tzdata"
 
@@ -29,8 +28,6 @@ type Handler struct {
 	tripService    *trip.Service
 	webAppURL      string
 	convManager    *ConversationManager
-	tzMu           sync.RWMutex
-	timezones      map[int64]*time.Location
 }
 
 func NewHandler(
@@ -45,7 +42,6 @@ func NewHandler(
 		tripService:    tripService,
 		webAppURL:      webAppURL,
 		convManager:    NewConversationManager(),
-		timezones:      make(map[int64]*time.Location),
 	}
 }
 
@@ -572,7 +568,11 @@ func (h *Handler) handleEditFieldCallback(c tele.Context, state *ConversationSta
 	}
 
 	if field == "delete" {
-		return h.handleEditDelete(c, state)
+		return h.confirmEditDelete(c, state)
+	}
+
+	if field == "delete_confirm" {
+		return h.handleEditDelete(c)
 	}
 
 	if state == nil || state.EditingExpense == nil {
@@ -649,8 +649,28 @@ func (h *Handler) saveEdit(c tele.Context, state *ConversationState, failure str
 	return c.Send(expenseCard("✅ 已更新消費記錄", state.Trip, exp))
 }
 
-func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) error {
+// confirmEditDelete asks again before deleting: TREK removes an expense for
+// good, and the delete button sits next to the cancel one.
+func (h *Handler) confirmEditDelete(c tele.Context, state *ConversationState) error {
 	if state == nil || state.EditingExpense == nil {
+		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
+	}
+	exp := state.EditingExpense
+
+	keyboard := &tele.ReplyMarkup{}
+	keyboard.Inline(keyboard.Row(
+		keyboard.Data("🗑️ 確定刪除", "edit_field", "delete_confirm"),
+		keyboard.Data("↩️ 不刪除", "edit_field", "cancel"),
+	))
+
+	_ = c.Respond(&tele.CallbackResponse{})
+	return c.Send(fmt.Sprintf("⚠️ 確定要刪除這筆消費嗎？此動作無法復原\n\n%s %s", exp.Name, format.Money(exp.Currency, exp.PriceDecimal())), keyboard)
+}
+
+func (h *Handler) handleEditDelete(c tele.Context) error {
+	userID := c.Sender().ID
+	state := h.convManager.Take(userID, func(s *ConversationState) bool { return s.EditingExpense != nil })
+	if state == nil {
 		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
 	}
 
@@ -660,11 +680,11 @@ func (h *Handler) handleEditDelete(c tele.Context, state *ConversationState) err
 	exp := state.EditingExpense
 	if err := h.expenseService.DeleteExpense(ctx, state.Trip, exp.ID); err != nil {
 		slog.Error("Failed to delete expense", "error", err)
+		h.convManager.SetState(userID, state)
 		_ = c.Respond(&tele.CallbackResponse{Text: "刪除失敗"})
 		return c.Send("❌ 刪除失敗，請稍後再試")
 	}
 
-	h.convManager.ClearState(c.Sender().ID)
 	_ = c.Respond(&tele.CallbackResponse{Text: "已刪除"})
 
 	return c.Send(fmt.Sprintf("✅ 已刪除消費記錄：%s %s", exp.Name, format.Money(exp.Currency, exp.PriceDecimal())))
@@ -715,11 +735,11 @@ func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState
 		return c.Send("❌ 已取消操作")
 	}
 
-	if state == nil || state.ReceiptAnalysis == nil {
-		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
-	}
-
 	if action == "toggle_method" {
+		if state == nil || state.ReceiptAnalysis == nil {
+			return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
+		}
+
 		var nextMethod domain.PaymentMethod
 		switch state.ReceiptAnalysis.PaymentMethod {
 		case domain.PaymentMethodCash:
@@ -743,25 +763,28 @@ func (h *Handler) handleReceiptCallback(c tele.Context, state *ConversationState
 		return c.Send(msg, keyboard)
 	}
 
+	if action != "single" && action != "split" {
+		return c.Respond(&tele.CallbackResponse{Text: "未知操作"})
+	}
+
+	// A second tap on the same button finds the receipt already taken, so it
+	// cannot file it twice.
+	claimed := h.convManager.Take(c.Sender().ID, func(s *ConversationState) bool { return s.ReceiptAnalysis != nil })
+	if claimed == nil {
+		return c.Respond(&tele.CallbackResponse{Text: "會話已過期"})
+	}
+
 	// Remove inline buttons from the original message for final actions
 	if msg := c.Message(); msg != nil {
 		_, _ = c.Bot().Edit(msg, msg.Text)
 	}
 
-	if action == "single" {
-		return h.handleReceiptSingle(c, state)
-	}
-
-	if action == "split" {
-		return h.handleReceiptSplit(c, state)
-	}
-
-	return c.Respond(&tele.CallbackResponse{Text: "未知操作"})
+	return h.fileReceipt(c, claimed, action == "split")
 }
 
-func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) error {
-	defer h.convManager.ClearState(c.Sender().ID)
-
+// fileReceipt files the scanned receipt the person confirmed, as one expense or
+// one per line, and tells them what actually got filed.
+func (h *Handler) fileReceipt(c tele.Context, state *ConversationState, split bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -775,55 +798,56 @@ func (h *Handler) handleReceiptSingle(c tele.Context, state *ConversationState) 
 	}
 
 	analysis := state.ReceiptAnalysis
-	if err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, receiptCommand(analysis), state.ReceiptImage, u.BackendUserID, false); err != nil {
-		slog.Error("Failed to create expense from receipt", "error", err)
-		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
-		return c.Send(writeFailure(err, "❌ 新增失敗，請稍後再試"))
-	}
-
-	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
-
-	return c.Send(expenseCard("✅ 已新增消費記錄", state.Trip, &domain.Expense{
-		Name:     analysis.Summary,
-		Price:    analysis.Total,
-		Currency: analysis.Currency,
-		Category: analysis.Category,
-		Method:   analysis.PaymentMethod,
-	}))
-}
-
-func (h *Handler) handleReceiptSplit(c tele.Context, state *ConversationState) error {
-	defer h.convManager.ClearState(c.Sender().ID)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	telegramUserID := c.Sender().ID
-	u, err := h.userService.GetUser(domain.GetUserRequest{
-		TelegramID: &telegramUserID,
+	result, err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, expense.ReceiptRequest{
+		Analysis:   receiptCommand(analysis),
+		Image:      state.ReceiptImage,
+		PaidByID:   u.BackendUserID,
+		ShoppedAt:  h.userService.Today(telegramUserID),
+		SplitItems: split,
 	})
 	if err != nil {
-		_ = c.Respond(&tele.CallbackResponse{Text: "取得用戶失敗"})
-		return c.Send("❌ 無法取得用戶資訊")
-	}
-
-	analysis := state.ReceiptAnalysis
-	if err := h.expenseService.CreateFromAnalysis(ctx, state.Trip, receiptCommand(analysis), state.ReceiptImage, u.BackendUserID, true); err != nil {
-		slog.Error("Failed to create expenses from receipt", "error", err)
+		slog.Error("Failed to create expense from receipt", "error", err, "split", split)
 		_ = c.Respond(&tele.CallbackResponse{Text: "新增失敗"})
 		return c.Send(writeFailure(err, "❌ 新增失敗，請稍後再試"))
 	}
 
 	_ = c.Respond(&tele.CallbackResponse{Text: "新增成功！"})
 
+	var msg string
+	if split {
+		msg = splitReceiptMessage(state.Trip, analysis, result)
+	} else {
+		msg = expenseCard("✅ 已新增消費記錄", state.Trip, &domain.Expense{
+			Name:     analysis.Summary,
+			Price:    analysis.Total,
+			Currency: analysis.Currency,
+			Category: analysis.Category,
+			Method:   analysis.PaymentMethod,
+		})
+	}
+	if result.ReceiptMissing {
+		msg += "\n\n⚠️ 收據圖片上傳失敗，沒有附在消費上"
+	}
+	return c.Send(msg)
+}
+
+// splitReceiptMessage reports a split receipt as it was filed: the lines that
+// became expenses, and any that did not.
+func splitReceiptMessage(trip domain.Trip, analysis *domain.ReceiptAnalysis, result expense.ReceiptResult) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "✅ 已拆開新增 %d 項消費\n%s\n\n", len(analysis.Items), tripLine(state.Trip))
-	for i, item := range analysis.Items {
+	fmt.Fprintf(&sb, "✅ 已拆開新增 %d 項消費\n%s\n\n", len(result.Filed), tripLine(trip))
+	for i, item := range result.Filed {
 		fmt.Fprintf(&sb, "%d. %s %s %s\n",
-			i+1, format.CategoryEmoji(item.Category), format.ReceiptName(item), format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
+			i+1, format.CategoryEmoji(item.Category), item.Name, format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
+	}
+	if len(result.Failed) > 0 {
+		fmt.Fprintf(&sb, "\n❌ %d 項新增失敗，請用 Mini App 補記：\n", len(result.Failed))
+		for _, item := range result.Failed {
+			fmt.Fprintf(&sb, "• %s %s\n", item.Name, format.Money(analysis.Currency, decimal.NewFromInt(item.Price)))
+		}
 	}
 	fmt.Fprintf(&sb, "\n💳 付款方式: %s", format.PaymentLabel(analysis.PaymentMethod))
-	return c.Send(sb.String())
+	return sb.String()
 }
 
 func (h *Handler) handleToday(c tele.Context) error {
@@ -917,25 +941,11 @@ func receiptCommand(analysis *domain.ReceiptAnalysis) *domain.ReceiptAnalysis {
 }
 
 func (h *Handler) getTimezone(userID int64) *time.Location {
-	if h.userService != nil {
-		return h.userService.Timezone(userID)
-	}
-	h.tzMu.RLock()
-	defer h.tzMu.RUnlock()
-	if loc, ok := h.timezones[userID]; ok && loc != nil {
-		return loc
-	}
-	return user.DefaultTimezone()
+	return h.userService.Timezone(userID)
 }
 
 func (h *Handler) setTimezone(userID int64, loc *time.Location) {
-	if h.userService != nil {
-		h.userService.SetTimezone(userID, loc)
-		return
-	}
-	h.tzMu.Lock()
-	defer h.tzMu.Unlock()
-	h.timezones[userID] = loc
+	h.userService.SetTimezone(userID, loc)
 }
 
 func (h *Handler) handleTimezone(c tele.Context) error {

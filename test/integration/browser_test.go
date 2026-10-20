@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -474,10 +475,15 @@ func TestBrowserReceiptScanAndSave(t *testing.T) {
 	assert.Equal(t, "groceries", app.text(`document.getElementById("category-input").value`))
 	assert.Equal(t, "ic_card", app.text(`document.getElementById("method-input").value`))
 	assert.True(t, app.flag(app.visible("#more-categories")), "selecting a secondary category expands the section")
-	assert.Equal(t, "https://example.com/receipt.jpg", app.text(`document.getElementById("receipt-url").value`))
+	assert.NotEmpty(t, app.text(`document.getElementById("receipt-token").value`), "the scan leaves a token for its photo, not an upload")
+
+	requestID := app.text(`document.getElementById("request-id").value`)
+	require.NotEmpty(t, requestID, "the form names the expense it is about to file")
 
 	app.click("#submit-btn")
 	app.waitFor("the success toast", toastSaying("LAWSON 超商"))
+	app.waitFor("a new request id", `document.getElementById("request-id").value !== `+strconv.Quote(requestID))
+	assert.Empty(t, app.text(`document.getElementById("receipt-token").value`), "the token is spent with the expense")
 
 	require.Equal(t, 1, app.expenseCount())
 	saved := app.expenseAt(0)

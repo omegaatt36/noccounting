@@ -24,8 +24,9 @@ const initDataInput = document.getElementById(
 ) as HTMLInputElement | null;
 if (initDataInput) initDataInput.value = ctx.initData;
 
-// Every HTMX request is about the trip the page was opened for, and in non-dev
-// mode carries the init_data that says who is asking. The expense form files a
+// Every HTMX request is about the trip the page was opened for, tells which
+// timezone the page is in, and in non-dev mode carries the init_data that says
+// who is asking. The expense form files a
 // new expense, or changes the one it was opened on.
 document.body.addEventListener("htmx:config:request", (evt) => {
   const htmxEvt = evt as CustomEvent<{
@@ -41,6 +42,8 @@ document.body.addEventListener("htmx:config:request", (evt) => {
   };
   if (!DEV_MODE) add("init_data", ctx.initData);
   add("trip_id", tripId());
+  // "Today" is the traveller's day wherever they are, not the one /tz last set.
+  add("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
   request.action = path;
 });
 

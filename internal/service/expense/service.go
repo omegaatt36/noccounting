@@ -3,6 +3,7 @@ package expense
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -134,41 +135,73 @@ func (s *Service) GetTodaySummary(ctx context.Context, trip domain.Trip, loc ...
 	}, nil
 }
 
-func (s *Service) UploadReceiptImage(ctx context.Context, trip domain.Trip, imageData []byte) string {
+// UploadReceiptImage stores a receipt image on the trip and returns the file id
+// to link an expense to. No image is no file and no error.
+func (s *Service) UploadReceiptImage(ctx context.Context, trip domain.Trip, imageData []byte) (string, error) {
 	if len(imageData) == 0 {
-		return ""
+		return "", nil
 	}
 	tmpFile, err := os.CreateTemp("", "receipt-*.jpg")
 	if err != nil {
-		slog.Warn("failed to create temp file for receipt image", "error", err)
-		return ""
+		return "", fmt.Errorf("creating a temp file for the receipt image: %w", err)
 	}
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
 
 	if _, err := tmpFile.Write(imageData); err != nil {
 		tmpFile.Close()
-		slog.Warn("failed to write temp file for receipt image", "error", err)
-		return ""
+		return "", fmt.Errorf("writing the receipt image to a temp file: %w", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("closing the receipt image temp file: %w", err)
+	}
 
-	url, err := s.repo.UploadFile(ctx, trip, tmpPath)
-	if err != nil {
-		slog.Warn("failed to upload receipt image; continuing without receipt URL", "error", err)
-		return ""
-	}
-	return url
+	return s.repo.UploadFile(ctx, trip, tmpPath)
 }
 
-func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, analysis *domain.ReceiptAnalysis, imageData []byte, backendUserID string, splitItems bool) error {
+// RemainderName is the line a split receipt gets for what its items do not add
+// up to, such as tax and service fees, so the lines sum to the receipt's total.
+const RemainderName = "稅金／服務費等"
+
+// ReceiptRequest is a scanned receipt to file as expenses.
+type ReceiptRequest struct {
+	Analysis *domain.ReceiptAnalysis
+	// Image is the receipt photo to attach; empty attaches nothing.
+	Image    []byte
+	PaidByID string
+	// ShoppedAt is the day the receipt is filed under.
+	ShoppedAt time.Time
+	// SplitItems files one expense per line instead of one for the whole receipt.
+	SplitItems bool
+}
+
+// ReceiptResult says what filing a receipt did, so the person is told what
+// happened and not what was meant to.
+type ReceiptResult struct {
+	// Filed are the lines that became expenses and Failed the ones that could not.
+	Filed  []domain.ReceiptItem
+	Failed []domain.ReceiptItem
+	// ReceiptMissing is set when there was an image that could not be attached.
+	ReceiptMissing bool
+}
+
+// CreateFromAnalysis files a receipt. A split that files some lines and loses
+// others is not an error: the result names both. It is an error when it files
+// nothing.
+func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, req ReceiptRequest) (ReceiptResult, error) {
+	var result ReceiptResult
+	analysis := req.Analysis
+
 	defaultSplit := &domain.Expense{}
 	if err := s.defaultParticipants(ctx, trip, defaultSplit); err != nil {
-		return err
+		return result, err
 	}
-	receiptURL := s.UploadReceiptImage(ctx, trip, imageData)
 
-	now := time.Now()
+	receiptURL, err := s.UploadReceiptImage(ctx, trip, req.Image)
+	if err != nil {
+		slog.Warn("failed to upload the receipt image; filing without it", "error", err)
+		result.ReceiptMissing = true
+	}
 
 	category := analysis.Category
 	if !category.IsValid() {
@@ -183,27 +216,28 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, anal
 		method = domain.PaymentMethodCash
 	}
 
-	if !splitItems {
+	if !req.SplitItems {
 		expense := &domain.Expense{
 			Name:           analysis.Summary,
 			Price:          analysis.Total,
 			Currency:       analysis.Currency,
 			Category:       category,
 			Method:         method,
-			PaidByID:       backendUserID,
-			ShoppedAt:      now,
+			PaidByID:       req.PaidByID,
+			ShoppedAt:      req.ShoppedAt,
 			ReceiptURL:     receiptURL,
 			ParticipantIDs: defaultSplit.ParticipantIDs,
 			ReceiptItems:   analysis.Items,
 		}
-		return s.CreateExpense(ctx, trip, expense)
+		if err := s.CreateExpense(ctx, trip, expense); err != nil {
+			return result, err
+		}
+		result.Filed = []domain.ReceiptItem{{Name: analysis.Summary, Price: int64(analysis.Total), Category: category}}
+		return result, nil
 	}
 
-	for _, item := range analysis.Items {
-		if item.Price <= 0 {
-			slog.Debug("skipping non-positive receipt item", "name", item.Name, "price", item.Price)
-			continue
-		}
+	var firstErr error
+	for _, item := range splitLines(analysis, category) {
 		itemCat := item.Category
 		if !itemCat.IsValid() {
 			itemCat = category
@@ -214,28 +248,50 @@ func (s *Service) CreateFromAnalysis(ctx context.Context, trip domain.Trip, anal
 			Currency:       analysis.Currency,
 			Category:       itemCat,
 			Method:         method,
-			PaidByID:       backendUserID,
-			ShoppedAt:      now,
+			PaidByID:       req.PaidByID,
+			ShoppedAt:      req.ShoppedAt,
 			ReceiptURL:     receiptURL,
 			ParticipantIDs: defaultSplit.ParticipantIDs,
 		}
 		if err := s.CreateExpense(ctx, trip, expense); err != nil {
-			slog.Warn("failed to create expense for receipt item",
-				"item", item.Name,
-				"error", err,
-			)
+			slog.Warn("failed to create expense for receipt item", "item", item.Name, "error", err)
+			result.Failed = append(result.Failed, item)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+		result.Filed = append(result.Filed, item)
 	}
 
-	return nil
+	if len(result.Filed) == 0 && firstErr != nil {
+		return result, firstErr
+	}
+	return result, nil
 }
 
-func (s *Service) CreateFromReceipt(ctx context.Context, trip domain.Trip, imageData []byte, backendUserID string, splitItems bool) error {
-	analysis, err := s.AnalyzeReceipt(ctx, imageData)
-	if err != nil {
-		return err
+// splitLines are the lines a split receipt files: its items with a price, and a
+// last line for the difference to the receipt's total when the items fall short
+// of it.
+func splitLines(analysis *domain.ReceiptAnalysis, category domain.Category) []domain.ReceiptItem {
+	lines := make([]domain.ReceiptItem, 0, len(analysis.Items)+1)
+	var sum int64
+	for _, item := range analysis.Items {
+		if item.Price <= 0 {
+			slog.Debug("skipping non-positive receipt item", "name", item.Name, "price", item.Price)
+			continue
+		}
+		lines = append(lines, item)
+		sum += item.Price
 	}
-	return s.CreateFromAnalysis(ctx, trip, analysis, imageData, backendUserID, splitItems)
+	if len(lines) > 0 && analysis.Total > uint64(sum) {
+		lines = append(lines, domain.ReceiptItem{
+			Name:     RemainderName,
+			Price:    int64(analysis.Total) - sum,
+			Category: category,
+		})
+	}
+	return lines
 }
 
 func (s *Service) FetchExchangeRate(ctx context.Context, source, target domain.Currency) (decimal.Decimal, error) {
