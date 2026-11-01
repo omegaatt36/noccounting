@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/Oudwins/tailwind-merge-go v0.2.3
 	github.com/a-h/templ v0.3.1100
-	github.com/chromedp/cdproto v0.158.4
+	github.com/chromedp/cdproto v0.158.6
 	github.com/chromedp/chromedp v0.21.0
 	github.com/google/uuid v1.6.0
 	github.com/shopspring/decimal v1.6.0
