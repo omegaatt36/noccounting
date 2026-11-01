@@ -24,7 +24,7 @@ function activeCategoryLabel(): string {
   const categoryInput = $("category-input") as HTMLInputElement | null;
   const val = categoryInput?.value || "food";
   const trigger = document.querySelector?.(
-    `#category-tabs [data-tui-tabs-trigger][data-tui-tabs-value="${val}"]`,
+    `#category-tabs [data-slot=tabs-trigger][data-templ-value="${val}"]`,
   ) as HTMLElement | null;
   if (trigger?.dataset?.categoryLabel) {
     return trigger.dataset.categoryLabel;
@@ -263,10 +263,10 @@ export function setupEventListeners(ctx: TelegramContext): void {
   });
 
   document
-    .querySelectorAll("#category-tabs [data-tui-tabs-trigger]")
+    .querySelectorAll("#category-tabs [data-slot=tabs-trigger]")
     .forEach((trigger) => {
       trigger.addEventListener("click", () => {
-        const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
+        const value = (trigger as HTMLElement).dataset.templValue || "";
         const input = $("category-input") as HTMLInputElement | null;
         if (input) input.value = value;
         haptic(ctx, "impact", "light");
@@ -274,10 +274,10 @@ export function setupEventListeners(ctx: TelegramContext): void {
     });
 
   document
-    .querySelectorAll("#method-tabs [data-tui-tabs-trigger]")
+    .querySelectorAll("#method-tabs [data-slot=tabs-trigger]")
     .forEach((trigger) => {
       trigger.addEventListener("click", () => {
-        const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
+        const value = (trigger as HTMLElement).dataset.templValue || "";
         const input = $("method-input") as HTMLInputElement | null;
         if (input) input.value = value;
         haptic(ctx, "impact", "light");
@@ -285,10 +285,10 @@ export function setupEventListeners(ctx: TelegramContext): void {
     });
 
   document
-    .querySelectorAll("#currency-tabs [data-tui-tabs-trigger]")
+    .querySelectorAll("#currency-tabs [data-slot=tabs-trigger]")
     .forEach((trigger) => {
       trigger.addEventListener("click", () => {
-        const value = (trigger as HTMLElement).dataset.tuiTabsValue || "";
+        const value = (trigger as HTMLElement).dataset.templValue || "";
         const input = $("currency-input") as HTMLInputElement | null;
         if (input) input.value = value;
         haptic(ctx, "impact", "light");
@@ -375,20 +375,6 @@ export function setupEventListeners(ctx: TelegramContext): void {
           showToast(isEditing() ? "儲存失敗" : "新增失敗", failureMessage(status));
         }
       }
-
-      document.querySelectorAll("#result [data-tui-toast]").forEach((el) => {
-        const duration = parseInt(
-          el.getAttribute("data-tui-toast-duration") || "3000",
-          10,
-        );
-        setTimeout(() => {
-          (el as HTMLElement).style.transition =
-            "opacity 300ms, transform 300ms";
-          (el as HTMLElement).style.opacity = "0";
-          (el as HTMLElement).style.transform = "translateY(-1rem)";
-          setTimeout(() => el.remove(), 300);
-        }, duration);
-      });
     }) as EventListener);
   }
 }

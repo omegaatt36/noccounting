@@ -5,4 +5,5 @@
 internal/app/webapp/static/output.css
 internal/app/webapp/static/*.js
 !internal/app/webapp/static/*.min.js
+!internal/app/webapp/static/shadcn-templ-*.js
 bin

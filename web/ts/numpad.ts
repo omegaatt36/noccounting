@@ -123,7 +123,7 @@ export function setupNumpad(ctx: TelegramContext): void {
   const currencyInput = document.getElementById("currency-input") as HTMLInputElement | null;
   currencyInput?.addEventListener("change", updateDisplay);
 
-  document.querySelectorAll("#currency-tabs [data-tui-tabs-trigger]").forEach((trigger) => {
+  document.querySelectorAll("#currency-tabs [data-slot=tabs-trigger]").forEach((trigger) => {
     trigger.addEventListener("click", () => {
        setTimeout(updateDisplay, 10);
     });

@@ -138,7 +138,7 @@ func ViewError(view string, title string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"data-action": "retry-view", "data-view": view}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = button.Button(button.Props{Type: button.TypeButton, Class: "w-full", Attributes: templ.Attributes{"data-action": "retry-view", "data-view": view}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

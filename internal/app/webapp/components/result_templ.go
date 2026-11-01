@@ -35,10 +35,8 @@ func Result(success bool, title string, description string) templ.Component {
 			templ_7745c5c3_Err = toast.Toast(toast.Props{
 				Title:       title,
 				Description: description,
-				Variant:     toast.VariantSuccess,
-				Position:    toast.PositionTopCenter,
-				Duration:    3000,
-				Dismissible: true,
+				Type:        toast.TypeSuccess,
+				Timeout:     3000,
 			}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -47,10 +45,8 @@ func Result(success bool, title string, description string) templ.Component {
 			templ_7745c5c3_Err = toast.Toast(toast.Props{
 				Title:       title,
 				Description: errorOrDefault(description),
-				Variant:     toast.VariantError,
-				Position:    toast.PositionTopCenter,
-				Duration:    5000,
-				Dismissible: true,
+				Type:        toast.TypeError,
+				Timeout:     5000,
 			}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

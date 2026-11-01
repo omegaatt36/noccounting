@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./tw-animate.css";
+@import "./shadcn-tailwind.css";
 
 /* `dark:` follows the page theme (Telegram's colorScheme, set by theme.js), not the OS. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -13,6 +15,13 @@ html[data-theme="light"] {
 }
 
 @theme {
+  --radius-sm: calc(0.625rem * 0.6);
+  --radius-md: calc(0.625rem * 0.8);
+  --radius-lg: 0.625rem;
+  --radius-xl: calc(0.625rem * 1.4);
+  --radius-2xl: calc(0.625rem * 1.8);
+  --radius-3xl: calc(0.625rem * 2.2);
+  --radius-4xl: calc(0.625rem * 2.6);
   /* Flexoki Dark palette — https://stephango.com/flexoki */
   --color-flexoki-black: #100F0F;
   --color-flexoki-950: #1C1B1A;

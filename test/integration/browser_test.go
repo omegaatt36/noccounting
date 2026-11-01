@@ -32,7 +32,7 @@ func TestBrowserLogAndReviewAnExpense(t *testing.T) {
 	app.fillExpense("東京拉麵", "1200")
 	assert.Equal(t, "1200", app.text(`document.getElementById("price").value`))
 	app.click("#submit-btn")
-	app.waitFor("the success toast", `document.querySelector("#result [data-tui-toast]")?.textContent.includes("東京拉麵")`)
+	app.waitFor("the success toast", `document.querySelector("[data-slot=toast]")?.textContent.includes("東京拉麵")`)
 
 	require.Equal(t, 1, app.expenseCount())
 	filed := app.expenseAt(0)
@@ -138,8 +138,8 @@ func TestBrowserToastsKeepEditorActionsClickable(t *testing.T) {
 		}
 	}
 	assertActionsReachable()
-	app.click("[data-tui-toast-dismiss]")
-	app.waitFor("the toast to close", `!document.querySelector("#result [data-tui-toast]")`)
+	app.click("[data-slot=toast-close]")
+	app.waitFor("the toast to close", `!document.querySelector("[data-slot=toast]")`)
 	app.run(chromedp.Evaluate[chromedp.Void](`import("/static/toast.js").then(m => m.showToast("已刪除", "通知遮擋測試", "success"))`))
 	app.waitFor("the client toast", toastSaying("已刪除"))
 	assertActionsReachable()
@@ -186,7 +186,7 @@ func TestBrowserEditFailureKeepsTheEditor(t *testing.T) {
 }
 
 func toastSaying(text string) string {
-	return fmt.Sprintf(`[...document.querySelectorAll("#result [data-tui-toast]")].some((el) => el.textContent.includes(%q))`, text)
+	return fmt.Sprintf(`[...document.querySelectorAll("[data-slot=toast]")].some((el) => el.textContent.includes(%q))`, text)
 }
 
 func (a *browserApp) expenseAt(i int) domain.Expense {
@@ -244,7 +244,7 @@ func TestBrowserSubmitFailureKeepsTheForm(t *testing.T) {
 	app.fillExpense("電車", "480")
 	app.failPost.Store(true)
 	app.click("#submit-btn")
-	app.waitFor("the failure toast", `document.querySelector("#result [data-tui-toast]")?.textContent.includes("網路連線有問題")`)
+	app.waitFor("the failure toast", `document.querySelector("[data-slot=toast]")?.textContent.includes("網路連線有問題")`)
 	assert.Equal(t, "電車", app.text(`document.getElementById("name").value`), "what was typed survives the failure")
 	assert.Equal(t, "480", app.text(`document.getElementById("price").value`))
 	assert.Equal(t, 0, app.expenseCount())
@@ -252,7 +252,7 @@ func TestBrowserSubmitFailureKeepsTheForm(t *testing.T) {
 
 	app.failPost.Store(false)
 	app.click("#submit-btn")
-	app.waitFor("the success toast", `document.querySelector("#result [data-tui-toast][data-variant='success']") !== null`)
+	app.waitFor("the success toast", `document.querySelector("[data-slot=toast][data-type='success']") !== null`)
 	assert.Equal(t, 1, app.expenseCount(), "one retry files one expense")
 }
 
@@ -327,7 +327,7 @@ func TestBrowserTelegramMiniApp(t *testing.T) {
 
 		app.fillExpense("お土産", "3000")
 		app.run(chromedp.EvaluateAsDevTools[chromedp.Void](`window.__tg.mainButton.click()`))
-		app.waitFor("the success toast", `document.querySelector("#result [data-tui-toast]")?.textContent.includes("お土産")`)
+		app.waitFor("the success toast", `document.querySelector("[data-slot=toast]")?.textContent.includes("お土産")`)
 		require.Equal(t, 1, app.expenseCount())
 		assert.Contains(t, app.text(`window.__tg.haptics.join(",")`), "success")
 
@@ -398,8 +398,8 @@ func TestBrowserAccessibility(t *testing.T) {
 		}
 
 		other := string(domain.CategoryValues()[1])
-		app.click(`#category-tabs [data-tui-tabs-value="` + other + `"]`)
-		app.waitFor("the choice to be announced", `document.querySelector('#category-tabs [data-tui-tabs-value="`+other+`"]').getAttribute("aria-checked") === "true"`)
+		app.click(`#category-tabs [data-templ-value="` + other + `"]`)
+		app.waitFor("the choice to be announced", `document.querySelector('#category-tabs [data-templ-value="`+other+`"]').getAttribute("aria-checked") === "true"`)
 		assert.Equal(t, "1", app.text(`document.querySelectorAll("#category-tabs [aria-checked=true]").length + ""`))
 	})
 
@@ -488,7 +488,7 @@ func TestBrowserForeignCurrencyAndNumpadMath(t *testing.T) {
 	app.open()
 	app.waitReady()
 
-	app.click(`#currency-tabs [data-tui-tabs-value="JPY"]`)
+	app.click(`#currency-tabs [data-templ-value="JPY"]`)
 	app.waitFor("the live exchange rate", `document.getElementById("exchange-rate-input").value === "0.22"`)
 	assert.Equal(t, "(即時)", app.text(`document.getElementById("rate-status").textContent`))
 	assert.Contains(t, app.text(`document.getElementById("rate-hint").textContent`), "1 JPY = NT$0.2200")
@@ -505,7 +505,7 @@ func TestBrowserForeignCurrencyAndNumpadMath(t *testing.T) {
 	assert.Equal(t, "1000", app.text(`document.getElementById("price").value`))
 	app.click("#numpad-confirm")
 
-	app.click(`#category-tabs [data-tui-tabs-value="transport"]`)
+	app.click(`#category-tabs [data-templ-value="transport"]`)
 	app.click("#submit-btn")
 	app.waitFor("the success toast", toastSaying("交通"))
 

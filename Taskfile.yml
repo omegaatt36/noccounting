@@ -34,6 +34,11 @@ tasks:
     cmds:
       - tailwindcss -i ./internal/app/webapp/static/input.css -o ./internal/app/webapp/static/output.css --watch
 
+  ui:bundle:
+    desc: Rebuild the checked-in shadcn-templ JavaScript bundle after changing UI scripts
+    cmds:
+      - shadcn-templ bundle
+
   test:
     cmds:
       - go test ./... -race -v

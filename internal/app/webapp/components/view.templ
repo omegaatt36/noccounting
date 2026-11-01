@@ -17,7 +17,7 @@ templ ViewError(view string, title string) {
 				網路或伺服器暫時有問題，請稍後再試 
 			}
 		}
-		@button.Button(button.Props{Type: button.TypeButton, FullWidth: true, Attributes: templ.Attributes{"data-action": "retry-view", "data-view": view}}) {
+		@button.Button(button.Props{Type: button.TypeButton, Class: "w-full", Attributes: templ.Attributes{"data-action": "retry-view", "data-view": view}}) {
 			重試
 		}
 	</div>

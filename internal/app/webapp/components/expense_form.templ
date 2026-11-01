@@ -77,7 +77,7 @@ templ ExpenseForm() {
 				@input.Input(input.Props{
 					ID:          "name",
 					Name:        "name",
-					Type:        input.TypeText,
+					Type:        "text",
 					Placeholder: "例：拉麵（未填預設分類）",
 					Attributes:  templ.Attributes{"aria-describedby": "name-error"},
 				})
@@ -90,7 +90,7 @@ templ ExpenseForm() {
 				@input.Input(input.Props{
 					ID:          "price",
 					Name:        "price",
-					Type:        input.TypeText,
+					Type:        "text",
 					Placeholder: "0",
 					Attributes: templ.Attributes{
 						"required":         true,
@@ -110,12 +110,11 @@ templ ExpenseForm() {
 				分類
 			}
 			<input type="hidden" name="category" id="category-input" value={ string(domain.CategoryFood) }/>
-			@tabs.Tabs(tabs.Props{ID: "category-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "分類"}}) {
-					for i, category := range domain.CategoryValues()[:5] {
+			@tabs.Tabs(tabs.Props{ID: "category-tabs", DefaultValue: string(domain.CategoryFood)}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-3 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"aria-label": "分類"}}) {
+					for _, category := range domain.CategoryValues()[:5] {
 						@tabs.Trigger(tabs.TriggerProps{
 							Value:      string(category),
-							IsActive:   i == 0,
 							Attributes: templ.Attributes{"data-category-label": format.CategoryLabel(category)},
 						}) {
 							{ format.Category(category) }
@@ -148,9 +147,9 @@ templ ExpenseForm() {
 				幣別
 			}
 			<input type="hidden" name="currency" id="currency-input" value="JPY"/>
-			@tabs.Tabs(tabs.Props{ID: "currency-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "flex gap-2 w-full", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "幣別"}}) {
-					@tabs.Trigger(tabs.TriggerProps{Value: "JPY", IsActive: true, Class: "flex-1"}) {
+			@tabs.Tabs(tabs.Props{ID: "currency-tabs", DefaultValue: "JPY"}) {
+				@tabs.List(tabs.ListProps{Class: "flex gap-2 w-full", Attributes: templ.Attributes{"aria-label": "幣別"}}) {
+					@tabs.Trigger(tabs.TriggerProps{Value: "JPY", Class: "flex-1"}) {
 						🇯🇵 JPY
 					}
 					@tabs.Trigger(tabs.TriggerProps{Value: "TWD", Class: "flex-1"}) {
@@ -164,7 +163,7 @@ templ ExpenseForm() {
 					@input.Input(input.Props{
 						ID:   "exchange-rate-input",
 						Name: "exchange_rate",
-						Type: input.TypeText,
+						Type: "text",
 						Attributes: templ.Attributes{
 							"inputmode":   "decimal",
 							"placeholder": "自動",
@@ -192,10 +191,10 @@ templ ExpenseForm() {
 				付款方式
 			}
 			<input type="hidden" name="method" id="method-input" value={ string(domain.PaymentMethodCash) }/>
-			@tabs.Tabs(tabs.Props{ID: "method-tabs"}) {
-				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"role": "radiogroup", "aria-label": "付款方式"}}) {
-					for i, method := range domain.PaymentMethodValues() {
-						@tabs.Trigger(tabs.TriggerProps{Value: string(method), IsActive: i == 0}) {
+			@tabs.Tabs(tabs.Props{ID: "method-tabs", DefaultValue: string(domain.PaymentMethodCash)}) {
+				@tabs.List(tabs.ListProps{Class: "grid grid-cols-2 gap-1.5 w-full h-auto", Attributes: templ.Attributes{"aria-label": "付款方式"}}) {
+					for _, method := range domain.PaymentMethodValues() {
+						@tabs.Trigger(tabs.TriggerProps{Value: string(method)}) {
 							{ format.PaymentEmoji(method) } { format.PaymentLabel(method) }
 						}
 					}
@@ -234,7 +233,7 @@ templ ExpenseForm() {
 				@input.Input(input.Props{
 					ID:   "date-input",
 					Name: "shopped_at",
-					Type: input.TypeDate,
+					Type: "date",
 				})
 			</div>
 		</div>
@@ -248,10 +247,9 @@ templ ExpenseForm() {
 		@button.Button(button.Props{
 			ID:        "submit-btn",
 			Type:      button.TypeSubmit,
-			FullWidth: true,
 			Variant:   button.VariantDefault,
 			Size:      button.SizeLg,
-			Class:     "hidden",
+			Class:     "hidden w-full",
 		}) {
 			<span class="btn-text">
 				<span class="inline-flex items-center gap-2">

@@ -21,7 +21,7 @@ export function setMoreCategoriesExpanded(expanded: boolean): void {
 // would post something the server refuses.
 export function selectTab(tabsId: string, value: string): boolean {
   const trigger = document.querySelector(
-    `#${tabsId} [data-tui-tabs-trigger][data-tui-tabs-value="${value}"]`,
+    `#${tabsId} [data-slot=tabs-trigger][data-templ-value="${value}"]`,
   ) as HTMLElement | null;
   if (!trigger) return false;
   if (trigger.closest("#more-categories")) {
